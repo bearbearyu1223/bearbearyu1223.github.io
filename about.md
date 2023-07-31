@@ -4,8 +4,8 @@ title: About
 permalink: /about/
 ---
 
-### 👋 Welcome to Han’s Log ~
+### 👋 Welcome to Han’s Log 
 
-❀ʕᵔᴥᵔʔ❀ Hi, thanks for stopping by! 
+Hi, thanks for stopping by! ʕᵔᴥᵔʔ
 
-This is Han. I’m documenting my learning notes in this blog. Besides, I’m a product manager at Apple AI/ML.
+My name is Han. I’m documenting my learning notes in this blog. Besides, I’m a product manager at Apple AI/ML. You can connect me via [![Linkedin](https://i.stack.imgur.com/gVE0j.png) LinkedIn](https://www.linkedin.com/in/han-yu-goirish/).

@@ -1,2 +1,2 @@
 ## Welcome to Han’s Log 👋 
-Hi, this is Han. I’m documenting my learning notes in this blog. Besides, I’m a product manager at Apple AI/ML.
+Hi, this is Han. I’m documenting my learning notes in this blog. Besides, I’m a product manager at Apple AI/ML. You can connect me via [![Linkedin](https://i.stack.imgur.com/gVE0j.png) LinkedIn](https://www.linkedin.com/in/han-yu-goirish/).
