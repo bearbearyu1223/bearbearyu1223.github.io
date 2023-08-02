@@ -1,2 +1,71 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2023-07-30T20:47:02-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
-</subtitle><entry><title type="html">Welcome To My Log</title><link href="http://localhost:4000/2023/07/30/welcome-to-my-log.html" rel="alternate" type="text/html" title="Welcome To My Log" /><published>2023-07-30T00:00:00-07:00</published><updated>2023-07-30T00:00:00-07:00</updated><id>http://localhost:4000/2023/07/30/welcome-to-my-log</id><content type="html" xml:base="http://localhost:4000/2023/07/30/welcome-to-my-log.html"><![CDATA[<p>Welcome!</p>]]></content><author><name></name></author><summary type="html"><![CDATA[Welcome!]]></summary></entry></feed>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2023-08-02T11:08:59-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</subtitle><entry><title type="html">Food QnA Chatbot : Help Answer Food Related Questions from Your Own Cookbook</title><link href="http://localhost:4000/chatbot/2023/07/31/food-qna-on-server-llm.html" rel="alternate" type="text/html" title="Food QnA Chatbot : Help Answer Food Related Questions from Your Own Cookbook" /><published>2023-07-31T00:00:00-07:00</published><updated>2023-07-31T00:00:00-07:00</updated><id>http://localhost:4000/chatbot/2023/07/31/food-qna-on-server-llm</id><content type="html" xml:base="http://localhost:4000/chatbot/2023/07/31/food-qna-on-server-llm.html"><![CDATA[<h2 id="set-up-local-virtual-environment">Set Up Local Virtual Environment</h2>
+<ul>
+  <li>Step 1: Install Miniconda on MacOS, see instruction <a href="https://docs.conda.io/en/latest/miniconda.html">here</a>.</li>
+  <li>Step 2: Create a default conda env with Python 3.9:
+    <div class="language-shell highlighter-rouge"><div class="highlight"><pre class="highlight"><code>conda create <span class="nt">--name</span> food_qna_app <span class="nv">python</span><span class="o">=</span>3.9 <span class="nt">-y</span>
+</code></pre></div>    </div>
+  </li>
+  <li>Step 3: Activate the conda env created above: 
+<code class="language-plaintext highlighter-rouge">conda activate food_qna_app</code></li>
+  <li>Step 4: Install first set of required libraries in the conda env:
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>pip3 install -r requirements.txt
+</code></pre></div>    </div>
+  </li>
+  <li>Step 5: Deactivate the conda env when you are done (note: you need activate this virtual env to work on the app)
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>conda deactivate 
+</code></pre></div>    </div>
+    <h2 id="set-up-open-ai-secrete-for-local-dev">Set Up Open AI Secrete for Local Dev</h2>
+    <p><code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code> will be needed when calling the OpenAI API endpoint for generating embeddings for the documents, so do recommend exporting <code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code> as an enviroment variable on your local dev machine; also, we will need create a <code class="language-plaintext highlighter-rouge">secrets.toml</code> file and add the <code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code> there, so the streamlit app can pick up the API key when send requests to OpenAI endpoint during runtime.</p>
+  </li>
+  <li>Step 1: Export <code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code> as an enviroment variable on your local dev machine</li>
+  <li>Step 2: Create <code class="language-plaintext highlighter-rouge">.streamlit</code> directory under the root repo
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>cd food_qna_chatbot_demo 
+mkdir .streamlit
+</code></pre></div>    </div>
+  </li>
+  <li>Step 3: Create <code class="language-plaintext highlighter-rouge">secrets.toml</code> file under <code class="language-plaintext highlighter-rouge">.streamlit</code> directory and add your <code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code> there
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>OPENAI_API_KEY=&lt;YOUR_OPENAI_API_KEY_HERE&gt;
+</code></pre></div>    </div>
+  </li>
+  <li>Step 4: To reduce the risk of accidentally committing your secrets to your repo, add <code class="language-plaintext highlighter-rouge">.streamlit</code> to your <code class="language-plaintext highlighter-rouge">.gitignore</code> file.
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>echo ".streamlit/" &gt;&gt; .gitignore
+</code></pre></div>    </div>
+    <h2 id="set-up-the-redis-database-on-your-local-dev-machine">Set up the Redis Database on your local dev machine</h2>
+  </li>
+  <li>Step 1: <a href="https://docs.docker.com/desktop/install/mac-install/">Install Docker Desktop on Mac</a>, and start the docker desktop.</li>
+  <li>Step 2: We’re going to use Redis as our database for both document contents and the vector embeddings. You will need the full Redis Stack to enable use of Redisearch, which is the module that allows semantic search - more detail is in the docs for <a href="https://redis.io/docs/stack/get-started/install/docker/">Redis Stack</a>. Run the following command in your terminal to start the docker container:
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>docker run -d --name redis-stack -p 127.0.0.1:6379:6379 -p 8001:8001 redis/redis-stack:latest
+</code></pre></div>    </div>
+  </li>
+  <li>Step 3: Initiate a Redis connection and create a Hierarchical Navigable Small World (HNSW) index for semantic search using a recipe book which can be found under the directory <code class="language-plaintext highlighter-rouge">cook_book_data</code>
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python build_knowledge_base.py
+</code></pre></div>    </div>
+    <p>If the recipe book is indexed succefully into the DB, you should expect the following info printed out in the console:</p>
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>===
+Number of documents indexed in the DB: 144
+</code></pre></div>    </div>
+    <h2 id="run-the-app">Run the APP</h2>
+    <p>In your terminal, run the App by</p>
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>streamlit run food_qna_app.py
+</code></pre></div>    </div>
+    <p>You can start asking questions related to food preparation and cooking, and also some follow up questions. See screenshot below.</p>
+  </li>
+</ul>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: left">Original Content</th>
+      <th style="text-align: left">Chat History - first turn</th>
+      <th style="text-align: left">Chat History - follow up</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: left"><img src="/assets/picture/2023_07_31_food_qna_on_server_llm/original_content.png" alt="Original Content" /></td>
+      <td style="text-align: left"><img src="/assets/picture/2023_07_31_food_qna_on_server_llm/chat_history_1.png" alt="Chat History" /></td>
+      <td style="text-align: left"><img src="/assets/picture/2023_07_31_food_qna_on_server_llm/chat_history_2.png" alt="Chat History" /></td>
+    </tr>
+  </tbody>
+</table>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="chatbot" /><summary type="html"><![CDATA[Set Up Local Virtual Environment Step 1: Install Miniconda on MacOS, see instruction here. Step 2: Create a default conda env with Python 3.9: conda create --name food_qna_app python=3.9 -y Step 3: Activate the conda env created above: conda activate food_qna_app Step 4: Install first set of required libraries in the conda env: pip3 install -r requirements.txt Step 5: Deactivate the conda env when you are done (note: you need activate this virtual env to work on the app) conda deactivate Set Up Open AI Secrete for Local Dev OPENAI_API_KEY will be needed when calling the OpenAI API endpoint for generating embeddings for the documents, so do recommend exporting OPENAI_API_KEY as an enviroment variable on your local dev machine; also, we will need create a secrets.toml file and add the OPENAI_API_KEY there, so the streamlit app can pick up the API key when send requests to OpenAI endpoint during runtime. Step 1: Export OPENAI_API_KEY as an enviroment variable on your local dev machine Step 2: Create .streamlit directory under the root repo cd food_qna_chatbot_demo mkdir .streamlit Step 3: Create secrets.toml file under .streamlit directory and add your OPENAI_API_KEY there OPENAI_API_KEY=&lt;YOUR_OPENAI_API_KEY_HERE&gt; Step 4: To reduce the risk of accidentally committing your secrets to your repo, add .streamlit to your .gitignore file. echo ".streamlit/" &gt;&gt; .gitignore Set up the Redis Database on your local dev machine Step 1: Install Docker Desktop on Mac, and start the docker desktop. Step 2: We’re going to use Redis as our database for both document contents and the vector embeddings. You will need the full Redis Stack to enable use of Redisearch, which is the module that allows semantic search - more detail is in the docs for Redis Stack. Run the following command in your terminal to start the docker container: docker run -d --name redis-stack -p 127.0.0.1:6379:6379 -p 8001:8001 redis/redis-stack:latest Step 3: Initiate a Redis connection and create a Hierarchical Navigable Small World (HNSW) index for semantic search using a recipe book which can be found under the directory cook_book_data python build_knowledge_base.py If the recipe book is indexed succefully into the DB, you should expect the following info printed out in the console: === Number of documents indexed in the DB: 144 Run the APP In your terminal, run the App by streamlit run food_qna_app.py You can start asking questions related to food preparation and cooking, and also some follow up questions. See screenshot below.]]></summary></entry></feed>
