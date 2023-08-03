@@ -5,6 +5,16 @@ categories: chatbot
 author: 
 - Han Yu
 ---
+## Introduction 
+Retrieval Augmented Generation (RAG) is a powerful technique that allows you to enhance your prompts by retrieving data from external sources and incorporating it into the context. The external data used for augmentation can be gathered from diverse sources such as document repositories, databases, or web search results.
+
+To begin with RAG, you need to convert your documents and user queries into a compatible format to perform relevancy search. This involves converting both the document collection, or knowledge base, and user-submitted queries into numerical representations using embedding. Embedding is a process that assigns numerical values to text, placing them in a vector space.
+
+RAG model architectures then compare the embeddings of user queries with those within the vector of the knowledge base. By doing so, they identify similar documents in the knowledge base that are relevant to the user's prompt. These relevant contents from similar documents are appended to the original user prompt.
+
+Finally, the augmented prompt, which now includes the relevant retrieved content, is passed on to the foundation model to generate the final responses. This integration of retrieval and generation significantly improves the quality and relevance of the model's outputs. Below is an illustrative diagram that demonstrates the overall RAG (Retrieval Augmented Generation) process. ![Retrieval Augmented Generation](/assets/picture/2023_07_31_food_qna_on_server_llm/Retrieval_Augmented_Generation.png). 
+## An Example Project for RAG
+I have created an example project to provide a practical demonstration of how RAG. For more detailed information and insights into the project, you can find comprehensive documentation and additional resources on [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/bearbearyu1223/food_qna_powered_by_llm). This exmaple project will walk you through the RAG process, the data preparation steps, the relevancy search implementation, and how the augmented prompts lead to more contextually, more relevant, and more conversationale responses from the foundation model. Please feel free to clone this project on GitHub, and follow the steps below to explore or develope it further. 
 ## Set Up Local Virtual Environment
 * Step 1: Install Miniconda on MacOS, see instruction [here](https://docs.conda.io/en/latest/miniconda.html). 
 * Step 2: Create a default conda env with Python 3.9: 
