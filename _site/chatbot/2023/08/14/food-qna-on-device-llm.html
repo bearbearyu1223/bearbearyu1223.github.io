@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <link rel="shortcut icon" type="image/png" href="/assets/favicon.png">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>Build On-Device QnA with LangChain and Llama2 | 🍒 Han’s Generative AI Quest</title>
+<meta name="generator" content="Jekyll v4.3.2" />
+<meta property="og:title" content="Build On-Device QnA with LangChain and Llama2" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="TL;DR This post involves creating a Question and Answering system using the LLM model hosted on Apple M1 Pro. The code repository contains the necessary components, including the LLM model (llama-2-7b-chat.ggmlv3.q8_0.bin), an embedding model (sentence-transformers/all-MiniLM-L6-v2), and an on-device vector database (FAISS). The app is built using the “LangChain” framework. All components are open source, eliminating the need for OpenAI services. The system’s performance is similar to OpenAI but with 10x longer latency (around 60s/query vs 5s/query) due to on-device model inference." />
+<meta property="og:description" content="TL;DR This post involves creating a Question and Answering system using the LLM model hosted on Apple M1 Pro. The code repository contains the necessary components, including the LLM model (llama-2-7b-chat.ggmlv3.q8_0.bin), an embedding model (sentence-transformers/all-MiniLM-L6-v2), and an on-device vector database (FAISS). The app is built using the “LangChain” framework. All components are open source, eliminating the need for OpenAI services. The system’s performance is similar to OpenAI but with 10x longer latency (around 60s/query vs 5s/query) due to on-device model inference." />
+<link rel="canonical" href="http://localhost:4000/chatbot/2023/08/14/food-qna-on-device-llm.html" />
+<meta property="og:url" content="http://localhost:4000/chatbot/2023/08/14/food-qna-on-device-llm.html" />
+<meta property="og:site_name" content="🍒 Han’s Generative AI Quest" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2023-08-14T00:00:00-07:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Build On-Device QnA with LangChain and Llama2" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2023-08-14T00:00:00-07:00","datePublished":"2023-08-14T00:00:00-07:00","description":"TL;DR This post involves creating a Question and Answering system using the LLM model hosted on Apple M1 Pro. The code repository contains the necessary components, including the LLM model (llama-2-7b-chat.ggmlv3.q8_0.bin), an embedding model (sentence-transformers/all-MiniLM-L6-v2), and an on-device vector database (FAISS). The app is built using the “LangChain” framework. All components are open source, eliminating the need for OpenAI services. The system’s performance is similar to OpenAI but with 10x longer latency (around 60s/query vs 5s/query) due to on-device model inference.","headline":"Build On-Device QnA with LangChain and Llama2","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/chatbot/2023/08/14/food-qna-on-device-llm.html"},"url":"http://localhost:4000/chatbot/2023/08/14/food-qna-on-device-llm.html"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/css/style.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="🍒 Han's Generative AI Quest" />
+</head>
+<body><header class="site-header">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">🍒 Han&#39;s Generative AI Quest</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/about/">About</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Build On-Device QnA with LangChain and Llama2</h1>
+    <p class="post-meta"><time class="dt-published" datetime="2023-08-14T00:00:00-07:00" itemprop="datePublished">
+        Aug 14, 2023
+      </time>• 
+          <span itemprop="author" itemscope itemtype="http://schema.org/Person">
+            <span class="p-author h-card" itemprop="name">Han Yu</span></span></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <h3 id="tldr">TL;DR</h3>
+<p>This post involves creating a Question and Answering system using the LLM model hosted on Apple M1 Pro. The code repository contains the necessary components, including the LLM model (<a href="https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGML">llama-2-7b-chat.ggmlv3.q8_0.bin</a>), an embedding model (<a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2">sentence-transformers/all-MiniLM-L6-v2</a>), and an on-device vector database (<a href="https://github.com/facebookresearch/faiss">FAISS</a>). The app is built using the “LangChain” framework. All components are open source, eliminating the need for OpenAI services. The system’s performance is similar to OpenAI but with 10x longer latency (around 60s/query vs 5s/query) due to on-device model inference.</p>
+
+<h3 id="introduction">Introduction</h3>
+<p>Third-party commercial large language model (LLM) providers, such as OpenAI’s GPT-4, Google Bard, and Amazon AlexaTM, have greatly democratized access to LLM capabilities through seamless API integration and scalable model inference hosting in the cloud. These advanced LLMs possess the remarkable ability to <strong>comprehend</strong>, <strong>learn from</strong>, and <strong>produce text</strong> that is nearly indistinguishable from human-generated content. Beyond their text generation prowess, these LLMs excel in <strong>interactive conversations</strong>, <strong>question answering</strong>, <strong>dialogue</strong> and <strong>document summarization</strong>, as well as <strong>offering insightful recommendations</strong>. Their versatility finds applications across diverse tasks and industries including creative copywriting for marketing, precise document summarization for legal purposes, data-driven market research in the financial sector, realistic simulation of clinical trials within healthcare, and even code generation for software development.</p>
+
+<p>However, certain scenarios, driven by an increasing emphasis on safeguarding data privacy and adhering to stringent regulatory compliance standards, highlight the necessity of deploying LLMs on private hardware devices instead of on any of those third-party owned servers. In such instances, <strong>maintaining sensitive information within the confines of the user’s hardware</strong> not only mitigates the risks associated with data breaches and unauthorized access but also aligns with the evolving landscape of privacy-conscious technical practices. This approach <strong>fosters a sense of trust among users who are becoming more attuned to the importance of maintaining their personal information within their own environments</strong>.</p>
+
+<p>In this post, our focus lies in exploring the execution of quantized variants of open-source Llama2 models on local devices to achieve Retrieval Augmented Generation (RAG). For RAG powered by server-side LLMs, you can find more info in <a href="https://bearbearyu1223.github.io/chatbot/2023/07/31/food-qna-on-server-llm.html">my previous post</a>.</p>
+
+<h3 id="llama2-and-its-variants">Llama2 and Its variants</h3>
+<p><a href="https://ai.meta.com/resources/models-and-libraries/llama/">Llama 2</a>, launched by Meta in July 2023, has been pretrained on publicly available online data sources, encompassing a staggering <strong>2 trillion tokens with a context length of 4096</strong>. The subsequent supervised fine-tuned iteration of this model, known as Llama-2-chat, underwent meticulous refinement through the integration of over <em>1 million human annotations</em> to cater specifically to <strong>chat-oriented use cases</strong>. Meta has extended the accessibility of Llama 2 to a wide spectrum of users, ranging from individual developers and content creators to researchers and businesses. This strategic open-source initiative is aimed at fostering an ecosystem conducive to <a href="https://ai.meta.com/static-resource/responsible-use-guide/">Responsible AI experimentation</a>, innovation, and the scalable implementation of a diverse array of ideas, thus further <strong>democratizing Generative AI</strong>.</p>
+
+<p>Llama 2 is offered in an array of parameter sizes — 7B, 13B, and 70B — alongside both pretrained and fine-tuned variations to cater to a wide range of application needs.</p>
+
+<h3 id="framework-and-libraries-used-langchain-ggml-c-transformers">Framework and Libraries Used: LangChain, GGML, C Transformers</h3>
+<p><a href="https://python.langchain.com/docs/get_started/introduction.html">LangChain</a> is an open source framework for developing applications powered by LLMs. It goes beyond standard API calls by being <em>data-aware</em>, enabling connections with various data sources for richer, personalized experiences. It is also <em>agentic</em>, meaning it can empower a language model to interact dynamically with its environment. LangChain streamlines the development of diverse applications, such as chatbots, Generative Question and Answering (GQA), and summarization. By “chaining” components from multiple modules, it allows for the creation of unique applications built around an LLM with <strong>easy-to-code</strong> and <strong>fast-to-production</strong> developer experience.</p>
+
+<p><a href="https://github.com/ggerganov/ggml">GGML</a> is a C library for machine learning (ML). GGML makes use of a technique called <strong>“quantization”</strong> (e.g., convert LLM’s weights from high-precison floating numbers to low-precision floating numbers) that allows for large language models to run on consumer hardware. GGML supports a number of different quantization strategies (e.g. 4-bit, 5-bit, and 8-bit quantization), each of which offers different <em>trade-offs between efficiency and performance</em>. More information about these trade-offs (such as model disk size and inference speed) can be found in <a href="https://github.com/ggerganov/llama.cpp">the documentation for llama.cpp</a>.</p>
+
+<p><a href="https://github.com/marella/ctransformers">C Transformers</a> is a wrapper that provides the Python bindings for the Transformer models implemented in C/C++ using GGML. 
+C Transformers supports running Llama2 model inference via GPU, for both NVIDIA GPU (via CUDA, a programming language for NVIDIA GPUs) and Apple’s own integreated GPU and Neural Engine (via Metal, a programming language for Apple integrated GPUs).</p>
+
+<p>Note: To enable Metal Support for model inference running on Apple M1/M2 chip, need run the following cmd under your project root</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>poetry config --local installer.no-binary ctransformers
+
+poetry add ctransformers 
+</code></pre></div></div>
+
+<h3 id="retrieval-augmented-generation">Retrieval Augmented Generation</h3>
+<p>Retrieval Augmented Generation (RAG) represents a technique wherein data is retrieved from external sources to enhance and expand the prompts used in model generation. This method is not only a cost-effective alternative but also proves to be an efficient approach in comparison to the traditional methods of pre-training or fine-tuning foundation models.
+See the previous post at <a href="https://bearbearyu1223.github.io/chatbot/2023/07/31/food-qna-on-server-llm.html">Food QnA Chatbot : Help Answer Food Related Questions from Your Own Cookbook</a> as a brief into to RAG.</p>
+
+<h3 id="an-example-project">An Example Project</h3>
+<p>The source code for the example project can be find on <a href="https://github.com/bearbearyu1223/langchain_playground/tree/main/food_qna_on_device"><img src="https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="GitHub" /></a>. The project directory should look like below:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>food_qna_on_device
+├── README.md
+├── build_knowledge_base.py
+├── config.py
+├── cook_book_data
+│   ├── GCE-Dinner-in-30-EXPANDED-BLAD.pdf
+│   ├── Quick-Easy-Weeknight-Meals-1.pdf
+│   └── dinners_cookbook_508-compliant.pdf
+├── main.py
+├── models
+│   ├── llama-2-13b-chat.ggmlv3.q8_0.bin
+│   └── llama-2-7b-chat.ggmlv3.q8_0.bin
+├── poetry.lock
+├── poetry.toml
+├── pyproject.toml
+└── vector_db
+    ├── index.faiss
+    └── index.pkl
+</code></pre></div></div>
+
+<p>Instruction to run the example project:</p>
+<ul>
+  <li>Step 1: Launch the terminal from the project directory, install and resolve the dependencies as defined in <code class="language-plaintext highlighter-rouge">pyproject.toml</code> file via
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>poetry install
+</code></pre></div>    </div>
+  </li>
+  <li>Step 2: Download the quantized 7b model <code class="language-plaintext highlighter-rouge">llama-2-7b-chat.ggmlv3.q8_0.bin</code> from https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGML and save the model under the directory <code class="language-plaintext highlighter-rouge">models\</code></li>
+  <li>Step 3: To start parsing user queries into the application, run the following command from the project directory (note: the model inference can take ~1 mins per input query)
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>poetry run python main.py -c local 
+</code></pre></div>    </div>
+    <p>Optionally, to run the same query with OpenAI (note: the model inference will take a few seconds per input query, you will also need export OPENAI_API_KEY as an enviroment variable on your local dev machine)</p>
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>poetry run python main.py -c server
+</code></pre></div>    </div>
+  </li>
+  <li>Step 4: Enter a query related to food preparation and cooking into the console and start playing with it. 
+See an example below:
+Screenshot of the original content for making “Pumpkin Biscuits”. 
+ <img src="/assets/picture/2023_08_14_food_qna_on_device_llm/original.png" alt="Original Content" />
+Retrieval Augmented Generation by running Llama2 model inference on local device
+ <img src="/assets/picture/2023_08_14_food_qna_on_device_llm/response.png" alt="Response" /></li>
+</ul>
+
+  </div><a class="u-url" href="/chatbot/2023/08/14/food-qna-on-device-llm.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col">
+        <p class="feed-subscribe">
+          <a href="http://localhost:4000/feed.xml">
+            <svg class="svg-icon orange">
+              <use xlink:href="/assets/minima-social-icons.svg#rss"></use>
+            </svg><span>Subscribe</span>
+          </a>
+        </p>
+      </div>
+      <div class="footer-col">
+        <p>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</p>
+      </div>
+    </div>
+
+    <div class="social-links"><ul class="social-media-list"></ul>
+</div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>
