@@ -29,7 +29,7 @@ Llama 2 is offered in an array of parameter sizes — 7B, 13B, and 70B — along
 [C Transformers](https://github.com/marella/ctransformers) is a wrapper that provides the Python bindings for the Transformer models implemented in C/C++ using GGML. 
 C Transformers supports running Llama2 model inference via GPU, for both NVIDIA GPU (via CUDA, a programming language for NVIDIA GPUs) and Apple's own integreated GPU and Neural Engine (via Metal, a programming language for Apple integrated GPUs).
 
-Note: To enable Metal Support for model inference running on Apple M1/M2 chip, need run the following cmd under your project root
+Note: To use C transformers with Metal Support for model inference running on Apple M1/M2 chip, need run the following cmd under your project root
 ```
 poetry config --local installer.no-binary ctransformers
 
@@ -41,7 +41,7 @@ Retrieval Augmented Generation (RAG) represents a technique wherein data is retr
 See the previous post at [Food QnA Chatbot : Help Answer Food Related Questions from Your Own Cookbook](https://bearbearyu1223.github.io/chatbot/2023/07/31/food-qna-on-server-llm.html) as a brief into to RAG. 
 
 ### An Example Project 
-The source code for the example project can be find on [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/bearbearyu1223/langchain_playground/tree/main/food_qna_on_device). The project directory should look like below:
+The source code for the example project can be found on [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/bearbearyu1223/langchain_playground/tree/main/food_qna_on_device). The project directory should look like below:
 ```
 food_qna_on_device
 ├── README.md
