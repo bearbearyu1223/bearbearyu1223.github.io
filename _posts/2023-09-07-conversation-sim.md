@@ -5,11 +5,11 @@ categories: chatbot
 author: 
 - Han Yu
 ---
-## TL;DR
+### TL;DR
  This project is a demonstration of a simple conversational simulation environment, powered by LLM agents. It takes inspiration from [ChatArena](https://github.com/chatarena/chatarena). The main objective here is to enable conversation simulations through LLM agents (e.g., the converstation can be task-oriented or just a chitchat). To accomplish this, the frameworks and concepts originally developed in ChatArena has been leveraged and tailored specifically for this conversational simulation experiment. 
  More information can be found on [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/bearbearyu1223/Multi-Agents-Simulation-Powered-by-LLMs).
 
-## Set Up Local Virtual Environment
+### Set Up Local Virtual Environment
 * Step 1: Install Miniconda on MacOS, see instruction [here](https://docs.conda.io/en/latest/miniconda.html). 
 * Step 2: Create a default conda env with Python 3.10: 
 ``conda create --name agent_sim python=3.10 -y``
@@ -24,10 +24,10 @@ pip3 install -r requirements.txt
 conda deactivate 
 ```
 
-## Set Up Open AI Secrete for Local Dev 
+### Set Up Open AI Secrete for Local Dev 
 `OPENAI_API_KEY` will be needed when calling the OpenAI API endpoints (DEFAULT_MODEL used in this project is "gpt-3.5-turbo"), so do recommend exporting `OPENAI_API_KEY` as an enviroment variable on your local dev machine. 
 
-## Run the Simulation 
+### Run the Simulation 
 You can play with any examples under the `examples` folder and run the converstation simulation in an interactive mode:
 ```
 python examples/example_food_qna_zh_CN.py 
