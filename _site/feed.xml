@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2023-11-21T17:50:22-08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2023-11-22T14:04:11-08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
 </subtitle><entry><title type="html">Craft Your Own Kitchen Companion: Leveraging OpenAI Assistant, Image Generation, and Text-to-Speech for a Revolutionary Cooking Experience</title><link href="http://localhost:4000/chatbot/2023/11/21/assistant-api-playground.html" rel="alternate" type="text/html" title="Craft Your Own Kitchen Companion: Leveraging OpenAI Assistant, Image Generation, and Text-to-Speech for a Revolutionary Cooking Experience" /><published>2023-11-21T00:00:00-08:00</published><updated>2023-11-21T00:00:00-08:00</updated><id>http://localhost:4000/chatbot/2023/11/21/assistant-api-playground</id><content type="html" xml:base="http://localhost:4000/chatbot/2023/11/21/assistant-api-playground.html"><![CDATA[<h2 id="tldr">TL;DR</h2>
 <p><img src="/assets/picture/2023_11_21_assistant_api_playground/cropped_image.png" alt="page_cover" /></p>
 
@@ -8,71 +8,145 @@
 
 <p>Get inspired by the latest from Open AI DevDay with my project on <a href="https://github.com/bearbearyu1223/assistant_api_playground"><img src="https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="GitHub" /></a>? Ready to unleash your creativity? Start building your own generative AI-powered experience today, join the forefront of AI innovation, and let us make AI for everyone!</p>
 
-<h2 id="set-up-the-dev-enviroment">Set Up the Dev Enviroment</h2>
-<ul>
-  <li>Step 1: Git clone the sample project from <a href="https://github.com/bearbearyu1223/assistant_api_playground"><img src="https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="GitHub" /></a>.</li>
-  <li>Step 2: Create a venv
-    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python3 -m venv cooking_assistant
+<h2 id="the-crafted-product-experience">The Crafted Product Experience</h2>
+
+<ol>
+  <li><strong>Direct Communication</strong>:
+    <ul>
+      <li>Purposefully address user (in this case, it will be “Han”) directly in all correspondences, ensuring each interaction is clear and personalized.</li>
+    </ul>
+  </li>
+  <li><strong>Resource Utilization</strong>:
+    <ul>
+      <li>Utilize information solely from user’s provided cookbooks when responding to his/her inquiries, ensuring responses are relevant and accurate.</li>
+    </ul>
+  </li>
+  <li><strong>Requests for Visual Representation</strong>:
+    <ul>
+      <li><strong>Initial Acknowledgment</strong>: When user requests a visual representation of a recipe, promptly reply with: “Absolutely! A delightful visual preview of the recipe is coming up shortly. Please hold on!”</li>
+      <li><strong>Action Step</strong>: Subsequently, craft a detailed and imaginative textual prompt to aid in visualizing the specified recipe.</li>
+    </ul>
+  </li>
+  <li><strong>Recipe Responses</strong>:
+    <ul>
+      <li><strong>Introduction</strong>: Initiate responses to recipe queries with: “Here’s a recipe I discovered!”</li>
+      <li><strong>Summary Style</strong>: Summarize the recipe succinctly using bullet points for easy comprehension.</li>
+      <li><strong>Summary Length</strong>: Aim to keep the summary under 150 words to maintain brevity and focus.</li>
+    </ul>
+  </li>
+  <li><strong>Handling Limitations and Concluding Respectfully</strong>:
+    <ul>
+      <li><strong>Addressing Unavailability</strong>: If user’s questions cannot be resolved with the cookbooks at hand, or if an appropriate recipe is not available, inform the user politely about these constraints.</li>
+      <li><strong>Concluding Interactions</strong>: End conversations with respect and professionalism, ensuring a positive and courteous closure.</li>
+    </ul>
+  </li>
+</ol>
+
+<h2 id="set-up-the-development-environment">Set Up the Development Environment</h2>
+
+<p>The provided sample project on <a href="https://github.com/bearbearyu1223/assistant_api_playground">GitHub</a> acts as a prototype to illustrate the product experience described previously. Follow these steps to set up your local development environment:</p>
+
+<ol>
+  <li><strong>Clone the Sample Project</strong>: Use the following command to clone the project from GitHub:
+    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git clone https://github.com/bearbearyu1223/assistant_api_playground
 </code></pre></div>    </div>
   </li>
-  <li>Step 3: Under the project root, active the venv you have just created,
-    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>source cooking_assistant/bin/activate
+  <li><strong>Create a Virtual Environment</strong>: Navigate to the cloned project directory and create a Python virtual environment named <code class="language-plaintext highlighter-rouge">cooking_assistant</code> by executing:
+    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python3 <span class="nt">-m</span> venv cooking_assistant
 </code></pre></div>    </div>
   </li>
-  <li>Step 4: Installed the required libaries in the venv
-    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>pip3 install -r requirements.txt
+  <li><strong>Activate the Virtual Environment</strong>: Activate the newly created virtual environment with:
+    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">source </span>cooking_assistant/bin/activate
 </code></pre></div>    </div>
   </li>
-  <li>Step 5: create an <code class="language-plaintext highlighter-rouge">.env</code> file under your project root and add your Open AI API Key as following:
+  <li><strong>Install Required Libraries</strong>: Inside the activated virtual environment, install the required libraries using the command:
+    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>pip3 <span class="nb">install</span> <span class="nt">-r</span> requirements.txt
+</code></pre></div>    </div>
+  </li>
+  <li><strong>Set Up Environment Variables</strong>: Create a <code class="language-plaintext highlighter-rouge">.env</code> file in the project root directory. Add your OpenAI API key to the file as follows:
     <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>OPENAI_API_KEY=&lt;Your API KEY&gt;
 </code></pre></div>    </div>
+    <h2 id="run-the-application">Run the Application</h2>
+    <p>Engage with the project interactively by issuing food preparation and cooking queries. Initiate the application with the following command:</p>
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python main.py
+</code></pre></div>    </div>
+    <p>To terminate the program, simply use <code class="language-plaintext highlighter-rouge">Ctrl + C</code>. Below is an example of a conversation generated by running the application.</p>
   </li>
-</ul>
-
-<h2 id="run-the-application">Run the Application</h2>
-<p>You can play with the project in an interactive mode by entering a query related to food preparation and cooking via:</p>
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python main.py
-</code></pre></div></div>
-<p>and simply press <code class="language-plaintext highlighter-rouge">Ctrl + C</code> to exit the program. See a sample converstation created from this application below.</p>
+</ol>
 
 <table>
   <thead>
     <tr>
       <th>Turn ID</th>
       <th>User Query</th>
-      <th style="text-align: center">Assistant Response</th>
+      <th>Assistant Response</th>
+      <th>TTS Playback</th>
+      <th>Notes on Tested User Query</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td>turn 0</td>
+      <td>0</td>
       <td>👩🏻‍🍳: Hi there, Thanksgiving is coming! I would like to have some ideas for cooking!</td>
-      <td style="text-align: center"><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/e3c82408-aa4b-4b25-85ce-a2c35414bb18" controls="controls"> </video></td>
+      <td>🔮: Thanksgiving is a great occasion to prepare a feast. Here are some main dish ideas inspired by the contents of the “Deliciously Healthy Dinners” cookbook that could suit a Thanksgiving dinner: [Main dishes listed]</td>
+      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/06aaa9e8-9833-48a9-950e-95b8f9494c90" controls="control"></video></td>
+      <td>This query is designed to evaluate the clarity of the Assistant’s defined role and the effectiveness of its execution, specifically in tasks such as generating creative ideas for holiday cooking.</td>
     </tr>
     <tr>
-      <td>turn 1</td>
-      <td>👩🏻‍🍳: Yes, please</td>
-      <td style="text-align: center"><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/4388d450-2fbe-4de4-8cb5-c432a4a6c989" controls="controls"> </video></td>
+      <td>1</td>
+      <td>👩🏻‍🍳: How to make Cornbread-Crusted Turkey?</td>
+      <td>🔮: Here’s a recipe I found for Cornbread-Crusted Turkey from your cookbook: [Recipe details]</td>
+      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/cb672f77-e66d-46cd-bcff-7a8abb1a834c" controls="control"></video></td>
+      <td>This query seeks to assess the Assistant’s ability to accurately extract relevant information from the user’s cookbook and succinctly summarize it.</td>
     </tr>
     <tr>
-      <td>turn 2</td>
-      <td>👩🏻‍🍳: How does the cornbread crusted turkey looks like?</td>
-      <td style="text-align: center"><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/3b97f276-e739-4f9b-8676-e0af88e25e0e" controls="controls"> </video><br /></td>
+      <td>2</td>
+      <td>👩🏻‍🍳: Thanks, what kind of salad will pair nicely with it?</td>
+      <td>🔮: An Autumn Salad would pair nicely with Cornbread-Crusted Turkey. Here’s the recipe from your cookbook: [Recipe details]</td>
+      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/cc4b66e0-b158-419e-bd5d-98946fe21404" controls="control"></video></td>
+      <td>This query is intended to assess the Assistant’s ability to provide useful responses to related follow-up questions</td>
     </tr>
     <tr>
-      <td>turn 3</td>
-      <td>👩🏻‍🍳: That is nice! And how to make cornbread?</td>
-      <td style="text-align: center"><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/e2b30daf-d11a-4d0b-96b5-7e0dabeb012a" controls="controls"> </video></td>
+      <td>3</td>
+      <td>👩🏻‍🍳: Can I see a visual of the autumn salad with the cornbread crusted turkey?</td>
+      <td>🔮: Absolutely! Prepare for a delightful visual preview of the recipe, coming up shortly. Please hold on!</td>
+      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/1f1765bc-206f-4eed-afa6-d860965ad25c" controls="control"></video></td>
+      <td>This query aims to evaluate the Assistant’s ability to create visualizations based on recipe information previously requested by the user.</td>
     </tr>
     <tr>
       <td> </td>
-      <td>See the visual representation generated by the Assistant bellow:<br /><br /><img src="/assets/picture/2023_11_21_assistant_api_playground/DALL_E_Cornbread_Crusted_Turkey_34.png" alt="page_cover" /></td>
-      <td style="text-align: center"> </td>
+      <td> </td>
+      <td>See the visual representation generated from the Assistant via DALL-E-3 based on the textual prompt generated from GPT4: Envision a warm, inviting plate centered with a golden-brown Cornbread-Crusted Turkey fillet, its crunchy exterior hinting at the tender, juicy meat within; Next to it lies a vibrant and colorful Autumn Salad, a bed of mixed lettuce greens punctuated by the bold reds of dried cranberries and the crisp green of thinly sliced Granny Smith apples; Scattered on top are earthy, chopped walnuts and the delicate shimmer of unsalted sunflower seeds, offering both texture and taste; The salad glistens lightly, dressed in a delicate sheen of low-fat raspberry vinaigrette, complementing the robust flavors of the turkey; The plate is a harmonious blend of the heartiness of Thanksgiving and the freshness of autumn, a celebration of both comfort and zest on the palate. <img src="/assets/picture/2023_11_21_assistant_api_playground/recipe_image.png" alt="recipe_image" /></td>
+      <td> </td>
+      <td> </td>
     </tr>
     <tr>
-      <td>turn 4</td>
-      <td>👩🏻‍🍳: No, actually, can you create a grocery list for me, including the recipes for the cornbread crusted turkey and also the cornbread?</td>
-      <td style="text-align: center"><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/ccaf9d52-041c-4b96-8a23-674d94aa489d" controls="controls"> </video></td>
+      <td>4</td>
+      <td>👩🏻‍🍳: Oh that is very nice. How many calories per serving, including the autumn salad and the cornbread crusted turkey?</td>
+      <td>🔮: The combined total calories per serving for the Autumn Salad and the Cornbread-Crusted Turkey is 395 calories.</td>
+      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/b87b3eea-786b-4557-b216-66d3acc42d9e" controls="control"></video></td>
+      <td>This query is designed to assess the Assistant’s proficiency in extracting information, applying logical reasoning, and performing basic mathematical calculations.</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>👩🏻‍🍳: Can you give me a breakdown of how the total calories per serving is calculated?</td>
+      <td>🔮: Certainly! Here’s the breakdown of how the total calories per serving is calculated for the combination of Autumn Salad and Cornbread-Crusted Turkey: [Calorie breakdown]</td>
+      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/03bad1bd-e575-4ba2-8958-460298c24993" controls="control"></video></td>
+      <td>More evaluations on the Assistant’s logical reasoning and mathematical skills.</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>👩🏻‍🍳: Nice. Can you help me create a grocery list for making the autumn salad and the cornbread crusted turkey?</td>
+      <td>🔮: Absolutely, here’s your grocery list for making the Autumn Salad and the Cornbread-Crusted Turkey: [Grocery list details]</td>
+      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/9b6b07a1-4fc0-4608-9cdb-150b87a0f387" controls="control"></video></td>
+      <td>This query aims to evaluate the Assistant’s ability to comprehend and summarize information based on its previous conversation history with the user.</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>👩🏻‍🍳: Thank you! Happy Thanksgiving!</td>
+      <td>🔮: You’re welcome! If you need any more help in the future, feel free to reach out. Have a wonderful Thanksgiving and enjoy your delicious meal!</td>
+      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/ed240241-2220-4d36-9516-60b5104e1db1" controls="control"></video></td>
+      <td>Assess whether the Assistant can respond politely and meaningfully to the user’s casual conversation.</td>
     </tr>
   </tbody>
 </table>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="chatbot" /><summary type="html"><![CDATA[TL;DR]]></summary></entry><entry><title type="html">Conversation Simulation : Watch AI Buddies Spark Conversations!</title><link href="http://localhost:4000/chatbot/2023/09/07/conversation-sim.html" rel="alternate" type="text/html" title="Conversation Simulation : Watch AI Buddies Spark Conversations!" /><published>2023-09-07T00:00:00-07:00</published><updated>2023-09-07T00:00:00-07:00</updated><id>http://localhost:4000/chatbot/2023/09/07/conversation-sim</id><content type="html" xml:base="http://localhost:4000/chatbot/2023/09/07/conversation-sim.html"><![CDATA[<h3 id="tldr">TL;DR</h3>
@@ -274,7 +348,7 @@ Retrieval Augmented Generation by running Llama2 model inference on local device
 
 <p>RAG model architectures then compare the embeddings of user queries with those “vector index” of the knowledge base. By doing so, they identify similar documents in the knowledge base that are relevant to the user’s prompt. These relevant contents from similar documents are appended to the original user prompt.</p>
 
-<p>Finally, the augmented prompt, which now includes the relevant retrieved content, is passed on to the foundation model to generate the final responses. This integration of retrieval and generation significantly improves the quality and relevance of the model’s outputs. Below is an illustrative diagram that demonstrates the overall RAG (Retrieval Augmented Generation) process. <img src="/assets/picture/2023_07_31_food_qna_on_server_llm/Retrieval_Augmented_Generation.png" alt="Retrieval Augmented Generation" />.</p>
+<p>Finally, the augmented prompt, which now includes the relevant retrieved content, is passed on to the foundation model to generate the final responses. This integration of retrieval and generation significantly improves the quality and relevance of the model’s outputs. Below is an illustrative diagram that demonstrates the overall RAG (Retrieval Augmented Generation) process. <img src="/assets/picture/2023_07_31_food_qna_on_server_llm/RAG.png" alt="Retrieval Augmented Generation" />.</p>
 
 <h2 id="an-example-project-for-rag">An Example Project for RAG</h2>
 <p>I have created an example project to provide a practical demonstration of how RAG works. For more detailed information and insights into the project, you can find comprehensive documentation and additional resources on <a href="https://github.com/bearbearyu1223/food_qna_powered_by_llm"><img src="https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="GitHub" /></a>. This exmaple project will walk you through the RAG process, the data preparation steps, the relevancy search implementation, and how the augmented prompts lead to more contextually, more relevant, and more conversational responses from the foundation model. Please feel free to clone this project on GitHub, and follow the steps below to explore or develope it further.</p>
