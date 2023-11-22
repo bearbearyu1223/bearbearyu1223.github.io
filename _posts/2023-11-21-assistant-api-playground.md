@@ -59,8 +59,9 @@ pip3 install -r requirements.txt
 ```
 OPENAI_API_KEY=<Your API KEY>
 ```
+
 ## Run the Application 
-Engage with the project interactively by issuing food preparation and cooking queries. Initiate the application with the following command:
+Simply add your own cookbook in PDF under the directory `cookbook`, or just play with the existing cookbook uploaded with my sample project. Engage with the project interactively by issuing food preparation and cooking queries. Initiate the application with the following command:
 ```
 python main.py
 ```
