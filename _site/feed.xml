@@ -1,5 +1,81 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2023-09-07T21:39:42-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
-</subtitle><entry><title type="html">Conversation Simulation : Watch AI Buddies Spark Conversations!</title><link href="http://localhost:4000/chatbot/2023/09/07/conversation-sim.html" rel="alternate" type="text/html" title="Conversation Simulation : Watch AI Buddies Spark Conversations!" /><published>2023-09-07T00:00:00-07:00</published><updated>2023-09-07T00:00:00-07:00</updated><id>http://localhost:4000/chatbot/2023/09/07/conversation-sim</id><content type="html" xml:base="http://localhost:4000/chatbot/2023/09/07/conversation-sim.html"><![CDATA[<h3 id="tldr">TL;DR</h3>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2023-11-21T17:50:22-08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</subtitle><entry><title type="html">Craft Your Own Kitchen Companion: Leveraging OpenAI Assistant, Image Generation, and Text-to-Speech for a Revolutionary Cooking Experience</title><link href="http://localhost:4000/chatbot/2023/11/21/assistant-api-playground.html" rel="alternate" type="text/html" title="Craft Your Own Kitchen Companion: Leveraging OpenAI Assistant, Image Generation, and Text-to-Speech for a Revolutionary Cooking Experience" /><published>2023-11-21T00:00:00-08:00</published><updated>2023-11-21T00:00:00-08:00</updated><id>http://localhost:4000/chatbot/2023/11/21/assistant-api-playground</id><content type="html" xml:base="http://localhost:4000/chatbot/2023/11/21/assistant-api-playground.html"><![CDATA[<h2 id="tldr">TL;DR</h2>
+<p><img src="/assets/picture/2023_11_21_assistant_api_playground/cropped_image.png" alt="page_cover" /></p>
+
+<p>OpenAI unveiled its <a href="https://platform.openai.com/docs/assistants/overview">Assistant API</a> during its very first developer conference-<a href="https://devday.openai.com/">OpenAI DevDay</a>. This marked a significant addition to the suite of tools and models available for building conversational AI, a domain in which I’ve been actively engaged.</p>
+
+<p>Although I have used other frameworks, tools and models to build customized Assistant in the past (check out my previous posts  <a href="https://bearbearyu1223.github.io/chatbot/2023/07/31/food-qna-on-server-llm.html">Food QnA Chatbot : Help Answer Food Related Questions from Your Own Cookbook</a> and <a href="https://bearbearyu1223.github.io/chatbot/2023/08/14/food-qna-on-device-llm.html">Build On-Device QnA with LangChain and Llama2</a>), intrigued by the new capabilities of the Assistant API, I decided to integrate it into a new project. This sample project is a refreshed demonstration of a simple Cooking Assistant, leveraging not only the Assistant API but also incorporating additional functionalities such as <a href="https://platform.openai.com/docs/guides/text-to-speech">Text-to-Speech</a> and <a href="https://platform.openai.com/docs/guides/images?context=node">Image Generation</a>, showcasing a holistic approach to building conversational AI systems with only a few lines of code.</p>
+
+<p>Get inspired by the latest from Open AI DevDay with my project on <a href="https://github.com/bearbearyu1223/assistant_api_playground"><img src="https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="GitHub" /></a>? Ready to unleash your creativity? Start building your own generative AI-powered experience today, join the forefront of AI innovation, and let us make AI for everyone!</p>
+
+<h2 id="set-up-the-dev-enviroment">Set Up the Dev Enviroment</h2>
+<ul>
+  <li>Step 1: Git clone the sample project from <a href="https://github.com/bearbearyu1223/assistant_api_playground"><img src="https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="GitHub" /></a>.</li>
+  <li>Step 2: Create a venv
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python3 -m venv cooking_assistant
+</code></pre></div>    </div>
+  </li>
+  <li>Step 3: Under the project root, active the venv you have just created,
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>source cooking_assistant/bin/activate
+</code></pre></div>    </div>
+  </li>
+  <li>Step 4: Installed the required libaries in the venv
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>pip3 install -r requirements.txt
+</code></pre></div>    </div>
+  </li>
+  <li>Step 5: create an <code class="language-plaintext highlighter-rouge">.env</code> file under your project root and add your Open AI API Key as following:
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>OPENAI_API_KEY=&lt;Your API KEY&gt;
+</code></pre></div>    </div>
+  </li>
+</ul>
+
+<h2 id="run-the-application">Run the Application</h2>
+<p>You can play with the project in an interactive mode by entering a query related to food preparation and cooking via:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python main.py
+</code></pre></div></div>
+<p>and simply press <code class="language-plaintext highlighter-rouge">Ctrl + C</code> to exit the program. See a sample converstation created from this application below.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Turn ID</th>
+      <th>User Query</th>
+      <th style="text-align: center">Assistant Response</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>turn 0</td>
+      <td>👩🏻‍🍳: Hi there, Thanksgiving is coming! I would like to have some ideas for cooking!</td>
+      <td style="text-align: center"><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/e3c82408-aa4b-4b25-85ce-a2c35414bb18" controls="controls"> </video></td>
+    </tr>
+    <tr>
+      <td>turn 1</td>
+      <td>👩🏻‍🍳: Yes, please</td>
+      <td style="text-align: center"><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/4388d450-2fbe-4de4-8cb5-c432a4a6c989" controls="controls"> </video></td>
+    </tr>
+    <tr>
+      <td>turn 2</td>
+      <td>👩🏻‍🍳: How does the cornbread crusted turkey looks like?</td>
+      <td style="text-align: center"><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/3b97f276-e739-4f9b-8676-e0af88e25e0e" controls="controls"> </video><br /></td>
+    </tr>
+    <tr>
+      <td>turn 3</td>
+      <td>👩🏻‍🍳: That is nice! And how to make cornbread?</td>
+      <td style="text-align: center"><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/e2b30daf-d11a-4d0b-96b5-7e0dabeb012a" controls="controls"> </video></td>
+    </tr>
+    <tr>
+      <td> </td>
+      <td>See the visual representation generated by the Assistant bellow:<br /><br /><img src="/assets/picture/2023_11_21_assistant_api_playground/DALL_E_Cornbread_Crusted_Turkey_34.png" alt="page_cover" /></td>
+      <td style="text-align: center"> </td>
+    </tr>
+    <tr>
+      <td>turn 4</td>
+      <td>👩🏻‍🍳: No, actually, can you create a grocery list for me, including the recipes for the cornbread crusted turkey and also the cornbread?</td>
+      <td style="text-align: center"><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/ccaf9d52-041c-4b96-8a23-674d94aa489d" controls="controls"> </video></td>
+    </tr>
+  </tbody>
+</table>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="chatbot" /><summary type="html"><![CDATA[TL;DR]]></summary></entry><entry><title type="html">Conversation Simulation : Watch AI Buddies Spark Conversations!</title><link href="http://localhost:4000/chatbot/2023/09/07/conversation-sim.html" rel="alternate" type="text/html" title="Conversation Simulation : Watch AI Buddies Spark Conversations!" /><published>2023-09-07T00:00:00-07:00</published><updated>2023-09-07T00:00:00-07:00</updated><id>http://localhost:4000/chatbot/2023/09/07/conversation-sim</id><content type="html" xml:base="http://localhost:4000/chatbot/2023/09/07/conversation-sim.html"><![CDATA[<h3 id="tldr">TL;DR</h3>
 <p>This project is a demonstration of a simple conversational simulation environment, powered by LLM agents. It takes inspiration from <a href="https://github.com/chatarena/chatarena">ChatArena</a>. The main objective here is to enable conversation simulations through LLM agents (e.g., the converstation can be task-oriented or just a chitchat). To accomplish this, the frameworks and concepts originally developed in ChatArena has been leveraged and tailored specifically for this conversational simulation experiment. 
  More information can be found on <a href="https://github.com/bearbearyu1223/Multi-Agents-Simulation-Powered-by-LLMs"><img src="https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="GitHub" /></a>.</p>
 
