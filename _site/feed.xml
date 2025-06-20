@@ -1,11 +1,11 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2024-01-01T17:26:01-08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-06-20T13:28:32-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
 </subtitle><entry><title type="html">Supercharge Message Summarization Experience: Parameter-Efficient Fine-Tuning and LLM Assisted Evaluation</title><link href="http://localhost:4000/parameter-efficient-fine-tuning/2024/01/01/PEFT-summarization.html" rel="alternate" type="text/html" title="Supercharge Message Summarization Experience: Parameter-Efficient Fine-Tuning and LLM Assisted Evaluation" /><published>2024-01-01T00:00:00-08:00</published><updated>2024-01-01T00:00:00-08:00</updated><id>http://localhost:4000/parameter-efficient-fine-tuning/2024/01/01/PEFT-summarization</id><content type="html" xml:base="http://localhost:4000/parameter-efficient-fine-tuning/2024/01/01/PEFT-summarization.html"><![CDATA[<center>
 <img src="/assets/picture/2024_01_01_PEFT_summarization/cover.png" width="900" height="500" />
 </center>
 <h2 id="introduction">Introduction</h2>
 <p>In today’s business landscape, we are surrounded by a wealth of opportunities to utilize advanced technology powered by AI. Think of large language models(LLMs) as versatile tools in our toolkit: we can <em>customize</em> them for a variety of specific downstream tasks, a process known as <em>fine-tuning</em>. However, a challenge arises in that each fine-tuned model typically maintains the same parameter size as the original. Therefore, managing multiple fine-tuned models requires careful consideration of factors such as accuracy performance, memory management, inference latency, and disk utilization.</p>
 
-<p>Parameter-Efficient Fine-Tuning (PEFT) methods provide an efficient and streamlined approach for adapting pre-trained LLMs, commonly referred to as <em>base models</em>, to a range of specific downstream tasks. These tasks encompass diverse applications, including but not limited to text summarization, question answering, image generation, and text-to-speech synthesis. In contrast to traditional full fine-tuning, which consumes substantial computational resources, PEFT prioritizes the optimization of a significantly smaller parameter subset referred to as “adapters.” These adapters work in tandem with the base model, achieving competitive performance while imposing lower computational and storage demands.</p>
+<p>Parameter-Efficient Fine-Tuning (PEFT) methods provide an efficient and streamlined approach for adapting pre-trained LLMs, commonly referred to as <em>base models</em>, to a range of specific downstream tasks. These tasks encompass diverse applications, including but not limited to text summarization, question answering, image generation, and text-to-speech synthesis. In contrast to traditional full fine-tuning, which consumes substantial computational resources, PEFT prioritizes the optimization of a significantly smaller parameter subset referred to as “adapters”. These adapters work in tandem with the base model, achieving competitive performance while imposing lower computational and storage demands.</p>
 
 <p>I’ve shared a <a href="https://github.com/bearbearyu1223/llm-fine-tuning-playground/blob/main/finetune_falcon_7b_conversation_summarization.ipynb">Colab notebook</a> demonstrating a resource-efficient PEFT process using <a href="https://arxiv.org/abs/2305.14314">QLoRA</a> and <a href="https://github.com/huggingface/peft">HuggingFace PEFT libraries</a> to fine tune <a href="https://huggingface.co/vilsonrodrigues/falcon-7b-sharded">Falcon-7B-sharded model</a> on <a href="https://huggingface.co/datasets/samsum">SamSum dataset</a> for summarizing “message-like” conversations. It achieves reasonable summarization performance after training for only 5 epochs on an A100 compute instance with a single GPU. Additionally, I’ve employed <code class="language-plaintext highlighter-rouge">GPT-3.5-turbo</code> to assess generated summaries, showcasing a potentially automated evaluation method by formalizing evaluation guidelines into a prompt template. This approach stands in contrast to traditional automated evaluation metrics like ROUGE or BERTScore, which rely on reference summaries.</p>
 
@@ -377,7 +377,7 @@ Tania: Hell, yes! See you!
   </tbody>
 </table>
 
-<p>Learnings: The LLM-based evaluator is capable of performing a reasonably accurate evaluation.**. In this example, it appears that the summary generated by the fine-tuned model does not align with the factual content of the source conversation. The original source conversation does not mention that Sophie’s boyfriend is cheating. Furthermore, there is a factual inaccuracy in the summary, as it is Yaz, not Tania, who requires a high score for admission to Exeter for studying medicine. Additionally, there are some grammar errors that can be improved or corrected as suggested below (e.g., one can further prompt LLM and ask suggestions to improve the fluency of the summary):</p>
+<p><strong>Learnings: The LLM-based evaluator is capable of performing a reasonably accurate evaluation.</strong> In this example, it appears that the summary generated by the fine-tuned model does not align with the factual content of the source conversation. The original source conversation does not mention that Sophie’s boyfriend is cheating. Furthermore, there is a factual inaccuracy in the summary, as it is Yaz, not Tania, who requires a high score for admission to Exeter for studying medicine. Additionally, there are some grammar errors that can be improved or corrected as suggested below (e.g., one can further prompt LLM and ask suggestions to improve the fluency of the summary):</p>
 
 <ol>
   <li>
@@ -426,21 +426,21 @@ Petra: sooooo sleepy
   </thead>
   <tbody>
     <tr>
-      <td>Yaz and Tania will go to a pub on Friday around 8. Sophie is thinking of breaking up with her boyfriend before Uni. Tania is going to Manchester in 4 months. Yaz wants to study medicine in Exeter, so she needs high grades.</td>
-      <td>Sophie wants to break up because her boyfriend has been cheating on her. Tania needs good results from exams to be admitted to university. Yaz will see his friends at the bar tonight about 8 pm.</td>
+      <td>Petra is very sleepy at work today, Andy finds the day boring, and Ezgi is working.</td>
+      <td>It is difficult for Petra not to fall asleep because of being tired. Andy suggests that Petra should talk about this issue with the lady who works as human resources manager. She might be able to help Petra.</td>
       <td>4</td>
-      <td>3</td>
       <td>4</td>
-      <td>3</td>
       <td>4</td>
-      <td>2</td>
       <td>4</td>
-      <td>2</td>
+      <td>4</td>
+      <td>4</td>
+      <td>4</td>
+      <td>4</td>
     </tr>
   </tbody>
 </table>
 
-<p><strong>Learnings: LLM-based evaluators may not always accurately capture the intended context or nuances from the conversation.</strong> In this example, the human-generated summary outperforms the summary generated by the fine-tuned model. Interestingly, neither the fine-tuned model’s generated summary nor the LLM-based evaluator were able to accurately recognize the sarcasm conveyed in the original conversations, particularly with reference to the “HR lady.”</p>
+<p><strong>Learnings: LLM-based evaluators may not always accurately capture the intended context or nuances from the conversation.</strong> In this example, the human-generated summary outperforms the summary generated by the fine-tuned model. Interestingly, neither the fine-tuned model’s generated summary nor the LLM-based evaluator were able to accurately recognize the sarcasm conveyed in the original conversations, particularly with reference to the “HR lady”.</p>
 
 <p>Example 3:</p>
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Finn: Hey
@@ -500,7 +500,7 @@ Zadie: Toodles
   </tbody>
 </table>
 
-<p><strong>Learnings: Both the fine-tuned LLM model and the LLM-based evaluator may occasionally treat context derived from their pre-learned world knowledge as factual information. This underscores the importance of exercising caution when incorporating inferred contextual information into the product experience.</strong> In this example, the summary generated by the fine-tuned model is considered to yield “impressive results” because it correctly identifies that “Elephant and Castle” is a place of interest located in London, and it recognizes the presence of an elephant statue near the entrance to the shopping center, both of which are not directly mentioned in the original conversation. <em>Those additional context are derived from the base model’s world knowledge from training</em>.</p>
+<p><strong>Learnings: Both the fine-tuned LLM model and the LLM-based evaluator may occasionally treat context derived from their pre-learned world knowledge as factual information. This underscores the importance of exercising caution when incorporating inferred contextual information into the product experience.</strong> In this example, the summary generated by the fine-tuned model is considered to yield “impressive results” because it correctly identifies that “Elephant and Castle” is a place of interest located in London, and it recognizes the presence of an elephant statue near the entrance to the shopping center, both of which are not directly mentioned in the original conversation. <em>Those additional context is derived from the base model’s world knowledge from training</em>.</p>
 
 <p>However, it raises questions about whether we should deem this as a good summary when the LLM leverages its world knowledge to infer information beyond the direct content of the conversation. It’s important to acknowledge that this approach can be a <em>double-edged sword from a product experience perspective</em>. Some users may find it useful and intelligent as it demonstrates the LLM’s ability to provide context and additional information. Still, it can also potentially be problematic in many situations.</p>
 
