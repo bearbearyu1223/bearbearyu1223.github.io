@@ -1,5 +1,91 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-06-20T13:48:01-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
-</subtitle><entry><title type="html">Supercharge Message Summarization Experience: Parameter-Efficient Fine-Tuning and LLM Assisted Evaluation</title><link href="http://localhost:4000/parameter-efficient-fine-tuning/2024/01/01/PEFT-summarization.html" rel="alternate" type="text/html" title="Supercharge Message Summarization Experience: Parameter-Efficient Fine-Tuning and LLM Assisted Evaluation" /><published>2024-01-01T00:00:00-08:00</published><updated>2024-01-01T00:00:00-08:00</updated><id>http://localhost:4000/parameter-efficient-fine-tuning/2024/01/01/PEFT-summarization</id><content type="html" xml:base="http://localhost:4000/parameter-efficient-fine-tuning/2024/01/01/PEFT-summarization.html"><![CDATA[<center>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-07-20T12:30:10-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [1]</title><link href="http://localhost:4000/cs336/2025/07/20/cs336-note-get-started.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [1]" /><published>2025-07-20T00:00:00-07:00</published><updated>2025-07-20T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/07/20/cs336-note-get-started</id><content type="html" xml:base="http://localhost:4000/cs336/2025/07/20/cs336-note-get-started.html"><![CDATA[<h2 id="introduction">Introduction</h2>
+
+<p>It’s been a while since my last blog post about my generative AI learning journey (January 1, 2024). My day job has demanded significant time and energy, but I don’t want that to derail my passion and curiosity for deep-diving into this field.</p>
+
+<p>This week, I had a realization: instead of endlessly reflecting, thinking, or planning, it’s time to act. Even with just one hour of focused study after work each day, I can make meaningful progress by year-end.</p>
+
+<p>I’ve decided to tackle Stanford’s <a href="https://stanford-cs336.github.io/spring2025/"><strong>CS336: Language Modeling from Scratch</strong></a> at my own pace. I’m grateful that Stanford makes their <a href="https://www.youtube.com/watch?v=SQ3fZ1sAqXI&amp;list=PLoROMvodv4rOY23Y0BoGoBGgQ1zmU_MT_&amp;ab_channel=StanfordOnline"><strong>Lecture Videos</strong></a>, <a href="https://github.com/stanford-cs336"><strong>Lecture Notes &amp; Assignments</strong></a> freely available online—a perfect fit for someone like me who can’t commit to fixed class schedules but still craves structured learning.</p>
+
+<p>To give back to the community, I’ll document and share my learning notes as I progress. I’m curious to see how much I can accomplish by dedicating just an hour a day (or ~10 hours per week) through the end of the year. Can I complete all the lectures and assignments? I know I’ll move slowly, but I’m excited to test my consistency and see what’s possible.</p>
+
+<p>This first post covers <strong>setting up the local development environment</strong>—a small but necessary step to begin engaging with the lecture materials.</p>
+
+<h2 id="setting-up-the-local-dev-environment">Setting Up the Local Dev Environment</h2>
+
+<h3 id="prerequisites">Prerequisites</h3>
+
+<p>Make sure you have Git, Python 3.11, and Node.js installed on your system. You’ll also need <a href="https://github.com/astral-sh/uv"><code class="language-plaintext highlighter-rouge">uv</code></a>, a fast Python package manager.</p>
+
+<h3 id="step-1-clone-the-cs336-repository">Step 1: Clone the CS336 Repository</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git clone https://github.com/stanford-cs336/spring2025-lectures
+<span class="nb">cd </span>spring2025-lectures
+</code></pre></div></div>
+
+<h3 id="step-2-set-up-python-virtual-environment-with-uv">Step 2: Set Up Python Virtual Environment with UV</h3>
+
+<p>Install <code class="language-plaintext highlighter-rouge">uv</code> (if not already installed):</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-LsSf</span> https://astral.sh/uv/install.sh | sh
+</code></pre></div></div>
+
+<p>Create a virtual environment using Python 3.11:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv venv <span class="nt">--python</span><span class="o">=</span>3.11
+</code></pre></div></div>
+
+<p>Activate the environment:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># macOS/Linux</span>
+<span class="nb">source</span> .venv/bin/activate
+</code></pre></div></div>
+
+<h3 id="step-3-install-python-dependencies">Step 3: Install Python Dependencies</h3>
+
+<blockquote>
+  <p>💡 Note: I’m using a MacBook Pro (M4). The <code class="language-plaintext highlighter-rouge">triton</code> package doesn’t support Apple Silicon, so I excluded it during the initial setup.<br />
+More info: <a href="https://github.com/triton-lang/triton">Triton GitHub</a></p>
+</blockquote>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">grep</span> <span class="nt">-v</span> <span class="s2">"triton"</span> requirements.txt <span class="o">&gt;</span> requirements_no_triton.txt
+uv pip <span class="nb">install</span> <span class="nt">-r</span> requirements_no_triton.txt
+</code></pre></div></div>
+
+<h3 id="step-4-generate-executable-lecture-content">Step 4: Generate Executable Lecture Content</h3>
+
+<p>Compile a lecture:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python execute.py <span class="nt">-m</span> lecture_01
+</code></pre></div></div>
+
+<p>This will generate a trace file at:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>var/traces/lecture_01.json
+</code></pre></div></div>
+
+<h3 id="step-5-build-the-local-react-web-app-to-view-lectures">Step 5: Build the Local React Web App to View Lectures</h3>
+
+<p>Install Node.js if needed:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>brew <span class="nb">install </span>node
+</code></pre></div></div>
+
+<p>Then build and serve the trace viewer:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">cd </span>trace-viewer
+npm <span class="nb">install
+</span>npm run dev
+</code></pre></div></div>
+
+<p>Open the viewer in your browser:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>http://localhost:&lt;PORT&gt;?trace=var/traces/lecture_01.json
+</code></pre></div></div>
+
+<p>It should be something like <img src="/assets/picture/2025_07_20_cs336_note_get_started/cs336_lecture_view.png" alt="this" />.</p>
+
+<p>Then enjoy going through the lecture notes!</p>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="cs336" /><summary type="html"><![CDATA[Introduction]]></summary></entry><entry><title type="html">Supercharge Message Summarization Experience: Parameter-Efficient Fine-Tuning and LLM Assisted Evaluation</title><link href="http://localhost:4000/parameter-efficient-fine-tuning/2024/01/01/PEFT-summarization.html" rel="alternate" type="text/html" title="Supercharge Message Summarization Experience: Parameter-Efficient Fine-Tuning and LLM Assisted Evaluation" /><published>2024-01-01T00:00:00-08:00</published><updated>2024-01-01T00:00:00-08:00</updated><id>http://localhost:4000/parameter-efficient-fine-tuning/2024/01/01/PEFT-summarization</id><content type="html" xml:base="http://localhost:4000/parameter-efficient-fine-tuning/2024/01/01/PEFT-summarization.html"><![CDATA[<center>
 <img src="/assets/picture/2024_01_01_PEFT_summarization/cover.png" width="900" height="500" />
 </center>
 <h2 id="introduction">Introduction</h2>
