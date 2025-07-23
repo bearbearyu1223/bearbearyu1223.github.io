@@ -418,37 +418,60 @@ if __name__ == "__main__":
 When you run this code, you'll see output like:
 
 ```
-BPE Training on Corpus:
-Corpus: low low low low low lower lower widest widest widest newest newest newest newest newest newest
-==================================================
-Initial word frequencies: {'(l,o,w)': 5, '(l,o,w,e,r)': 2, '(w,i,d,e,s,t)': 3, '(n,e,w,e,s,t)': 6}
-
-Merge 1:
-Pair frequencies: {'lo': 7, 'ow': 7, 'we': 8, 'er': 2, 'wi': 3, 'id': 3, 'de': 3, 'es': 9, 'st': 9, 'ne': 6, 'ew': 6}
-Most frequent pair: (s, t) (freq: 9)
-After merge: {'(l,o,w)': 5, '(l,o,w,e,r)': 2, '(w,i,d,e,s t)': 3, '(n,e,w,e,s t)': 6}
-
-...
-
-==================================================
-Training Complete!
-Merges performed: ['s t', 'e s t', 'o w', 'l o w', 'w e s t', 'n e']
-
-==================================================
-Tokenization Examples:
-'newest' -> ['n e', 'w e s t']
-'lower' -> ['l o w', 'e', 'r']
-'widest' -> ['w', 'i', 'd', 'e s t']
-'low' -> ['l o w']
-
-==================================================
-New Vocabulary (merged tokens only):
-Token ID 257: 's t'
-Token ID 258: 'e s t'
-Token ID 259: 'o w'
-Token ID 260: 'l o w'
-Token ID 261: 'w e s t'
-Token ID 262: 'n e'
+    BPE Training on Corpus:
+    Corpus: low low low low low lower lower widest widest widest newest newest newest newest newest newest
+    ==================================================
+    Initial word frequencies: {'(l,o,w)': 5, '(l,o,w,e,r)': 2, '(w,i,d,e,s,t)': 3, '(n,e,w,e,s,t)': 6}
+    
+    Merge 1:
+    Pair frequencies: {'lo': 7, 'ow': 7, 'we': 8, 'er': 2, 'wi': 3, 'id': 3, 'de': 3, 'es': 9, 'st': 9, 'ne': 6, 'ew': 6}
+    Most frequent pair: (s, t) (freq: 9)
+    After merge: {'(l,o,w)': 5, '(l,o,w,e,r)': 2, '(w,i,d,e,s t)': 3, '(n,e,w,e,s t)': 6}
+    
+    Merge 2:
+    Pair frequencies: {'lo': 7, 'ow': 7, 'we': 8, 'er': 2, 'wi': 3, 'id': 3, 'de': 3, 'es t': 9, 'ne': 6, 'ew': 6}
+    Most frequent pair: (e, s t) (freq: 9)
+    After merge: {'(l,o,w)': 5, '(l,o,w,e,r)': 2, '(w,i,d,e s t)': 3, '(n,e,w,e s t)': 6}
+    
+    Merge 3:
+    Pair frequencies: {'lo': 7, 'ow': 7, 'we': 2, 'er': 2, 'wi': 3, 'id': 3, 'de s t': 3, 'ne': 6, 'ew': 6, 'we s t': 6}
+    Most frequent pair: (o, w) (freq: 7)
+    After merge: {'(l,o w)': 5, '(l,o w,e,r)': 2, '(w,i,d,e s t)': 3, '(n,e,w,e s t)': 6}
+    
+    Merge 4:
+    Pair frequencies: {'lo w': 7, 'o we': 2, 'er': 2, 'wi': 3, 'id': 3, 'de s t': 3, 'ne': 6, 'ew': 6, 'we s t': 6}
+    Most frequent pair: (l, o w) (freq: 7)
+    After merge: {'(l o w)': 5, '(l o w,e,r)': 2, '(w,i,d,e s t)': 3, '(n,e,w,e s t)': 6}
+    
+    Merge 5:
+    Pair frequencies: {'l o we': 2, 'er': 2, 'wi': 3, 'id': 3, 'de s t': 3, 'ne': 6, 'ew': 6, 'we s t': 6}
+    Most frequent pair: (w, e s t) (freq: 6)
+    After merge: {'(l o w)': 5, '(l o w,e,r)': 2, '(w,i,d,e s t)': 3, '(n,e,w e s t)': 6}
+    
+    Merge 6:
+    Pair frequencies: {'l o we': 2, 'er': 2, 'wi': 3, 'id': 3, 'de s t': 3, 'ne': 6, 'ew e s t': 6}
+    Most frequent pair: (n, e) (freq: 6)
+    After merge: {'(l o w)': 5, '(l o w,e,r)': 2, '(w,i,d,e s t)': 3, '(n e,w e s t)': 6}
+    
+    ==================================================
+    Training Complete!
+    Merges performed: ['s t', 'e s t', 'o w', 'l o w', 'w e s t', 'n e']
+    
+    ==================================================
+    Tokenization Examples:
+    'newest' -> ['n e', 'w e s t']
+    'lower' -> ['l o w', 'e', 'r']
+    'widest' -> ['w', 'i', 'd', 'e s t']
+    'low' -> ['l o w']
+    
+    ==================================================
+    New Vocabulary (merged tokens only):
+    Token ID 257: 's t'
+    Token ID 258: 'e s t'
+    Token ID 259: 'o w'
+    Token ID 260: 'l o w'
+    Token ID 261: 'w e s t'
+    Token ID 262: 'n e'
 ```
 
 This implementation demonstrates how BPE learns to represent text efficiently by identifying and merging frequently occurring character patterns, creating a vocabulary that balances between the simplicity of byte-level tokenization and the efficiency of word-level tokenization.

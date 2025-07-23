@@ -72,7 +72,7 @@ git init
 git remote add origin https://github.com/yourusername/yourusername.github.io.git
 git add .
 git commit -m "Initial commit"
-git push -u origin master  # or `main`, depending on default branch
+git push -u origin main  # or `main`, depending on default branch
 ```
 ### 3. Configure _config.yml
 In your Jekyll site directory:

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-07-22T21:00:20-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-07-22T21:26:02-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
 </subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [2]</title><link href="http://localhost:4000/cs336/2025/07/22/cs336-note-simple-bpe.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [2]" /><published>2025-07-22T00:00:00-07:00</published><updated>2025-07-22T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/07/22/cs336-note-simple-bpe</id><content type="html" xml:base="http://localhost:4000/cs336/2025/07/22/cs336-note-simple-bpe.html"><![CDATA[<h1 id="byte-pair-encoding-bpe-tokenizer-in-a-nutshell">Byte Pair Encoding (BPE) Tokenizer in a Nutshell</h1>
 <h2 id="key-terms">Key Terms</h2>
 
@@ -457,37 +457,60 @@
 
 <p>When you run this code, you’ll see output like:</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>BPE Training on Corpus:
-Corpus: low low low low low lower lower widest widest widest newest newest newest newest newest newest
-==================================================
-Initial word frequencies: {'(l,o,w)': 5, '(l,o,w,e,r)': 2, '(w,i,d,e,s,t)': 3, '(n,e,w,e,s,t)': 6}
-
-Merge 1:
-Pair frequencies: {'lo': 7, 'ow': 7, 'we': 8, 'er': 2, 'wi': 3, 'id': 3, 'de': 3, 'es': 9, 'st': 9, 'ne': 6, 'ew': 6}
-Most frequent pair: (s, t) (freq: 9)
-After merge: {'(l,o,w)': 5, '(l,o,w,e,r)': 2, '(w,i,d,e,s t)': 3, '(n,e,w,e,s t)': 6}
-
-...
-
-==================================================
-Training Complete!
-Merges performed: ['s t', 'e s t', 'o w', 'l o w', 'w e s t', 'n e']
-
-==================================================
-Tokenization Examples:
-'newest' -&gt; ['n e', 'w e s t']
-'lower' -&gt; ['l o w', 'e', 'r']
-'widest' -&gt; ['w', 'i', 'd', 'e s t']
-'low' -&gt; ['l o w']
-
-==================================================
-New Vocabulary (merged tokens only):
-Token ID 257: 's t'
-Token ID 258: 'e s t'
-Token ID 259: 'o w'
-Token ID 260: 'l o w'
-Token ID 261: 'w e s t'
-Token ID 262: 'n e'
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    BPE Training on Corpus:
+    Corpus: low low low low low lower lower widest widest widest newest newest newest newest newest newest
+    ==================================================
+    Initial word frequencies: {'(l,o,w)': 5, '(l,o,w,e,r)': 2, '(w,i,d,e,s,t)': 3, '(n,e,w,e,s,t)': 6}
+    
+    Merge 1:
+    Pair frequencies: {'lo': 7, 'ow': 7, 'we': 8, 'er': 2, 'wi': 3, 'id': 3, 'de': 3, 'es': 9, 'st': 9, 'ne': 6, 'ew': 6}
+    Most frequent pair: (s, t) (freq: 9)
+    After merge: {'(l,o,w)': 5, '(l,o,w,e,r)': 2, '(w,i,d,e,s t)': 3, '(n,e,w,e,s t)': 6}
+    
+    Merge 2:
+    Pair frequencies: {'lo': 7, 'ow': 7, 'we': 8, 'er': 2, 'wi': 3, 'id': 3, 'de': 3, 'es t': 9, 'ne': 6, 'ew': 6}
+    Most frequent pair: (e, s t) (freq: 9)
+    After merge: {'(l,o,w)': 5, '(l,o,w,e,r)': 2, '(w,i,d,e s t)': 3, '(n,e,w,e s t)': 6}
+    
+    Merge 3:
+    Pair frequencies: {'lo': 7, 'ow': 7, 'we': 2, 'er': 2, 'wi': 3, 'id': 3, 'de s t': 3, 'ne': 6, 'ew': 6, 'we s t': 6}
+    Most frequent pair: (o, w) (freq: 7)
+    After merge: {'(l,o w)': 5, '(l,o w,e,r)': 2, '(w,i,d,e s t)': 3, '(n,e,w,e s t)': 6}
+    
+    Merge 4:
+    Pair frequencies: {'lo w': 7, 'o we': 2, 'er': 2, 'wi': 3, 'id': 3, 'de s t': 3, 'ne': 6, 'ew': 6, 'we s t': 6}
+    Most frequent pair: (l, o w) (freq: 7)
+    After merge: {'(l o w)': 5, '(l o w,e,r)': 2, '(w,i,d,e s t)': 3, '(n,e,w,e s t)': 6}
+    
+    Merge 5:
+    Pair frequencies: {'l o we': 2, 'er': 2, 'wi': 3, 'id': 3, 'de s t': 3, 'ne': 6, 'ew': 6, 'we s t': 6}
+    Most frequent pair: (w, e s t) (freq: 6)
+    After merge: {'(l o w)': 5, '(l o w,e,r)': 2, '(w,i,d,e s t)': 3, '(n,e,w e s t)': 6}
+    
+    Merge 6:
+    Pair frequencies: {'l o we': 2, 'er': 2, 'wi': 3, 'id': 3, 'de s t': 3, 'ne': 6, 'ew e s t': 6}
+    Most frequent pair: (n, e) (freq: 6)
+    After merge: {'(l o w)': 5, '(l o w,e,r)': 2, '(w,i,d,e s t)': 3, '(n e,w e s t)': 6}
+    
+    ==================================================
+    Training Complete!
+    Merges performed: ['s t', 'e s t', 'o w', 'l o w', 'w e s t', 'n e']
+    
+    ==================================================
+    Tokenization Examples:
+    'newest' -&gt; ['n e', 'w e s t']
+    'lower' -&gt; ['l o w', 'e', 'r']
+    'widest' -&gt; ['w', 'i', 'd', 'e s t']
+    'low' -&gt; ['l o w']
+    
+    ==================================================
+    New Vocabulary (merged tokens only):
+    Token ID 257: 's t'
+    Token ID 258: 'e s t'
+    Token ID 259: 'o w'
+    Token ID 260: 'l o w'
+    Token ID 261: 'w e s t'
+    Token ID 262: 'n e'
 </code></pre></div></div>
 
 <p>This implementation demonstrates how BPE learns to represent text efficiently by identifying and merging frequently occurring character patterns, creating a vocabulary that balances between the simplicity of byte-level tokenization and the efficiency of word-level tokenization.</p>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="cs336" /><summary type="html"><![CDATA[Byte Pair Encoding (BPE) Tokenizer in a Nutshell Key Terms]]></summary></entry><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [1]</title><link href="http://localhost:4000/cs336/2025/07/20/cs336-note-get-started.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [1]" /><published>2025-07-20T00:00:00-07:00</published><updated>2025-07-20T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/07/20/cs336-note-get-started</id><content type="html" xml:base="http://localhost:4000/cs336/2025/07/20/cs336-note-get-started.html"><![CDATA[<h2 id="introduction">Introduction</h2>
