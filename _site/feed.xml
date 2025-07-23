@@ -1,5 +1,496 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-07-20T12:30:10-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
-</subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [1]</title><link href="http://localhost:4000/cs336/2025/07/20/cs336-note-get-started.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [1]" /><published>2025-07-20T00:00:00-07:00</published><updated>2025-07-20T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/07/20/cs336-note-get-started</id><content type="html" xml:base="http://localhost:4000/cs336/2025/07/20/cs336-note-get-started.html"><![CDATA[<h2 id="introduction">Introduction</h2>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-07-22T21:00:20-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [2]</title><link href="http://localhost:4000/cs336/2025/07/22/cs336-note-simple-bpe.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [2]" /><published>2025-07-22T00:00:00-07:00</published><updated>2025-07-22T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/07/22/cs336-note-simple-bpe</id><content type="html" xml:base="http://localhost:4000/cs336/2025/07/22/cs336-note-simple-bpe.html"><![CDATA[<h1 id="byte-pair-encoding-bpe-tokenizer-in-a-nutshell">Byte Pair Encoding (BPE) Tokenizer in a Nutshell</h1>
+<h2 id="key-terms">Key Terms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: left">Concept</th>
+      <th style="text-align: left">Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: left">Unicode</td>
+      <td style="text-align: left">System that assigns every character a unique codepoint (e.g., ‘A’ → 65)</td>
+    </tr>
+    <tr>
+      <td style="text-align: left">UTF-8</td>
+      <td style="text-align: left">A way to encode those codepoints into 1-4 bytes</td>
+    </tr>
+    <tr>
+      <td style="text-align: left">Byte</td>
+      <td style="text-align: left">8 bits; one byte can hold values from 0 to 255</td>
+    </tr>
+    <tr>
+      <td style="text-align: left">Tokenization</td>
+      <td style="text-align: left">Breaking text corpus input into manageable pieces (tokens) for a model</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Let us take the following string as a simple example to illustrate the concept.</p>
+
+<h2 id="example-encoding-a">Example: Encoding ‘A😊’</h2>
+
+<h3 id="step-1-get-the-unicode-codepoints">Step 1: Get the Unicode Codepoints</h3>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">text</span> <span class="o">=</span> <span class="s">'A😊'</span>
+<span class="n">codepoints</span> <span class="o">=</span> <span class="p">[</span><span class="nb">ord</span><span class="p">(</span><span class="s">'A'</span><span class="p">),</span> <span class="nb">ord</span><span class="p">(</span><span class="s">'😊'</span><span class="p">)]</span>
+<span class="k">print</span><span class="p">(</span><span class="n">codepoints</span><span class="p">)</span>  <span class="c1"># [65, 128522]
+</span></code></pre></div></div>
+
+<p>Output:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[65, 128522]
+</code></pre></div></div>
+
+<h3 id="step-2-utf-8-encoding-turn-codepoints-into-bytes">Step 2: UTF-8 Encoding (Turn Codepoints into Bytes)</h3>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">utf8_bytes</span> <span class="o">=</span> <span class="n">text</span><span class="p">.</span><span class="n">encode</span><span class="p">(</span><span class="s">"utf-8"</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">utf8_bytes</span><span class="p">))</span>  <span class="c1"># (65, 240, 159, 152, 138)
+</span></code></pre></div></div>
+
+<p>Output:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(65, 240, 159, 152, 138)
+</code></pre></div></div>
+
+<p>Here’s what happened:</p>
+<ul>
+  <li>‘A’ is encoded using one byte: 65</li>
+  <li>‘😊’ is encoded using four bytes: [240, 159, 152, 138]</li>
+  <li>‘A😊’ is encoded as the sequence [65, 240, 159, 152, 138]</li>
+</ul>
+
+<h2 id="why-using-utf-8-for-encoding-is-helpful">Why Using UTF-8 for Encoding is Helpful</h2>
+
+<p>Instead of dealing with hundreds of thousands of possible codepoints (Unicode has more than 150,000 codepoints) or millions of words/subwords in vocabulary, we can model text using sequences of bytes. Each byte can be represented by an integer from 0 to 255, so we only need a vocabulary of size 256 to model input text. This approach is simple and complete—any character in any language can be represented as bytes, eliminating out-of-vocabulary token concerns.</p>
+
+<h2 id="tokenization-spectrum">Tokenization Spectrum</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: left">Tokenization Level</th>
+      <th style="text-align: left">Example Tokens</th>
+      <th style="text-align: left">Pros</th>
+      <th style="text-align: left">Cons</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: left"><strong>Word-level</strong></td>
+      <td style="text-align: left"><code class="language-plaintext highlighter-rouge">["unbelievable"]</code></td>
+      <td style="text-align: left">Human-readable, efficient</td>
+      <td style="text-align: left">OOV (out-of-vocabulary) issues</td>
+    </tr>
+    <tr>
+      <td style="text-align: left"><strong>Subword-level</strong> (BPE)</td>
+      <td style="text-align: left"><code class="language-plaintext highlighter-rouge">["un", "believ", "able"]</code></td>
+      <td style="text-align: left">Handles rare words, compact</td>
+      <td style="text-align: left">Requires training</td>
+    </tr>
+    <tr>
+      <td style="text-align: left"><strong>Byte-level</strong></td>
+      <td style="text-align: left"><code class="language-plaintext highlighter-rouge">[117, 110, 98, 101, ...]</code> (bytes)</td>
+      <td style="text-align: left">No OOV, simple</td>
+      <td style="text-align: left">Longer sequences, less semantic meaning</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="why-subword-tokenization-is-the-middle-ground">Why Subword Tokenization is the Middle Ground</h2>
+
+<p><strong>Subword tokenization</strong> with <strong>Byte Pair Encoding (BPE)</strong> provides a balance between the other approaches:</p>
+
+<ul>
+  <li><strong>Word-level tokenization</strong> struggles with rare or unseen words (e.g., “unbelievable” might be unknown even if “believe” is known)</li>
+  <li><strong>Byte-level tokenization</strong> avoids unknown token issues but creates long, inefficient sequences</li>
+  <li><strong>Subword tokenization</strong> (BPE):
+    <ol>
+      <li>Breaks rare words into familiar pieces (subwords)</li>
+      <li>Retains compactness for common words</li>
+      <li>Is learnable from corpus statistics</li>
+    </ol>
+  </li>
+</ul>
+
+<h2 id="byte-pair-encoding-bpe-algorithm-overview">Byte Pair Encoding (BPE) Algorithm Overview</h2>
+
+<p>BPE starts from characters and iteratively <strong>merges the most frequent adjacent pairs</strong> into longer tokens.</p>
+
+<h3 id="example-training-corpus">Example Training Corpus</h3>
+
+<p>Consider this toy training corpus:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>"low"     (5 times)  
+"lowest"  (2 times)  
+"newest"  (6 times)  
+"wider"   (3 times)
+</code></pre></div></div>
+
+<p>We want to learn a compact subword vocabulary that reuses frequent patterns like “low” and “est”.</p>
+
+<h3 id="step-by-step-bpe-process">Step-by-Step BPE Process</h3>
+
+<h4 id="step-0-preprocess-as-characters">Step 0: Preprocess as Characters</h4>
+<p>Each word is broken into characters with an end-of-word marker <code class="language-plaintext highlighter-rouge">&lt;/w&gt;</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>"l o w &lt;/w&gt;"        (5)
+"l o w e s t &lt;/w&gt;"  (2)
+"n e w e s t &lt;/w&gt;"  (6)
+"w i d e r &lt;/w&gt;"    (3)
+</code></pre></div></div>
+
+<h4 id="step-1-count-adjacent-pairs">Step 1: Count Adjacent Pairs</h4>
+<p>Compute most frequent adjacent pairs across all words:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>('e', 's') appears 8 times
+('s', 't') appears 8 times
+('l', 'o') appears 7 times
+('o', 'w') appears 7 times
+</code></pre></div></div>
+
+<h4 id="step-2-merge-e--s--es">Step 2: Merge ‘e’ + ‘s’ → ‘es’</h4>
+<p>Update vocabulary:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>"l o w &lt;/w&gt;"          (5)
+"l o w es t &lt;/w&gt;"     (2)
+"n e w es t &lt;/w&gt;"     (6)
+"w i d e r &lt;/w&gt;"      (3)
+</code></pre></div></div>
+
+<h4 id="step-3-merge-es--t--est">Step 3: Merge ‘es’ + ‘t’ → ‘est’</h4>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>"l o w &lt;/w&gt;"         (5)
+"l o w est &lt;/w&gt;"     (2)
+"n e w est &lt;/w&gt;"     (6)
+"w i d e r &lt;/w&gt;"     (3)
+</code></pre></div></div>
+
+<h4 id="step-4-merge-l--o--lo-then-lo--w--low">Step 4: Merge ‘l’ + ‘o’ → ‘lo’, then ‘lo’ + ‘w’ → ‘low’</h4>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>"low &lt;/w&gt;"          (5)
+"low est &lt;/w&gt;"      (2)
+"n e w est &lt;/w&gt;"    (6)
+"w i d e r &lt;/w&gt;"    (3)
+</code></pre></div></div>
+
+<h4 id="continue-merging">Continue merging…</h4>
+<p>Eventually we learn useful building blocks like ‘low’, ‘est’, and ‘new’. After training, “newest” would tokenize to <code class="language-plaintext highlighter-rouge">['new', 'est', '&lt;/w&gt;']</code>.</p>
+
+<h2 id="bpe-implementation">BPE Implementation</h2>
+
+<p>Below is a complete implementation demonstrating the BPE algorithm on the corpus:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>"low low low low low lower lower widest widest widest newest newest newest newest newest newest"
+</code></pre></div></div>
+
+<h3 id="key-components">Key Components</h3>
+
+<ol>
+  <li><strong>Initialization</strong>: Creates vocabulary with <code class="language-plaintext highlighter-rouge">&lt;|endoftext|&gt;</code> special token and all 256 byte values</li>
+  <li><strong>Pre-tokenization</strong>: Splits text on whitespace and converts words to byte tuples</li>
+  <li><strong>Pair Frequency Counting</strong>: Counts all adjacent byte pairs across the corpus</li>
+  <li><strong>Merging</strong>: Merges the most frequent pair (lexicographically largest in case of ties)</li>
+  <li><strong>Tokenization</strong>: Uses learned merges to tokenize new words</li>
+</ol>
+
+<h3 id="how-it-works">How It Works</h3>
+
+<ol>
+  <li><strong>Pre-tokenization</strong>: Converts <code class="language-plaintext highlighter-rouge">"low low low..."</code> into <code class="language-plaintext highlighter-rouge">{(l,o,w): 5, (l,o,w,e,r): 2, ...}</code></li>
+  <li><strong>Merge Selection</strong>: Finds most frequent pairs like <code class="language-plaintext highlighter-rouge">('s','t')</code> and <code class="language-plaintext highlighter-rouge">('e','s')</code>, chooses lexicographically larger <code class="language-plaintext highlighter-rouge">('s','t')</code></li>
+  <li><strong>Iterative Merging</strong>: Continues merging until desired number of merges is reached</li>
+  <li><strong>Tokenization</strong>: Applies learned merges in order to tokenize new words</li>
+</ol>
+
+<h3 id="expected-output">Expected Output</h3>
+
+<p>With 6 merges, the algorithm produces:</p>
+<ul>
+  <li><strong>Merges</strong>: <code class="language-plaintext highlighter-rouge">['s t', 'e st', 'o w', 'l ow', 'w est', 'n e']</code></li>
+  <li><strong>Final vocabulary</strong>: <code class="language-plaintext highlighter-rouge">&lt;|endoftext|&gt;</code>, 256 byte chars, <code class="language-plaintext highlighter-rouge">st</code>, <code class="language-plaintext highlighter-rouge">est</code>, <code class="language-plaintext highlighter-rouge">ow</code>, <code class="language-plaintext highlighter-rouge">low</code>, <code class="language-plaintext highlighter-rouge">west</code>, <code class="language-plaintext highlighter-rouge">ne</code></li>
+  <li><strong>“newest” tokenizes as</strong>: <code class="language-plaintext highlighter-rouge">['ne', 'west']</code></li>
+</ul>
+
+<p>Below is one implementation for Algorithm 1 of <a href="https://arxiv.org/abs/1508.07909">Sennrich et al. [2016]</a>.</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">defaultdict</span><span class="p">,</span> <span class="n">Counter</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Set</span><span class="p">,</span> <span class="n">Union</span>
+
+<span class="k">class</span> <span class="nc">BPEEncoder</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># Initialize vocabulary with special token and 256 byte values
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">vocab</span> <span class="o">=</span> <span class="p">{</span><span class="s">"&lt;|endoftext|&gt;"</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+        <span class="c1"># Add all possible byte values (0-255) to vocabulary
+</span>        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">256</span><span class="p">):</span>
+            <span class="bp">self</span><span class="p">.</span><span class="n">vocab</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span>
+
+        <span class="bp">self</span><span class="p">.</span><span class="n">merges</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># List of (token1, token2) pairs that were merged
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">merge_tokens</span> <span class="o">=</span> <span class="p">{}</span>  <span class="c1"># Maps (token1, token2) -&gt; new_token_id
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">token_names</span> <span class="o">=</span> <span class="p">{}</span>  <span class="c1"># Maps token_id -&gt; readable name
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">next_token_id</span> <span class="o">=</span> <span class="mi">257</span>
+
+    <span class="k">def</span> <span class="nf">pre_tokenize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="p">...],</span> <span class="nb">int</span><span class="p">]:</span>
+        <span class="s">"""
+        Pre-tokenize text by splitting on whitespace and convert to byte tuples.
+        Returns frequency count of each word as tuple of byte integers.
+        For example, converts "low low low..." into {(l,o,w): 5, (l,o,w,e,r): 2, ...}
+        """</span>
+        <span class="n">words</span> <span class="o">=</span> <span class="n">text</span><span class="p">.</span><span class="n">split</span><span class="p">()</span>
+        <span class="n">word_freq</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">(</span><span class="n">words</span><span class="p">)</span>
+
+        <span class="c1"># Convert to tuple of byte integers
+</span>        <span class="n">byte_word_freq</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">word</span><span class="p">,</span> <span class="n">freq</span> <span class="ow">in</span> <span class="n">word_freq</span><span class="p">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">byte_tuple</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">word</span><span class="p">.</span><span class="n">encode</span><span class="p">(</span><span class="s">'utf-8'</span><span class="p">))</span>
+            <span class="n">byte_word_freq</span><span class="p">[</span><span class="n">byte_tuple</span><span class="p">]</span> <span class="o">=</span> <span class="n">freq</span>
+
+        <span class="k">return</span> <span class="n">byte_word_freq</span>
+
+    <span class="k">def</span> <span class="nf">get_pair_frequencies</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">word_freq</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="p">...],</span> <span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]],</span> <span class="nb">int</span><span class="p">]:</span>
+        <span class="s">"""
+        Count frequency of all adjacent token pairs across all words.
+        """</span>
+        <span class="n">pair_freq</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">word</span><span class="p">,</span> <span class="n">freq</span> <span class="ow">in</span> <span class="n">word_freq</span><span class="p">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">word</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+                <span class="n">pair</span> <span class="o">=</span> <span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">word</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">])</span>
+                <span class="n">pair_freq</span><span class="p">[</span><span class="n">pair</span><span class="p">]</span> <span class="o">+=</span> <span class="n">freq</span>
+
+        <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="n">pair_freq</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">merge_pair</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">word_freq</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="p">...],</span> <span class="nb">int</span><span class="p">],</span>
+                   <span class="n">pair_to_merge</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]],</span>
+                   <span class="n">new_token</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="p">...],</span> <span class="nb">int</span><span class="p">]:</span>
+        <span class="s">"""
+        Merge the specified pair in all words where it appears.
+        """</span>
+        <span class="n">new_word_freq</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">for</span> <span class="n">word</span><span class="p">,</span> <span class="n">freq</span> <span class="ow">in</span> <span class="n">word_freq</span><span class="p">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">new_word</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">while</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">word</span><span class="p">):</span>
+                <span class="c1"># Check if current position matches the pair to merge
+</span>                <span class="k">if</span> <span class="p">(</span><span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">word</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span> <span class="ow">and</span>
+                    <span class="n">word</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">==</span> <span class="n">pair_to_merge</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">and</span>
+                    <span class="n">word</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">pair_to_merge</span><span class="p">[</span><span class="mi">1</span><span class="p">]):</span>
+                    <span class="n">new_word</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">new_token</span><span class="p">)</span>
+                    <span class="n">i</span> <span class="o">+=</span> <span class="mi">2</span>  <span class="c1"># Skip both tokens of the pair
+</span>                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">new_word</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+                    <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+
+            <span class="n">new_word_freq</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="n">new_word</span><span class="p">)]</span> <span class="o">=</span> <span class="n">freq</span>
+
+        <span class="k">return</span> <span class="n">new_word_freq</span>
+
+    <span class="k">def</span> <span class="nf">train</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">num_merges</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+        <span class="s">"""
+        Train BPE on the given text for specified number of merges.
+        Returns list of merge operations performed.
+        """</span>
+        <span class="c1"># Pre-tokenize text
+</span>        <span class="n">word_freq</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">pre_tokenize</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Initial word frequencies: </span><span class="si">{</span><span class="bp">self</span><span class="p">.</span><span class="n">_format_word_freq</span><span class="p">(</span><span class="n">word_freq</span><span class="p">)</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+        <span class="n">merges_performed</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">merge_step</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_merges</span><span class="p">):</span>
+            <span class="c1"># Get pair frequencies
+</span>            <span class="n">pair_freq</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">get_pair_frequencies</span><span class="p">(</span><span class="n">word_freq</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">pair_freq</span><span class="p">:</span>
+                <span class="k">break</span>
+
+            <span class="c1"># Find most frequent pair (lexicographically largest in case of tie)
+</span>            <span class="n">max_freq</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">pair_freq</span><span class="p">.</span><span class="n">values</span><span class="p">())</span>
+            <span class="n">most_frequent_pairs</span> <span class="o">=</span> <span class="p">[</span><span class="n">pair</span> <span class="k">for</span> <span class="n">pair</span><span class="p">,</span> <span class="n">freq</span> <span class="ow">in</span> <span class="n">pair_freq</span><span class="p">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">freq</span> <span class="o">==</span> <span class="n">max_freq</span><span class="p">]</span>
+
+            <span class="c1"># Sort pairs lexicographically - convert to comparable format
+</span>            <span class="k">def</span> <span class="nf">pair_sort_key</span><span class="p">(</span><span class="n">pair</span><span class="p">):</span>
+                <span class="k">def</span> <span class="nf">token_to_str</span><span class="p">(</span><span class="n">token</span><span class="p">):</span>
+                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">token</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+                        <span class="k">return</span> <span class="nb">chr</span><span class="p">(</span><span class="n">token</span><span class="p">)</span>
+                    <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">token</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">(</span><span class="n">token_to_str</span><span class="p">(</span><span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="n">token_to_str</span><span class="p">(</span><span class="n">pair</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+
+            <span class="c1"># Take lexicographically largest (max)
+</span>            <span class="n">best_pair</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">most_frequent_pairs</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">pair_sort_key</span><span class="p">)</span>
+
+            <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"</span><span class="se">\n</span><span class="s">Merge </span><span class="si">{</span><span class="n">merge_step</span> <span class="o">+</span> <span class="mi">1</span><span class="si">}</span><span class="s">:"</span><span class="p">)</span>
+            <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Pair frequencies: </span><span class="si">{</span><span class="bp">self</span><span class="p">.</span><span class="n">_format_pair_freq</span><span class="p">(</span><span class="n">pair_freq</span><span class="p">)</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+            <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Most frequent pair: </span><span class="si">{</span><span class="bp">self</span><span class="p">.</span><span class="n">_format_pair</span><span class="p">(</span><span class="n">best_pair</span><span class="p">)</span><span class="si">}</span><span class="s"> (freq: </span><span class="si">{</span><span class="n">max_freq</span><span class="si">}</span><span class="s">)"</span><span class="p">)</span>
+
+            <span class="c1"># Create new token name
+</span>            <span class="n">new_token</span> <span class="o">=</span> <span class="sa">f</span><span class="s">"merge_</span><span class="si">{</span><span class="bp">self</span><span class="p">.</span><span class="n">next_token_id</span><span class="si">}</span><span class="s">"</span>
+
+            <span class="c1"># Perform the merge
+</span>            <span class="n">word_freq</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">merge_pair</span><span class="p">(</span><span class="n">word_freq</span><span class="p">,</span> <span class="n">best_pair</span><span class="p">,</span> <span class="n">new_token</span><span class="p">)</span>
+
+            <span class="c1"># Record the merge
+</span>            <span class="n">token1_name</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">_token_to_str</span><span class="p">(</span><span class="n">best_pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">token2_name</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">_token_to_str</span><span class="p">(</span><span class="n">best_pair</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+            <span class="n">merge_str</span> <span class="o">=</span> <span class="sa">f</span><span class="s">"</span><span class="si">{</span><span class="n">token1_name</span><span class="si">}</span><span class="s"> </span><span class="si">{</span><span class="n">token2_name</span><span class="si">}</span><span class="s">"</span>
+            <span class="n">merges_performed</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">merge_str</span><span class="p">)</span>
+
+            <span class="c1"># Store merge information
+</span>            <span class="bp">self</span><span class="p">.</span><span class="n">merges</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">best_pair</span><span class="p">)</span>
+            <span class="bp">self</span><span class="p">.</span><span class="n">merge_tokens</span><span class="p">[</span><span class="n">best_pair</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_token</span>
+            <span class="bp">self</span><span class="p">.</span><span class="n">vocab</span><span class="p">[</span><span class="n">new_token</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">next_token_id</span>
+            <span class="bp">self</span><span class="p">.</span><span class="n">token_names</span><span class="p">[</span><span class="n">new_token</span><span class="p">]</span> <span class="o">=</span> <span class="n">merge_str</span>
+            <span class="bp">self</span><span class="p">.</span><span class="n">next_token_id</span> <span class="o">+=</span> <span class="mi">1</span>
+
+            <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"After merge: </span><span class="si">{</span><span class="bp">self</span><span class="p">.</span><span class="n">_format_word_freq</span><span class="p">(</span><span class="n">word_freq</span><span class="p">)</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">merges_performed</span>
+
+    <span class="k">def</span> <span class="nf">tokenize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">word</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+        <span class="s">"""
+        Tokenize a word using the learned BPE merges.
+        """</span>
+        <span class="c1"># Start with individual bytes as integers
+</span>        <span class="n">tokens</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">word</span><span class="p">.</span><span class="n">encode</span><span class="p">(</span><span class="s">'utf-8'</span><span class="p">))</span>
+
+        <span class="c1"># Apply merges in order
+</span>        <span class="k">for</span> <span class="n">merge_pair</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">.</span><span class="n">merges</span><span class="p">:</span>
+            <span class="n">new_tokens</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">while</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">tokens</span><span class="p">):</span>
+                <span class="k">if</span> <span class="p">(</span><span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">tokens</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span> <span class="ow">and</span>
+                    <span class="n">tokens</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">==</span> <span class="n">merge_pair</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">and</span>
+                    <span class="n">tokens</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">merge_pair</span><span class="p">[</span><span class="mi">1</span><span class="p">]):</span>
+                    <span class="c1"># Replace with the merged token name
+</span>                    <span class="n">merged_token</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">merge_tokens</span><span class="p">[</span><span class="n">merge_pair</span><span class="p">]</span>
+                    <span class="n">new_tokens</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">merged_token</span><span class="p">)</span>
+                    <span class="n">i</span> <span class="o">+=</span> <span class="mi">2</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">new_tokens</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">tokens</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+                    <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">tokens</span> <span class="o">=</span> <span class="n">new_tokens</span>
+
+        <span class="c1"># Convert to readable format
+</span>        <span class="n">result</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">tokens</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">token</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+                <span class="n">result</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="nb">chr</span><span class="p">(</span><span class="n">token</span><span class="p">))</span>
+            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">token</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">token</span><span class="p">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">'merge_'</span><span class="p">):</span>
+                <span class="c1"># Convert back to the original characters this merge represents
+</span>                <span class="n">result</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">token_names</span><span class="p">[</span><span class="n">token</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">result</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">token</span><span class="p">))</span>
+
+        <span class="k">return</span> <span class="n">result</span>
+
+    <span class="k">def</span> <span class="nf">_format_word_freq</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">word_freq</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="p">...],</span> <span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="s">"""Format word frequency dictionary for readable output."""</span>
+        <span class="n">formatted</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">word_tuple</span><span class="p">,</span> <span class="n">freq</span> <span class="ow">in</span> <span class="n">word_freq</span><span class="p">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">tokens</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="p">.</span><span class="n">_token_to_str</span><span class="p">(</span><span class="n">token</span><span class="p">)</span> <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">word_tuple</span><span class="p">]</span>
+            <span class="n">word_str</span> <span class="o">=</span> <span class="s">'('</span> <span class="o">+</span> <span class="s">','</span><span class="p">.</span><span class="n">join</span><span class="p">(</span><span class="n">tokens</span><span class="p">)</span> <span class="o">+</span> <span class="s">')'</span>
+            <span class="n">formatted</span><span class="p">[</span><span class="n">word_str</span><span class="p">]</span> <span class="o">=</span> <span class="n">freq</span>
+        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">formatted</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_format_pair_freq</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pair_freq</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]],</span> <span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="s">"""Format pair frequency dictionary for readable output."""</span>
+        <span class="n">formatted</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">pair</span><span class="p">,</span> <span class="n">freq</span> <span class="ow">in</span> <span class="n">pair_freq</span><span class="p">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">first</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">_token_to_str</span><span class="p">(</span><span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">second</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">_token_to_str</span><span class="p">(</span><span class="n">pair</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+            <span class="n">pair_str</span> <span class="o">=</span> <span class="n">first</span> <span class="o">+</span> <span class="n">second</span>
+            <span class="n">formatted</span><span class="p">[</span><span class="n">pair_str</span><span class="p">]</span> <span class="o">=</span> <span class="n">freq</span>
+        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">formatted</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_format_pair</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pair</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="s">"""Format a pair for readable output."""</span>
+        <span class="n">first</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">_token_to_str</span><span class="p">(</span><span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="n">second</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">_token_to_str</span><span class="p">(</span><span class="n">pair</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s">"(</span><span class="si">{</span><span class="n">first</span><span class="si">}</span><span class="s">, </span><span class="si">{</span><span class="n">second</span><span class="si">}</span><span class="s">)"</span>
+
+    <span class="k">def</span> <span class="nf">_token_to_str</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">token</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="s">"""Convert a token to readable string."""</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">token</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+            <span class="k">return</span> <span class="nb">chr</span><span class="p">(</span><span class="n">token</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">token</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">token</span><span class="p">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">'merge_'</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="p">.</span><span class="n">token_names</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="n">token</span><span class="p">,</span> <span class="n">token</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">token</span><span class="p">)</span>
+
+<span class="c1"># Example usage
+</span><span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">"__main__"</span><span class="p">:</span>
+    <span class="c1"># Initialize BPE encoder
+</span>    <span class="n">bpe</span> <span class="o">=</span> <span class="n">BPEEncoder</span><span class="p">()</span>
+
+    <span class="c1"># Example corpus
+</span>    <span class="n">corpus</span> <span class="o">=</span> <span class="s">"low low low low low lower lower widest widest widest newest newest newest newest newest newest"</span>
+
+    <span class="k">print</span><span class="p">(</span><span class="s">"BPE Training on Corpus:"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Corpus: </span><span class="si">{</span><span class="n">corpus</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">"="</span> <span class="o">*</span> <span class="mi">50</span><span class="p">)</span>
+
+    <span class="c1"># Train with 6 merges
+</span>    <span class="n">merges</span> <span class="o">=</span> <span class="n">bpe</span><span class="p">.</span><span class="n">train</span><span class="p">(</span><span class="n">corpus</span><span class="p">,</span> <span class="n">num_merges</span><span class="o">=</span><span class="mi">6</span><span class="p">)</span>
+
+    <span class="k">print</span><span class="p">(</span><span class="s">"</span><span class="se">\n</span><span class="s">"</span> <span class="o">+</span> <span class="s">"="</span> <span class="o">*</span> <span class="mi">50</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">"Training Complete!"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Merges performed: </span><span class="si">{</span><span class="n">merges</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+    <span class="c1"># Test tokenization
+</span>    <span class="k">print</span><span class="p">(</span><span class="s">"</span><span class="se">\n</span><span class="s">"</span> <span class="o">+</span> <span class="s">"="</span> <span class="o">*</span> <span class="mi">50</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">"Tokenization Examples:"</span><span class="p">)</span>
+    <span class="n">test_words</span> <span class="o">=</span> <span class="p">[</span><span class="s">"newest"</span><span class="p">,</span> <span class="s">"lower"</span><span class="p">,</span> <span class="s">"widest"</span><span class="p">,</span> <span class="s">"low"</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">test_words</span><span class="p">:</span>
+        <span class="n">tokens</span> <span class="o">=</span> <span class="n">bpe</span><span class="p">.</span><span class="n">tokenize</span><span class="p">(</span><span class="n">word</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"'</span><span class="si">{</span><span class="n">word</span><span class="si">}</span><span class="s">' -&gt; </span><span class="si">{</span><span class="n">tokens</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+    <span class="c1"># Show final vocabulary (subset)
+</span>    <span class="k">print</span><span class="p">(</span><span class="s">"</span><span class="se">\n</span><span class="s">"</span> <span class="o">+</span> <span class="s">"="</span> <span class="o">*</span> <span class="mi">50</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">"New Vocabulary (merged tokens only):"</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">token</span><span class="p">,</span> <span class="n">token_id</span> <span class="ow">in</span> <span class="n">bpe</span><span class="p">.</span><span class="n">vocab</span><span class="p">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">token</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">token</span><span class="p">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">'merge_'</span><span class="p">):</span>
+            <span class="n">description</span> <span class="o">=</span> <span class="n">bpe</span><span class="p">.</span><span class="n">token_names</span><span class="p">[</span><span class="n">token</span><span class="p">]</span>
+            <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Token ID </span><span class="si">{</span><span class="n">token_id</span><span class="si">}</span><span class="s">: '</span><span class="si">{</span><span class="n">description</span><span class="si">}</span><span class="s">'"</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h2 id="sample-output">Sample Output</h2>
+
+<p>When you run this code, you’ll see output like:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>BPE Training on Corpus:
+Corpus: low low low low low lower lower widest widest widest newest newest newest newest newest newest
+==================================================
+Initial word frequencies: {'(l,o,w)': 5, '(l,o,w,e,r)': 2, '(w,i,d,e,s,t)': 3, '(n,e,w,e,s,t)': 6}
+
+Merge 1:
+Pair frequencies: {'lo': 7, 'ow': 7, 'we': 8, 'er': 2, 'wi': 3, 'id': 3, 'de': 3, 'es': 9, 'st': 9, 'ne': 6, 'ew': 6}
+Most frequent pair: (s, t) (freq: 9)
+After merge: {'(l,o,w)': 5, '(l,o,w,e,r)': 2, '(w,i,d,e,s t)': 3, '(n,e,w,e,s t)': 6}
+
+...
+
+==================================================
+Training Complete!
+Merges performed: ['s t', 'e s t', 'o w', 'l o w', 'w e s t', 'n e']
+
+==================================================
+Tokenization Examples:
+'newest' -&gt; ['n e', 'w e s t']
+'lower' -&gt; ['l o w', 'e', 'r']
+'widest' -&gt; ['w', 'i', 'd', 'e s t']
+'low' -&gt; ['l o w']
+
+==================================================
+New Vocabulary (merged tokens only):
+Token ID 257: 's t'
+Token ID 258: 'e s t'
+Token ID 259: 'o w'
+Token ID 260: 'l o w'
+Token ID 261: 'w e s t'
+Token ID 262: 'n e'
+</code></pre></div></div>
+
+<p>This implementation demonstrates how BPE learns to represent text efficiently by identifying and merging frequently occurring character patterns, creating a vocabulary that balances between the simplicity of byte-level tokenization and the efficiency of word-level tokenization.</p>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="cs336" /><summary type="html"><![CDATA[Byte Pair Encoding (BPE) Tokenizer in a Nutshell Key Terms]]></summary></entry><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [1]</title><link href="http://localhost:4000/cs336/2025/07/20/cs336-note-get-started.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [1]" /><published>2025-07-20T00:00:00-07:00</published><updated>2025-07-20T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/07/20/cs336-note-get-started</id><content type="html" xml:base="http://localhost:4000/cs336/2025/07/20/cs336-note-get-started.html"><![CDATA[<h2 id="introduction">Introduction</h2>
 
 <p>It’s been a while since my last blog post about my generative AI learning journey (January 1, 2024). My day job has demanded significant time and energy, but I don’t want that to derail my passion and curiosity for deep-diving into this field.</p>
 
