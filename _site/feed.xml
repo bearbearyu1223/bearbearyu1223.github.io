@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-07-26T16:11:56-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-07-26T16:37:25-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
 </subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [3]</title><link href="http://localhost:4000/cs336/2025/07/26/cs336-note-train-bpe-tinystories.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [3]" /><published>2025-07-26T00:00:00-07:00</published><updated>2025-07-26T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/07/26/cs336-note-train-bpe-tinystories</id><content type="html" xml:base="http://localhost:4000/cs336/2025/07/26/cs336-note-train-bpe-tinystories.html"><![CDATA[<h1 id="building-a-bpe-tokenizer-from-scratch-train-the-tokenizer-using-tinystories-dataset">Building a BPE Tokenizer from Scratch: Train the Tokenizer using TinyStories Dataset</h1>
 
 <p>Ever wondered how modern language models like GPT break down text into tokens? In this note, I will share how to build a Byte Pair Encoding (BPE) tokenizer from scratch and train it on the <a href="https://arxiv.org/abs/2305.07759">TinyStories Dataset</a>. We will see how BPE achieves impressive compression ratios.</p>
@@ -641,6 +641,175 @@ Chunk 3:
 <p>To run the training, one can try for example:</p>
 
 <div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">train_bpe_tokentizer_via_dataset</span><span class="p">(</span><span class="n">input_path</span><span class="o">=</span><span class="s">"data/TinyStoriesV2-GPT4-train.txt"</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p>And it will output the following info from the training process:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>================================================================================
+BPE TOKENIZER TRAINING ON TINYSTORIES DATASET
+================================================================================
+Configuration:
+  Input file: /content/TinyStoriesV2-GPT4-train.txt
+  File size: 2,227,753,162 bytes (2124.6 MB)
+  Target vocabulary size: 10,000
+  Special tokens: ['&lt;|endoftext|&gt;']
+  Verbose logging: Enabled
+
+Step 1: Setting up parallel processing...
+Using 12 processes for parallel tokenization
+Finding chunk boundaries aligned with special token: &lt;|endoftext|&gt;
+Initial guess of the chunk boundaries: [0, 185646096, 371292192, 556938288, 742584384, 928230480, 1113876576, 1299522672, 1485168768, 1670814864, 1856460960, 2042107056, 2227753152]
+Created 12 chunks for processing
+
+Step 2: Pre-tokenizing text corpus...
+Pre-tokenization completed in 66.52 seconds
+Found 59,904 unique word types
+Total token count: 536,592,162
+Most common words:
+  1. '.' -&gt; 41,764,519 times
+  2. ',' -&gt; 23,284,331 times
+  3. ' the' -&gt; 20,828,576 times
+  4. ' and' -&gt; 19,475,966 times
+  5. ' a' -&gt; 15,063,529 times
+
+Step 3: Training BPE with 9,743 merges...
+Initial vocabulary size: 257 (256 bytes + 1 special tokens)
+============================================================
+Merge    1/9743: ' ' + 't' -&gt; ' t' (freq: 63,482,199, time: 0.273s)
+Merge    2/9743: 'h' + 'e' -&gt; 'he' (freq: 63,341,860, time: 0.318s)
+Merge    3/9743: ' ' + 'a' -&gt; ' a' (freq: 47,465,635, time: 0.340s)
+Merge    4/9743: ' ' + 's' -&gt; ' s' (freq: 32,362,158, time: 0.340s)
+Merge    5/9743: ' ' + 'w' -&gt; ' w' (freq: 31,485,643, time: 0.327s)
+Merge    6/9743: 'n' + 'd' -&gt; 'nd' (freq: 28,922,386, time: 0.332s)
+Merge    7/9743: ' t' + 'he' -&gt; ' the' (freq: 28,915,024, time: 0.320s)
+Merge    8/9743: 'e' + 'd' -&gt; 'ed' (freq: 24,836,456, time: 0.317s)
+Merge    9/9743: ' ' + 'b' -&gt; ' b' (freq: 22,147,488, time: 0.326s)
+Merge   10/9743: ' t' + 'o' -&gt; ' to' (freq: 20,892,273, time: 0.322s)
+Merge  100/9743: ' ha' + 'pp' -&gt; ' happ' (freq: 3,147,884, time: 0.251s)
+Merge  200/9743: ' s' + 'e' -&gt; ' se' (freq: 1,410,130, time: 0.343s)
+Merge  300/9743: ' s' + 'omet' -&gt; ' somet' (freq: 790,510, time: 0.245s)
+Merge  400/9743: ' g' + 'ot' -&gt; ' got' (freq: 524,776, time: 0.338s)
+Merge  500/9743: ' e' + 'ach' -&gt; ' each' (freq: 369,637, time: 0.321s)
+Merge  600/9743: 'l' + 'f' -&gt; 'lf' (freq: 279,566, time: 0.230s)
+Merge  700/9743: ' wal' + 'k' -&gt; ' walk' (freq: 221,114, time: 0.237s)
+Merge  800/9743: ' do' + 'll' -&gt; ' doll' (freq: 177,602, time: 0.324s)
+Merge  900/9743: ' ' + 'G' -&gt; ' G' (freq: 147,699, time: 0.214s)
+Merge 1000/9743: 'ec' + 't' -&gt; 'ect' (freq: 127,288, time: 0.233s)
+Merge 1100/9743: ' l' + 'ight' -&gt; ' light' (freq: 108,006, time: 0.208s)
+Merge 1200/9743: ' d' + 'in' -&gt; ' din' (freq: 92,211, time: 0.225s)
+Merge 1300/9743: ' picture' + 's' -&gt; ' pictures' (freq: 80,416, time: 0.318s)
+Merge 1400/9743: 'itt' + 'en' -&gt; 'itten' (freq: 68,466, time: 0.235s)
+Merge 1500/9743: 'A' + 'my' -&gt; 'Amy' (freq: 59,829, time: 0.306s)
+Merge 1600/9743: ' tal' + 'king' -&gt; ' talking' (freq: 53,781, time: 0.330s)
+Merge 1700/9743: 'b' + 'all' -&gt; 'ball' (freq: 48,005, time: 0.309s)
+Merge 1800/9743: ' k' + 'iss' -&gt; ' kiss' (freq: 43,477, time: 0.318s)
+...
+Merge 8000/9743: ' mom' + 'mies' -&gt; ' mommies' (freq: 879, time: 0.205s)
+Merge 8100/9743: ' cryst' + 'als' -&gt; ' crystals' (freq: 840, time: 0.299s)
+Merge 8200/9743: ' playd' + 'ate' -&gt; ' playdate' (freq: 809, time: 0.283s)
+Merge 8300/9743: ' support' + 'ing' -&gt; ' supporting' (freq: 778, time: 0.200s)
+Merge 8400/9743: ' activ' + 'ity' -&gt; ' activity' (freq: 747, time: 0.300s)
+Merge 8500/9743: 'L' + 'izzy' -&gt; 'Lizzy' (freq: 716, time: 0.284s)
+Merge 8600/9743: 'er' + 'ing' -&gt; 'ering' (freq: 691, time: 0.311s)
+Merge 8700/9743: ' tid' + 'ied' -&gt; ' tidied' (freq: 660, time: 0.308s)
+Merge 8800/9743: 'f' + 'lowers' -&gt; 'flowers' (freq: 633, time: 0.295s)
+Merge 8900/9743: ' Gra' + 'nd' -&gt; ' Grand' (freq: 609, time: 0.299s)
+Merge 9000/9743: ' frustr' + 'ation' -&gt; ' frustration' (freq: 584, time: 0.301s)
+Merge 9100/9743: 'amil' + 'iar' -&gt; 'amiliar' (freq: 561, time: 0.205s)
+Merge 9200/9743: ' P' + 'retty' -&gt; ' Pretty' (freq: 542, time: 0.310s)
+Merge 9300/9743: ' sal' + 'on' -&gt; ' salon' (freq: 521, time: 0.292s)
+Merge 9400/9743: ' p' + 'ounced' -&gt; ' pounced' (freq: 502, time: 0.196s)
+Merge 9500/9743: ' pops' + 'ic' -&gt; ' popsic' (freq: 485, time: 0.185s)
+Merge 9600/9743: ' pain' + 'ful' -&gt; ' painful' (freq: 469, time: 0.298s)
+Merge 9700/9743: 'solut' + 'ely' -&gt; 'solutely' (freq: 454, time: 0.308s)
+============================================================
+BPE training completed in 2731.72 seconds
+Final vocabulary size: 10000
+Total merges performed: 9743
+Compression ratio: 4.07x (from 2,192,422,648 to 538,511,097 tokens)
+
+================================================================================
+TRAINING SUMMARY
+================================================================================
+Total training time: 2898.45 seconds
+Final vocabulary size: 10,000
+Number of merges performed: 9,743
+Actual vocab size vs target: 10000 / 10000
+
+Saving tokenizer to disk...
+  ✓ Vocabulary saved to: tinystories_vocab.pkl
+  ✓ Merges saved to: tinystories_merges.pkl
+
+================================================================================
+VOCABULARY ANALYSIS
+================================================================================
+Token type breakdown:
+  Byte tokens (0-255): 256
+  Special tokens: 1
+  Merged tokens: 9743
+  Total: 10000
+
+Byte tokens (first 10):
+  Token   0: b'\x00' -&gt; '\x00'
+  Token   1: b'\x01' -&gt; '\x01'
+  Token   2: b'\x02' -&gt; '\x02'
+  Token   3: b'\x03' -&gt; '\x03'
+  Token   4: b'\x04' -&gt; '\x04'
+  Token   5: b'\x05' -&gt; '\x05'
+  Token   6: b'\x06' -&gt; '\x06'
+  Token   7: b'\x07' -&gt; '\x07'
+  Token   8: b'\x08' -&gt; '\x08'
+  Token   9: b'\t' -&gt; '\t'
+
+Special tokens:
+  Token 256: b'&lt;|endoftext|&gt;' -&gt; '&lt;|endoftext|&gt;'
+
+Most recently merged tokens (last 10):
+  Token 9990: b' improving' -&gt; ' improving'
+  Token 9991: b' nicest' -&gt; ' nicest'
+  Token 9992: b' whiskers' -&gt; ' whiskers'
+  Token 9993: b' booth' -&gt; ' booth'
+  Token 9994: b' Land' -&gt; ' Land'
+  Token 9995: b'Rocky' -&gt; 'Rocky'
+  Token 9996: b' meadows' -&gt; ' meadows'
+  Token 9997: b' Starry' -&gt; ' Starry'
+  Token 9998: b' imaginary' -&gt; ' imaginary'
+  Token 9999: b' bold' -&gt; ' bold'
+
+First 10 merge operations:
+  Merge  1: ' ' + 't' -&gt; ' t'
+  Merge  2: 'h' + 'e' -&gt; 'he'
+  Merge  3: ' ' + 'a' -&gt; ' a'
+  Merge  4: ' ' + 's' -&gt; ' s'
+  Merge  5: ' ' + 'w' -&gt; ' w'
+  Merge  6: 'n' + 'd' -&gt; 'nd'
+  Merge  7: ' t' + 'he' -&gt; ' the'
+  Merge  8: 'e' + 'd' -&gt; 'ed'
+  Merge  9: ' ' + 'b' -&gt; ' b'
+  Merge 10: ' t' + 'o' -&gt; ' to'
+
+Last 10 merge operations:
+  Merge 9734: ' impro' + 'ving' -&gt; ' improving'
+  Merge 9735: ' nice' + 'st' -&gt; ' nicest'
+  Merge 9736: ' wh' + 'iskers' -&gt; ' whiskers'
+  Merge 9737: ' bo' + 'oth' -&gt; ' booth'
+  Merge 9738: ' L' + 'and' -&gt; ' Land'
+  Merge 9739: 'Rock' + 'y' -&gt; 'Rocky'
+  Merge 9740: ' meadow' + 's' -&gt; ' meadows'
+  Merge 9741: ' St' + 'arry' -&gt; ' Starry'
+  Merge 9742: ' imag' + 'inary' -&gt; ' imaginary'
+  Merge 9743: ' bo' + 'ld' -&gt; ' bold'
+
+Output file sizes:
+  Vocabulary file: 117,701 bytes (114.9 KB)
+  Merges file: 109,714 bytes (107.1 KB)
+  Total: 227,415 bytes (222.1 KB)
+
+================================================================================
+TRAINING COMPLETED SUCCESSFULLY!
+================================================================================
+You can now use the trained tokenizer for encoding/decoding text.
+Load with: vocab, merges = load_tokenizer('tinystories_vocab.pkl', 'tinystories_merges.pkl')
 </code></pre></div></div>
 
 <h2 id="using-the-trained-tokenizer">Using the Trained Tokenizer</h2>

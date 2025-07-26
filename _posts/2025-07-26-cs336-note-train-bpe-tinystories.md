@@ -651,6 +651,176 @@ To run the training, one can try for example:
 train_bpe_tokentizer_via_dataset(input_path="data/TinyStoriesV2-GPT4-train.txt")
 ```
 
+And it will output the following info from the training process:
+
+```
+================================================================================
+BPE TOKENIZER TRAINING ON TINYSTORIES DATASET
+================================================================================
+Configuration:
+  Input file: /content/TinyStoriesV2-GPT4-train.txt
+  File size: 2,227,753,162 bytes (2124.6 MB)
+  Target vocabulary size: 10,000
+  Special tokens: ['<|endoftext|>']
+  Verbose logging: Enabled
+
+Step 1: Setting up parallel processing...
+Using 12 processes for parallel tokenization
+Finding chunk boundaries aligned with special token: <|endoftext|>
+Initial guess of the chunk boundaries: [0, 185646096, 371292192, 556938288, 742584384, 928230480, 1113876576, 1299522672, 1485168768, 1670814864, 1856460960, 2042107056, 2227753152]
+Created 12 chunks for processing
+
+Step 2: Pre-tokenizing text corpus...
+Pre-tokenization completed in 66.52 seconds
+Found 59,904 unique word types
+Total token count: 536,592,162
+Most common words:
+  1. '.' -> 41,764,519 times
+  2. ',' -> 23,284,331 times
+  3. ' the' -> 20,828,576 times
+  4. ' and' -> 19,475,966 times
+  5. ' a' -> 15,063,529 times
+
+Step 3: Training BPE with 9,743 merges...
+Initial vocabulary size: 257 (256 bytes + 1 special tokens)
+============================================================
+Merge    1/9743: ' ' + 't' -> ' t' (freq: 63,482,199, time: 0.273s)
+Merge    2/9743: 'h' + 'e' -> 'he' (freq: 63,341,860, time: 0.318s)
+Merge    3/9743: ' ' + 'a' -> ' a' (freq: 47,465,635, time: 0.340s)
+Merge    4/9743: ' ' + 's' -> ' s' (freq: 32,362,158, time: 0.340s)
+Merge    5/9743: ' ' + 'w' -> ' w' (freq: 31,485,643, time: 0.327s)
+Merge    6/9743: 'n' + 'd' -> 'nd' (freq: 28,922,386, time: 0.332s)
+Merge    7/9743: ' t' + 'he' -> ' the' (freq: 28,915,024, time: 0.320s)
+Merge    8/9743: 'e' + 'd' -> 'ed' (freq: 24,836,456, time: 0.317s)
+Merge    9/9743: ' ' + 'b' -> ' b' (freq: 22,147,488, time: 0.326s)
+Merge   10/9743: ' t' + 'o' -> ' to' (freq: 20,892,273, time: 0.322s)
+Merge  100/9743: ' ha' + 'pp' -> ' happ' (freq: 3,147,884, time: 0.251s)
+Merge  200/9743: ' s' + 'e' -> ' se' (freq: 1,410,130, time: 0.343s)
+Merge  300/9743: ' s' + 'omet' -> ' somet' (freq: 790,510, time: 0.245s)
+Merge  400/9743: ' g' + 'ot' -> ' got' (freq: 524,776, time: 0.338s)
+Merge  500/9743: ' e' + 'ach' -> ' each' (freq: 369,637, time: 0.321s)
+Merge  600/9743: 'l' + 'f' -> 'lf' (freq: 279,566, time: 0.230s)
+Merge  700/9743: ' wal' + 'k' -> ' walk' (freq: 221,114, time: 0.237s)
+Merge  800/9743: ' do' + 'll' -> ' doll' (freq: 177,602, time: 0.324s)
+Merge  900/9743: ' ' + 'G' -> ' G' (freq: 147,699, time: 0.214s)
+Merge 1000/9743: 'ec' + 't' -> 'ect' (freq: 127,288, time: 0.233s)
+Merge 1100/9743: ' l' + 'ight' -> ' light' (freq: 108,006, time: 0.208s)
+Merge 1200/9743: ' d' + 'in' -> ' din' (freq: 92,211, time: 0.225s)
+Merge 1300/9743: ' picture' + 's' -> ' pictures' (freq: 80,416, time: 0.318s)
+Merge 1400/9743: 'itt' + 'en' -> 'itten' (freq: 68,466, time: 0.235s)
+Merge 1500/9743: 'A' + 'my' -> 'Amy' (freq: 59,829, time: 0.306s)
+Merge 1600/9743: ' tal' + 'king' -> ' talking' (freq: 53,781, time: 0.330s)
+Merge 1700/9743: 'b' + 'all' -> 'ball' (freq: 48,005, time: 0.309s)
+Merge 1800/9743: ' k' + 'iss' -> ' kiss' (freq: 43,477, time: 0.318s)
+...
+Merge 8000/9743: ' mom' + 'mies' -> ' mommies' (freq: 879, time: 0.205s)
+Merge 8100/9743: ' cryst' + 'als' -> ' crystals' (freq: 840, time: 0.299s)
+Merge 8200/9743: ' playd' + 'ate' -> ' playdate' (freq: 809, time: 0.283s)
+Merge 8300/9743: ' support' + 'ing' -> ' supporting' (freq: 778, time: 0.200s)
+Merge 8400/9743: ' activ' + 'ity' -> ' activity' (freq: 747, time: 0.300s)
+Merge 8500/9743: 'L' + 'izzy' -> 'Lizzy' (freq: 716, time: 0.284s)
+Merge 8600/9743: 'er' + 'ing' -> 'ering' (freq: 691, time: 0.311s)
+Merge 8700/9743: ' tid' + 'ied' -> ' tidied' (freq: 660, time: 0.308s)
+Merge 8800/9743: 'f' + 'lowers' -> 'flowers' (freq: 633, time: 0.295s)
+Merge 8900/9743: ' Gra' + 'nd' -> ' Grand' (freq: 609, time: 0.299s)
+Merge 9000/9743: ' frustr' + 'ation' -> ' frustration' (freq: 584, time: 0.301s)
+Merge 9100/9743: 'amil' + 'iar' -> 'amiliar' (freq: 561, time: 0.205s)
+Merge 9200/9743: ' P' + 'retty' -> ' Pretty' (freq: 542, time: 0.310s)
+Merge 9300/9743: ' sal' + 'on' -> ' salon' (freq: 521, time: 0.292s)
+Merge 9400/9743: ' p' + 'ounced' -> ' pounced' (freq: 502, time: 0.196s)
+Merge 9500/9743: ' pops' + 'ic' -> ' popsic' (freq: 485, time: 0.185s)
+Merge 9600/9743: ' pain' + 'ful' -> ' painful' (freq: 469, time: 0.298s)
+Merge 9700/9743: 'solut' + 'ely' -> 'solutely' (freq: 454, time: 0.308s)
+============================================================
+BPE training completed in 2731.72 seconds
+Final vocabulary size: 10000
+Total merges performed: 9743
+Compression ratio: 4.07x (from 2,192,422,648 to 538,511,097 tokens)
+
+================================================================================
+TRAINING SUMMARY
+================================================================================
+Total training time: 2898.45 seconds
+Final vocabulary size: 10,000
+Number of merges performed: 9,743
+Actual vocab size vs target: 10000 / 10000
+
+Saving tokenizer to disk...
+  ✓ Vocabulary saved to: tinystories_vocab.pkl
+  ✓ Merges saved to: tinystories_merges.pkl
+
+================================================================================
+VOCABULARY ANALYSIS
+================================================================================
+Token type breakdown:
+  Byte tokens (0-255): 256
+  Special tokens: 1
+  Merged tokens: 9743
+  Total: 10000
+
+Byte tokens (first 10):
+  Token   0: b'\x00' -> '\x00'
+  Token   1: b'\x01' -> '\x01'
+  Token   2: b'\x02' -> '\x02'
+  Token   3: b'\x03' -> '\x03'
+  Token   4: b'\x04' -> '\x04'
+  Token   5: b'\x05' -> '\x05'
+  Token   6: b'\x06' -> '\x06'
+  Token   7: b'\x07' -> '\x07'
+  Token   8: b'\x08' -> '\x08'
+  Token   9: b'\t' -> '\t'
+
+Special tokens:
+  Token 256: b'<|endoftext|>' -> '<|endoftext|>'
+
+Most recently merged tokens (last 10):
+  Token 9990: b' improving' -> ' improving'
+  Token 9991: b' nicest' -> ' nicest'
+  Token 9992: b' whiskers' -> ' whiskers'
+  Token 9993: b' booth' -> ' booth'
+  Token 9994: b' Land' -> ' Land'
+  Token 9995: b'Rocky' -> 'Rocky'
+  Token 9996: b' meadows' -> ' meadows'
+  Token 9997: b' Starry' -> ' Starry'
+  Token 9998: b' imaginary' -> ' imaginary'
+  Token 9999: b' bold' -> ' bold'
+
+First 10 merge operations:
+  Merge  1: ' ' + 't' -> ' t'
+  Merge  2: 'h' + 'e' -> 'he'
+  Merge  3: ' ' + 'a' -> ' a'
+  Merge  4: ' ' + 's' -> ' s'
+  Merge  5: ' ' + 'w' -> ' w'
+  Merge  6: 'n' + 'd' -> 'nd'
+  Merge  7: ' t' + 'he' -> ' the'
+  Merge  8: 'e' + 'd' -> 'ed'
+  Merge  9: ' ' + 'b' -> ' b'
+  Merge 10: ' t' + 'o' -> ' to'
+
+Last 10 merge operations:
+  Merge 9734: ' impro' + 'ving' -> ' improving'
+  Merge 9735: ' nice' + 'st' -> ' nicest'
+  Merge 9736: ' wh' + 'iskers' -> ' whiskers'
+  Merge 9737: ' bo' + 'oth' -> ' booth'
+  Merge 9738: ' L' + 'and' -> ' Land'
+  Merge 9739: 'Rock' + 'y' -> 'Rocky'
+  Merge 9740: ' meadow' + 's' -> ' meadows'
+  Merge 9741: ' St' + 'arry' -> ' Starry'
+  Merge 9742: ' imag' + 'inary' -> ' imaginary'
+  Merge 9743: ' bo' + 'ld' -> ' bold'
+
+Output file sizes:
+  Vocabulary file: 117,701 bytes (114.9 KB)
+  Merges file: 109,714 bytes (107.1 KB)
+  Total: 227,415 bytes (222.1 KB)
+
+================================================================================
+TRAINING COMPLETED SUCCESSFULLY!
+================================================================================
+You can now use the trained tokenizer for encoding/decoding text.
+Load with: vocab, merges = load_tokenizer('tinystories_vocab.pkl', 'tinystories_merges.pkl')
+```
+
 ## Using the Trained Tokenizer
 
 Once we have a trained tokenizer, we need a class to encode and decode text. Here's one complete implementation:
