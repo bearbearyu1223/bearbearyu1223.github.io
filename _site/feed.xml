@@ -1,5 +1,470 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-07-26T16:37:25-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
-</subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [3]</title><link href="http://localhost:4000/cs336/2025/07/26/cs336-note-train-bpe-tinystories.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [3]" /><published>2025-07-26T00:00:00-07:00</published><updated>2025-07-26T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/07/26/cs336-note-train-bpe-tinystories</id><content type="html" xml:base="http://localhost:4000/cs336/2025/07/26/cs336-note-train-bpe-tinystories.html"><![CDATA[<h1 id="building-a-bpe-tokenizer-from-scratch-train-the-tokenizer-using-tinystories-dataset">Building a BPE Tokenizer from Scratch: Train the Tokenizer using TinyStories Dataset</h1>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-08-10T16:37:46-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [4]</title><link href="http://localhost:4000/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [4]" /><published>2025-08-10T00:00:00-07:00</published><updated>2025-08-10T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind</id><content type="html" xml:base="http://localhost:4000/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind.html"><![CDATA[<h2 id="demystifying-gpt-2s-pre-tokenization-how-one-regex-pattern-handles-the-worlds-languages">Demystifying GPT-2’s Pre-Tokenization: How One Regex Pattern Handles the World’s Languages</h2>
+
+<p>While working on <strong>Assignment 1</strong> of <em>Stanford’s CS336: Language Modeling from Scratch</em>, I came across a deceptively simple — yet remarkably powerful — regex pattern used in the pre-tokenization stage of the BPE algorithm.</p>
+
+<p>I thought it would be worthwhile to share my notes and walk through how this single pattern can handle text from <strong>multiple languages, scripts, and symbol sets</strong> with precision.</p>
+
+<p>You can find my full BPE assignment implementation here:</p>
+<ul>
+  <li><strong>BPE training algorithm:</strong> <a href="https://github.com/bearbearyu1223/assignment1-basics/blob/main/cs336_basics/bpe.py">bpe.py</a></li>
+  <li><strong>Tokenizer class:</strong> <a href="https://github.com/bearbearyu1223/assignment1-basics/blob/main/cs336_basics/tokenizer.py">tokenizer.py</a></li>
+</ul>
+
+<hr />
+
+<h3 id="-how-to-run-the-bpe-training-process">🔧 How to Run the BPE Training Process</h3>
+
+<ol>
+  <li><strong>Clone the repository</strong>
+    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git clone https://github.com/bearbearyu1223/assignment1-basics.git
+<span class="nb">cd </span>assignment1-basics
+</code></pre></div>    </div>
+  </li>
+  <li>
+    <p><strong>Set up the local development environment</strong><br />
+Follow the instructions in the <a href="https://github.com/bearbearyu1223/assignment1-basics/blob/main/developer_guide.md">developer_guide.md</a>.</p>
+  </li>
+  <li><strong>Run BPE training</strong>
+    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv run cs336_basics/train_bpe_example.py
+</code></pre></div>    </div>
+    <p>This will train a BPE tokenizer using the <code class="language-plaintext highlighter-rouge">TinyStoriesV2-GPT4-train.txt</code> dataset, with 10,000 vocabulary size and with special token <code class="language-plaintext highlighter-rouge">"&lt;|endoftext|&gt;"</code>.</p>
+  </li>
+</ol>
+
+<hr />
+
+<h3 id="-how-to-test-the-tokenizer">🧪 How to Test the Tokenizer</h3>
+
+<p>Run:</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv run pytest tests/test_train_bpe.py
+</code></pre></div></div>
+
+<p>This will validate the tokenizer’s functionality and ensure the pre-tokenization regex behaves as expected.</p>
+
+<h3 id="-the-gpt-2-split-pattern">📜 The GPT-2 Split Pattern</h3>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">regex</span>
+
+<span class="n">GPT2_SPLIT_PATTERN</span> <span class="o">=</span> <span class="sa">r</span><span class="s">"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""</span>
+</code></pre></div></div>
+
+<p>This single (but mighty) regex is responsible for splitting text into meaningful segments — <strong>words, numbers, punctuation, symbols, whitespace</strong> — in a way that is consistent across languages and scripts.</p>
+
+<hr />
+
+<h3 id="-pattern-breakdown">🔍 Pattern Breakdown</h3>
+
+<h4 id="1-contractions">1. Contractions</h4>
+<pre><code class="language-regex">'(?:[sdmt]|ll|ve|re)
+</code></pre>
+<p>Matches <strong>common English contractions</strong> starting with an apostrophe:<br />
+<code class="language-plaintext highlighter-rouge">'s, 'd, 'm, 't, 'll, 've, 're</code></p>
+
+<p><strong>Examples:</strong></p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">"don't"</code> → <code class="language-plaintext highlighter-rouge">["don", "'t"]</code></li>
+  <li><code class="language-plaintext highlighter-rouge">"we're"</code> → <code class="language-plaintext highlighter-rouge">["we", "'re"]</code></li>
+</ul>
+
+<hr />
+
+<h4 id="2-letters-any-language">2. Letters (Any Language)</h4>
+<pre><code class="language-regex"> ?\p{L}+
+</code></pre>
+<p>Matches <strong>letters</strong> from <strong>any Unicode language</strong> (with optional leading space).</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">\p{L}</code> = Unicode “Letter” category</li>
+  <li>Covers: English, Chinese, Arabic, accented characters, and more.</li>
+</ul>
+
+<p><strong>Examples:</strong></p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">"hello world"</code> → <code class="language-plaintext highlighter-rouge">["hello", " world"]</code></li>
+  <li><code class="language-plaintext highlighter-rouge">"café 北京"</code> → <code class="language-plaintext highlighter-rouge">["café", " 北京"]</code></li>
+</ul>
+
+<hr />
+
+<h4 id="3-numbers-any-script">3. Numbers (Any Script)</h4>
+<pre><code class="language-regex"> ?\p{N}+
+</code></pre>
+<p>Matches <strong>numbers</strong> from any writing system (with optional leading space).</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">\p{N}</code> = Unicode “Number” category</li>
+  <li>Covers: Arabic numerals (<code class="language-plaintext highlighter-rouge">0–9</code>), Roman numerals (<code class="language-plaintext highlighter-rouge">Ⅰ, Ⅱ, Ⅲ</code>), Arabic-Indic (<code class="language-plaintext highlighter-rouge">٠١٢</code>), etc.</li>
+</ul>
+
+<p><strong>Examples:</strong></p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">"I have 5 items"</code> → <code class="language-plaintext highlighter-rouge">["I", " have", " 5", " items"]</code></li>
+  <li><code class="language-plaintext highlighter-rouge">"Ⅲ winners"</code> → <code class="language-plaintext highlighter-rouge">["Ⅲ", " winners"]</code></li>
+</ul>
+
+<hr />
+
+<h4 id="4-punctuation--symbols">4. Punctuation / Symbols</h4>
+<pre><code class="language-regex"> ?[^\s\p{L}\p{N}]+
+</code></pre>
+<p>Matches <strong>punctuation or symbols</strong> (with optional leading space).</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">[^\s\p{L}\p{N}]</code> = NOT whitespace, NOT letters, NOT numbers</li>
+  <li>Captures: <code class="language-plaintext highlighter-rouge">!@#$%^&amp;*()_+-=[]{}|;:'",./&lt;&gt;?</code></li>
+</ul>
+
+<p><strong>Examples:</strong></p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">"Wow!!!"</code> → <code class="language-plaintext highlighter-rouge">["Wow", "!!!"]</code></li>
+  <li><code class="language-plaintext highlighter-rouge">" $100"</code> → <code class="language-plaintext highlighter-rouge">[" $", "100"]</code></li>
+</ul>
+
+<hr />
+
+<h4 id="5-trailing-whitespace">5. Trailing Whitespace</h4>
+<pre><code class="language-regex">\s+(?!\S)
+</code></pre>
+<p>Matches <strong>whitespace at the end</strong> of text or before more whitespace.<br />
+This ensures trailing spaces are preserved as tokens.</p>
+
+<hr />
+
+<h4 id="6-general-whitespace">6. General Whitespace</h4>
+<pre><code class="language-regex">\s+
+</code></pre>
+<p>Matches <strong>any remaining whitespace</strong>.</p>
+
+<hr />
+
+<h3 id="-testing-the-pattern">🛠 Testing the Pattern</h3>
+
+<p>Here’s a helper function to test how this regex splits different inputs.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">test_regex</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s">""</span><span class="p">):</span>
+    <span class="s">"""Test the regex pattern and display results clearly"""</span>
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"</span><span class="se">\n</span><span class="si">{</span><span class="s">'='</span><span class="o">*</span><span class="mi">60</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"TEST: </span><span class="si">{</span><span class="n">description</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"INPUT: '</span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s">'"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"</span><span class="si">{</span><span class="s">'='</span><span class="o">*</span><span class="mi">60</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+    <span class="n">matches</span> <span class="o">=</span> <span class="n">regex</span><span class="p">.</span><span class="n">findall</span><span class="p">(</span><span class="n">GPT2_SPLIT_PATTERN</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span>
+
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"TOKENS (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">matches</span><span class="p">)</span><span class="si">}</span><span class="s">):"</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">token</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">matches</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"  </span><span class="si">{</span><span class="n">i</span><span class="si">:</span><span class="mi">2</span><span class="n">d</span><span class="si">}</span><span class="s">: </span><span class="si">{</span><span class="nb">repr</span><span class="p">(</span><span class="n">token</span><span class="p">)</span><span class="si">}</span><span class="s">"</span><span class="p">)</span> 
+
+    <span class="n">reconstructed</span> <span class="o">=</span> <span class="s">''</span><span class="p">.</span><span class="n">join</span><span class="p">(</span><span class="n">matches</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"</span><span class="se">\n</span><span class="s">RECONSTRUCTION CHECK: </span><span class="si">{</span><span class="s">'✓ PASS'</span> <span class="k">if</span> <span class="n">reconstructed</span> <span class="o">==</span> <span class="n">text</span> <span class="k">else</span> <span class="s">'✗ FAIL'</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">matches</span>
+</code></pre></div></div>
+
+<hr />
+
+<h3 id="-real-world-test-cases">🧪 Real-World Test Cases</h3>
+
+<p>Below are <strong>diverse examples</strong> — from contractions to Unicode scripts, punctuation to code.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">test_cases</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s">"I can't believe it's working!"</span><span class="p">,</span> <span class="s">"Basic contractions"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s">"You're right, they'll see we've done it."</span><span class="p">,</span> <span class="s">"Multiple contractions"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s">"Hello 世界! Café français 🌍"</span><span class="p">,</span> <span class="s">"Unicode letters and emoji"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s">"I have 5 cats, ٧ dogs, and Ⅲ birds."</span><span class="p">,</span> <span class="s">"Various number systems"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s">"Wait... What?!? $100.50 (seriously)!!!"</span><span class="p">,</span> <span class="s">"Complex punctuation"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s">"  Multiple   spaces   everywhere  "</span><span class="p">,</span> <span class="s">"Multiple spaces"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s">"She's got $1,000.50 in café № ٧... Amazing!!! 🚀"</span><span class="p">,</span> <span class="s">"Complex mixed text"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s">"'s'd'm't'll've're"</span><span class="p">,</span> <span class="s">"Contraction edge cases"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s">"!@#$%^&amp;*()_+-=[]{}|;:"</span><span class="p">,.</span><span class="o">/&lt;&gt;</span><span class="err">?</span><span class="s">", "</span><span class="n">Pure</span> <span class="n">punctuation</span><span class="s">"),
+    ("</span>   \<span class="n">t</span>\<span class="n">n</span>  <span class="s">", "</span><span class="n">Pure</span> <span class="n">whitespace</span><span class="s">"),
+    ("", "</span><span class="n">Empty</span> <span class="n">string</span><span class="s">"),
+    ("</span><span class="n">a</span> <span class="mi">1</span> <span class="err">!</span> <span class="s">'", "Single characters"),
+    ("我有3只猫，很可爱！", "Chinese with numbers"),
+    ("مرحبا بالعالم ١٢٣", "Arabic text with numbers"),
+    ("def hello_world(): return '</span><span class="n">Hello</span><span class="p">,</span> <span class="n">World</span><span class="err">!</span><span class="s">'", "Code-like text"),
+    ("Visit https://example.com or email test@domain.co.uk", "URLs and emails"),
+]
+
+for text, description in test_cases:
+    test_regex(text, description)
+</span></code></pre></div></div>
+
+<p>Running these cases produces token lists that <strong>perfectly reconstruct the original text</strong>, see the test results below:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    ============================================================
+    TEST: Basic contractions
+    INPUT: 'I can't believe it's working!'
+    ============================================================
+    TOKENS (8):
+       1: 'I'
+       2: ' can'
+       3: "'t"
+       4: ' believe'
+       5: ' it'
+       6: "'s"
+       7: ' working'
+       8: '!'
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Multiple contractions
+    INPUT: 'You're right, they'll see we've done it.'
+    ============================================================
+    TOKENS (12):
+       1: 'You'
+       2: "'re"
+       3: ' right'
+       4: ','
+       5: ' they'
+       6: "'ll"
+       7: ' see'
+       8: ' we'
+       9: "'ve"
+      10: ' done'
+      11: ' it'
+      12: '.'
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Unicode letters and emoji
+    INPUT: 'Hello 世界! Café français 🌍'
+    ============================================================
+    TOKENS (6):
+       1: 'Hello'
+       2: ' 世界'
+       3: '!'
+       4: ' Café'
+       5: ' français'
+       6: ' 🌍'
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Various number systems
+    INPUT: 'I have 5 cats, ٧ dogs, and Ⅲ birds.'
+    ============================================================
+    TOKENS (12):
+       1: 'I'
+       2: ' have'
+       3: ' 5'
+       4: ' cats'
+       5: ','
+       6: ' ٧'
+       7: ' dogs'
+       8: ','
+       9: ' and'
+      10: ' Ⅲ'
+      11: ' birds'
+      12: '.'
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Complex punctuation
+    INPUT: 'Wait... What?!? $100.50 (seriously)!!!'
+    ============================================================
+    TOKENS (11):
+       1: 'Wait'
+       2: '...'
+       3: ' What'
+       4: '?!?'
+       5: ' $'
+       6: '100'
+       7: '.'
+       8: '50'
+       9: ' ('
+      10: 'seriously'
+      11: ')!!!'
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Multiple spaces
+    INPUT: '  Multiple   spaces   everywhere  '
+    ============================================================
+    TOKENS (7):
+       1: ' '
+       2: ' Multiple'
+       3: '  '
+       4: ' spaces'
+       5: '  '
+       6: ' everywhere'
+       7: '  '
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Complex mixed text
+    INPUT: 'She's got $1,000.50 in café № ٧... Amazing!!! 🚀'
+    ============================================================
+    TOKENS (17):
+       1: 'She'
+       2: "'s"
+       3: ' got'
+       4: ' $'
+       5: '1'
+       6: ','
+       7: '000'
+       8: '.'
+       9: '50'
+      10: ' in'
+      11: ' café'
+      12: ' №'
+      13: ' ٧'
+      14: '...'
+      15: ' Amazing'
+      16: '!!!'
+      17: ' 🚀'
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Contraction edge cases
+    INPUT: ''s'd'm't'll've're'
+    ============================================================
+    TOKENS (7):
+       1: "'s"
+       2: "'d"
+       3: "'m"
+       4: "'t"
+       5: "'ll"
+       6: "'ve"
+       7: "'re"
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Pure punctuation
+    INPUT: '!@#$%^&amp;*()_+-=[]{}|;:",./&lt;&gt;?'
+    ============================================================
+    TOKENS (1):
+       1: '!@#$%^&amp;*()_+-=[]{}|;:",./&lt;&gt;?'
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Pure whitespace
+    INPUT: '   	
+      '
+    ============================================================
+    TOKENS (1):
+       1: '   \t\n  '
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Empty string
+    INPUT: ''
+    ============================================================
+    TOKENS (0):
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Single characters
+    INPUT: 'a 1 ! ''
+    ============================================================
+    TOKENS (4):
+       1: 'a'
+       2: ' 1'
+       3: ' !'
+       4: " '"
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Chinese with numbers
+    INPUT: '我有3只猫，很可爱！'
+    ============================================================
+    TOKENS (6):
+       1: '我有'
+       2: '3'
+       3: '只猫'
+       4: '，'
+       5: '很可爱'
+       6: '！'
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Arabic text with numbers
+    INPUT: 'مرحبا بالعالم ١٢٣'
+    ============================================================
+    TOKENS (3):
+       1: 'مرحبا'
+       2: ' بالعالم'
+       3: ' ١٢٣'
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: Code-like text
+    INPUT: 'def hello_world(): return 'Hello, World!''
+    ============================================================
+    TOKENS (11):
+       1: 'def'
+       2: ' hello'
+       3: '_'
+       4: 'world'
+       5: '():'
+       6: ' return'
+       7: " '"
+       8: 'Hello'
+       9: ','
+      10: ' World'
+      11: "!'"
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+    
+    ============================================================
+    TEST: URLs and emails
+    INPUT: 'Visit https://example.com or email test@domain.co.uk'
+    ============================================================
+    TOKENS (15):
+       1: 'Visit'
+       2: ' https'
+       3: '://'
+       4: 'example'
+       5: '.'
+       6: 'com'
+       7: ' or'
+       8: ' email'
+       9: ' test'
+      10: '@'
+      11: 'domain'
+      12: '.'
+      13: 'co'
+      14: '.'
+      15: 'uk'
+    
+    RECONSTRUCTION CHECK: ✓ PASS
+</code></pre></div></div>
+
+<hr />
+
+<h3 id="-why-this-matters">💡 Why This Matters</h3>
+
+<p>BPE pre-tokenization <strong>sets the stage</strong> for the tokenizer’s merge rules to apply. A well-designed split pattern ensures:</p>
+
+<ul>
+  <li><strong>Language independence</strong> — Works with English, Arabic, Chinese, emoji, etc.</li>
+  <li><strong>Symbol awareness</strong> — Keeps punctuation and symbols intact.</li>
+  <li><strong>Whitespace fidelity</strong> — Preserves exact spacing for reversible tokenization.</li>
+  <li><strong>Downstream accuracy</strong> — Reduces surprises during model training or inference.</li>
+</ul>
+
+<hr />
+
+<h3 id="-takeaways">🚀 Takeaways</h3>
+
+<ul>
+  <li>This regex is a <strong>core building block</strong> of GPT-2’s tokenization process.</li>
+  <li>It’s <strong>language-agnostic</strong>, <strong>Unicode-friendly</strong>, and <strong>precise</strong> in splitting.</li>
+  <li>Understanding it helps when <strong>building custom tokenizers</strong> or adapting GPT-2 BPE to new domains.</li>
+</ul>
+
+<p>If you’re working with <strong>LLMs, tokenization, or multilingual NLP</strong>, knowing the details behind this pattern will help you <strong>debug</strong>, <strong>customize</strong>, and <strong>optimize</strong> your preprocessing pipeline.</p>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="cs336" /><summary type="html"><![CDATA[Demystifying GPT-2’s Pre-Tokenization: How One Regex Pattern Handles the World’s Languages]]></summary></entry><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [3]</title><link href="http://localhost:4000/cs336/2025/07/26/cs336-note-train-bpe-tinystories.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [3]" /><published>2025-07-26T00:00:00-07:00</published><updated>2025-07-26T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/07/26/cs336-note-train-bpe-tinystories</id><content type="html" xml:base="http://localhost:4000/cs336/2025/07/26/cs336-note-train-bpe-tinystories.html"><![CDATA[<h1 id="building-a-bpe-tokenizer-from-scratch-train-the-tokenizer-using-tinystories-dataset">Building a BPE Tokenizer from Scratch: Train the Tokenizer using TinyStories Dataset</h1>
 
 <p>Ever wondered how modern language models like GPT break down text into tokens? In this note, I will share how to build a Byte Pair Encoding (BPE) tokenizer from scratch and train it on the <a href="https://arxiv.org/abs/2305.07759">TinyStories Dataset</a>. We will see how BPE achieves impressive compression ratios.</p>
 
