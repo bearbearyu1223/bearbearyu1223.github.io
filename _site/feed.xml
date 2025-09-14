@@ -1,5 +1,841 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-08-10T16:37:46-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
-</subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [4]</title><link href="http://localhost:4000/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [4]" /><published>2025-08-10T00:00:00-07:00</published><updated>2025-08-10T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind</id><content type="html" xml:base="http://localhost:4000/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind.html"><![CDATA[<h2 id="demystifying-gpt-2s-pre-tokenization-how-one-regex-pattern-handles-the-worlds-languages">Demystifying GPT-2’s Pre-Tokenization: How One Regex Pattern Handles the World’s Languages</h2>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-09-13T22:14:54-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [5]</title><link href="http://localhost:4000/cs336/2025/09/13/cs336-build-a-transformer-language-model.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [5]" /><published>2025-09-13T00:00:00-07:00</published><updated>2025-09-13T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/09/13/cs336-build-a-transformer-language-model</id><content type="html" xml:base="http://localhost:4000/cs336/2025/09/13/cs336-build-a-transformer-language-model.html"><![CDATA[<h2 id="building-a-transformer-language-model-a-complete-guide">Building a Transformer Language Model: A Complete Guide</h2>
+
+<p>Ever wondered how ChatGPT and other language models actually work under the hood? Let’s build one from scratch and understand every component.This guide explains how to build a Transformer language model from scratch using PyTorch. We’ll cover each building block and show how they work together to create a complete language model.</p>
+
+<h3 id="table-of-contents">Table of Contents</h3>
+<ol>
+  <li><a href="#overview">Overview</a></li>
+  <li><a href="#basic-building-blocks">Basic Building Blocks</a></li>
+  <li><a href="#core-components">Core Components</a></li>
+  <li><a href="#advanced-components">Advanced Components</a></li>
+  <li><a href="#putting-it-all-together">Putting It All Together</a></li>
+  <li><a href="#the-complete-transformer">The Complete Transformer</a></li>
+</ol>
+
+<h3 id="overview">Overview</h3>
+
+<p>A Transformer language model is essentially a sophisticated pattern recognition system that learns to predict the next word in a sequence. Think of it as an incredibly advanced autocomplete that understands context, grammar, and meaning.
+By the end of this guide, you’ll understand:</p>
+
+<ul>
+  <li>How words become numbers a neural network can process</li>
+  <li>How attention mechanisms let models “focus” on relevant information</li>
+  <li>How all the pieces fit together to create a complete language model</li>
+</ul>
+
+<p>Before diving into details, let’s understand the overall architecture:</p>
+<blockquote>
+  <p><strong>Input:</strong> “The cat sat on the”</p>
+
+  <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>          ⬇️
+</code></pre></div>  </div>
+
+  <p><strong>Step 1:</strong> Convert words to numbers (embeddings)</p>
+
+  <p><strong>Step 2:</strong> Process through multiple transformer blocks:</p>
+  <ul>
+    <li>Attention: “What should I focus on?”</li>
+    <li>Feed-forward: “What patterns do I see?”</li>
+  </ul>
+
+  <p><strong>Step 3:</strong> Predict next word probabilities</p>
+
+  <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>          ⬇️
+</code></pre></div>  </div>
+
+  <p><strong>Output:</strong> “mat” (85%), “chair” (10%), “floor” (5%)</p>
+</blockquote>
+
+<p>Now let’s build each component step by step.</p>
+<h3 id="basic-building-blocks">Basic Building Blocks</h3>
+
+<h4 id="1-linear-layer-cs336_basicslinearpy">1. Linear Layer (<code class="language-plaintext highlighter-rouge">cs336_basics/linear.py</code>)</h4>
+
+<p><strong>What it does:</strong> A linear layer is the most basic building block of neural networks. It takes input numbers and transforms them using a mathematical operation: <code class="language-plaintext highlighter-rouge">output = input × weight</code>.</p>
+
+<p><strong>Why we need it:</strong> Linear layers let the model learn patterns by adjusting their weights during training.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Example: Transform 64 dimensions to 128 dimensions
+</span><span class="n">linear</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">in_features</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">out_features</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+<span class="c1"># If input is shape (batch_size, 64), output will be (batch_size, 128)
+</span></code></pre></div></div>
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">math</span>
+<span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="n">nn</span>
+
+<span class="k">class</span> <span class="nc">Linear</span><span class="p">(</span><span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="s">"""
+    A linear transformation module that inherits from torch.nn.Module.
+    Performs y = xW^T without bias.
+    """</span>
+    
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">in_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">out_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">in_features</span> <span class="o">=</span> <span class="n">in_features</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">out_features</span> <span class="o">=</span> <span class="n">out_features</span>
+        
+        <span class="c1"># Create weight parameter W (not W^T) for memory ordering reasons
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">W</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">empty</span><span class="p">(</span><span class="n">out_features</span><span class="p">,</span> <span class="n">in_features</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">))</span>
+        
+        <span class="bp">self</span><span class="p">.</span><span class="n">reset_parameters</span><span class="p">()</span>
+    
+    <span class="k">def</span> <span class="nf">reset_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="s">"""
+        Initialize weights using truncated normal distribution.
+        Linear weights: N(μ=0, σ²=2/(d_in + d_out)) truncated at [-3σ, 3σ]
+        """</span>
+        <span class="n">std</span> <span class="o">=</span> <span class="n">math</span><span class="p">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mf">2.0</span> <span class="o">/</span> <span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">in_features</span> <span class="o">+</span> <span class="bp">self</span><span class="p">.</span><span class="n">out_features</span><span class="p">))</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="p">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="n">torch</span><span class="p">.</span><span class="n">nn</span><span class="p">.</span><span class="n">init</span><span class="p">.</span><span class="n">trunc_normal_</span><span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">W</span><span class="p">,</span> <span class="n">mean</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">std</span><span class="o">=</span><span class="n">std</span><span class="p">,</span> <span class="n">a</span><span class="o">=-</span><span class="mi">3</span><span class="o">*</span><span class="n">std</span><span class="p">,</span> <span class="n">b</span><span class="o">=</span><span class="mi">3</span><span class="o">*</span><span class="n">std</span><span class="p">)</span>
+    
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="s">"""Apply the linear transformation to the input."""</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="p">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">W</span><span class="p">.</span><span class="n">T</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Key features:</strong></p>
+<ul>
+  <li>No bias term (simpler than standard PyTorch Linear)</li>
+  <li>Weights initialized using truncated normal distribution</li>
+  <li>Used throughout the Transformer for projections and transformations</li>
+</ul>
+
+<h4 id="2-embedding-layer-cs336_basicsembeddingpy">2. Embedding Layer (<code class="language-plaintext highlighter-rouge">cs336_basics/embedding.py</code>)</h4>
+
+<p><strong>What it does:</strong> Converts discrete tokens (like word IDs) into dense vector representations that neural networks can work with.</p>
+
+<p><strong>Think of it like this:</strong> If words were people, embeddings would be detailed personality profiles. Similar words get similar profiles.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Example: Convert word IDs to 512-dimensional vectors
+</span><span class="n">embedding</span> <span class="o">=</span> <span class="n">Embedding</span><span class="p">(</span><span class="n">num_embeddings</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span> <span class="n">embedding_dim</span><span class="o">=</span><span class="mi">512</span><span class="p">)</span>
+<span class="c1"># Input: [5, 23, 156] (word IDs)
+# Output: 3 vectors, each with 512 numbers
+</span></code></pre></div></div>
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="n">nn</span>
+
+<span class="k">class</span> <span class="nc">Embedding</span><span class="p">(</span><span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="s">"""
+    An embedding module that inherits from torch.nn.Module.
+    Performs embedding lookup by indexing into an embedding matrix.
+    """</span>
+    
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">num_embeddings</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">embedding_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">num_embeddings</span> <span class="o">=</span> <span class="n">num_embeddings</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">embedding_dim</span> <span class="o">=</span> <span class="n">embedding_dim</span>
+        
+        <span class="c1"># Create embedding matrix parameter with shape (vocab_size, d_model)
+</span>        <span class="c1"># Store with d_model as the final dimension
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">embeddings</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">empty</span><span class="p">(</span><span class="n">num_embeddings</span><span class="p">,</span> <span class="n">embedding_dim</span><span class="p">,</span> 
+                                                  <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">))</span>
+        
+        <span class="bp">self</span><span class="p">.</span><span class="n">reset_parameters</span><span class="p">()</span>
+    
+    <span class="k">def</span> <span class="nf">reset_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="s">"""
+        Initialize embedding weights using truncated normal distribution.
+        Embedding: N(μ=0, σ²=1) truncated at [-3, 3]
+        """</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="p">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="n">torch</span><span class="p">.</span><span class="n">nn</span><span class="p">.</span><span class="n">init</span><span class="p">.</span><span class="n">trunc_normal_</span><span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">embeddings</span><span class="p">,</span> <span class="n">mean</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">std</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">a</span><span class="o">=-</span><span class="mf">3.0</span><span class="p">,</span> <span class="n">b</span><span class="o">=</span><span class="mf">3.0</span><span class="p">)</span>
+    
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">token_ids</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="s">"""
+        Lookup the embedding vectors for the given token IDs.
+        
+        Args:
+            token_ids: Token IDs with shape (batch_size, sequence_length)
+            
+        Returns:
+            Embedding vectors with shape (batch_size, sequence_length, embedding_dim)
+        """</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="p">.</span><span class="n">embeddings</span><span class="p">[</span><span class="n">token_ids</span><span class="p">]</span>
+</code></pre></div></div>
+
+<p><strong>Key features:</strong></p>
+<ul>
+  <li>Maps discrete tokens to continuous vectors</li>
+  <li>Similar words learn to have similar embeddings</li>
+  <li>The embedding matrix is learned during training</li>
+</ul>
+
+<h4 id="3-softmax-function-cs336_basicssoftmaxpy">3. Softmax Function (<code class="language-plaintext highlighter-rouge">cs336_basics/softmax.py</code>)</h4>
+
+<p><strong>What it does:</strong> Converts a list of numbers into probabilities that sum to 1.</p>
+
+<p><strong>Why we need it:</strong> At the end of the model, we need probabilities for each possible next word.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Example: Convert logits to probabilities
+</span><span class="n">logits</span> <span class="o">=</span> <span class="p">[</span><span class="mf">2.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">]</span>  <span class="c1"># Raw scores
+</span><span class="n">probabilities</span> <span class="o">=</span> <span class="n">softmax</span><span class="p">(</span><span class="n">logits</span><span class="p">)</span>  <span class="c1"># [0.659, 0.242, 0.099] - sums to 1.0
+</span></code></pre></div></div>
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="k">def</span> <span class="nf">softmax</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="s">"""
+    Apply the softmax operation to a tensor along the specified dimension.
+    
+    Uses the numerical stability trick of subtracting the maximum value
+    from all elements before applying exponential.
+    
+    Args:
+        x: torch.Tensor - Input tensor
+        dim: int - Dimension along which to apply softmax
+        
+    Returns:
+        torch.Tensor - Output tensor with same shape as input, with normalized
+                      probability distribution along the specified dimension
+    """</span>
+    <span class="c1"># Subtract maximum for numerical stability
+</span>    <span class="c1"># keepdim=True ensures the shape is preserved for broadcasting
+</span>    <span class="n">max_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">max</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">x_stable</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">max_vals</span>
+    
+    <span class="c1"># Apply exponential
+</span>    <span class="n">exp_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">exp</span><span class="p">(</span><span class="n">x_stable</span><span class="p">)</span>
+    
+    <span class="c1"># Compute sum along the specified dimension
+</span>    <span class="n">sum_exp</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">exp_vals</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    
+    <span class="c1"># Normalize to get probabilities
+</span>    <span class="k">return</span> <span class="n">exp_vals</span> <span class="o">/</span> <span class="n">sum_exp</span>
+</code></pre></div></div>
+
+<p><strong>Key features:</strong></p>
+<ul>
+  <li>Uses numerical stability trick (subtracts max value)</li>
+  <li>Higher input values become higher probabilities</li>
+  <li>All outputs sum to exactly 1.0</li>
+</ul>
+
+<h3 id="core-components">Core Components</h3>
+
+<h4 id="4-rmsnorm-cs336_basicsrmsnormpy">4. RMSNorm (<code class="language-plaintext highlighter-rouge">cs336_basics/rmsnorm.py</code>)</h4>
+
+<p><strong>What it does:</strong> Normalizes the inputs to keep the model stable during training. It’s like adjusting the volume on different audio channels to keep them balanced.</p>
+
+<p><strong>Formula:</strong> <code class="language-plaintext highlighter-rouge">RMSNorm(x) = x / RMS(x) * learnable_scale</code></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Example: Normalize 512-dimensional vectors
+</span><span class="n">rmsnorm</span> <span class="o">=</span> <span class="n">RMSNorm</span><span class="p">(</span><span class="n">d_model</span><span class="o">=</span><span class="mi">512</span><span class="p">)</span>
+<span class="c1"># Keeps all dimensions on a similar scale
+</span></code></pre></div></div>
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="n">nn</span>
+
+<span class="k">class</span> <span class="nc">RMSNorm</span><span class="p">(</span><span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="s">"""
+    RMSNorm (Root Mean Square Layer Normalization) module.
+    
+    Rescales each activation a_i as: RMSNorm(a_i) = a_i/RMS(a) * g_i
+    where RMS(a) = sqrt(1/d_model * ∑a^2_i + ε)
+    """</span>
+    
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-5</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">d_model</span> <span class="o">=</span> <span class="n">d_model</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">eps</span> <span class="o">=</span> <span class="n">eps</span>
+        
+        <span class="c1"># Learnable gain parameter g_i
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">g</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">ones</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">))</span>
+    
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="c1"># Store original dtype
+</span>        <span class="n">in_dtype</span> <span class="o">=</span> <span class="n">x</span><span class="p">.</span><span class="n">dtype</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="p">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">float32</span><span class="p">)</span>
+        
+        <span class="c1"># Compute RMS: sqrt(1/d_model * ∑a^2_i + ε)
+</span>        <span class="c1"># Mean of squares over the last dimension (d_model)
+</span>        <span class="n">mean_square</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">mean</span><span class="p">(</span><span class="n">x</span> <span class="o">**</span> <span class="mi">2</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="n">rms</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">mean_square</span> <span class="o">+</span> <span class="bp">self</span><span class="p">.</span><span class="n">eps</span><span class="p">)</span>
+        
+        <span class="c1"># Apply RMSNorm: a_i/RMS(a) * g_i
+</span>        <span class="n">result</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">/</span> <span class="n">rms</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="p">.</span><span class="n">g</span>
+        
+        <span class="c1"># Return in original dtype
+</span>        <span class="k">return</span> <span class="n">result</span><span class="p">.</span><span class="n">to</span><span class="p">(</span><span class="n">in_dtype</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Why it’s important:</strong></p>
+<ul>
+  <li>Prevents values from becoming too large or too small</li>
+  <li>Helps the model train faster and more stably</li>
+  <li>Applied before major operations in the Transformer</li>
+</ul>
+
+<h4 id="5-attention-mechanism-cs336_basicsattentionpy">5. Attention Mechanism (<code class="language-plaintext highlighter-rouge">cs336_basics/attention.py</code>)</h4>
+
+<p><strong>What it does:</strong> Allows the model to focus on different parts of the input when making predictions. Like highlighting important words when reading.</p>
+
+<p><strong>Key concepts:</strong></p>
+<ul>
+  <li><strong>Queries (Q):</strong> “What am I looking for?”</li>
+  <li><strong>Keys (K):</strong> “What information is available?”</li>
+  <li><strong>Values (V):</strong> “What is the actual information?”</li>
+</ul>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Attention formula: Attention(Q,K,V) = softmax(Q×K^T / √d_k) × V
+</span><span class="n">attention_output</span> <span class="o">=</span> <span class="n">scaled_dot_product_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">,</span> <span class="n">mask</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">math</span>
+<span class="kn">from</span> <span class="nn">.softmax</span> <span class="kn">import</span> <span class="n">softmax</span>
+
+<span class="k">def</span> <span class="nf">scaled_dot_product_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">K</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">V</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="bp">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="s">"""
+    Scaled dot-product attention implementation.
+    
+    Computes: Attention(Q, K, V) = softmax(Q @ K^T / sqrt(d_k)) @ V
+    """</span>
+    <span class="c1"># Get dimensions
+</span>    <span class="n">d_k</span> <span class="o">=</span> <span class="n">Q</span><span class="p">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    
+    <span class="c1"># Compute scaled dot-product: Q @ K^T / sqrt(d_k)
+</span>    <span class="n">scores</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span> <span class="o">/</span> <span class="n">math</span><span class="p">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">d_k</span><span class="p">)</span>
+    
+    <span class="c1"># Apply mask if provided
+</span>    <span class="k">if</span> <span class="n">mask</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="c1"># Where mask is False, set scores to negative infinity
+</span>        <span class="c1"># This will make softmax output 0 for those positions
+</span>        <span class="n">scores</span> <span class="o">=</span> <span class="n">scores</span><span class="p">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="o">~</span><span class="n">mask</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s">'-inf'</span><span class="p">))</span>
+    
+    <span class="c1"># Apply softmax along the last dimension (over keys)
+</span>    <span class="n">attention_weights</span> <span class="o">=</span> <span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    
+    <span class="c1"># Handle the case where entire rows are masked (all -inf)
+</span>    <span class="k">if</span> <span class="n">mask</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="c1"># If a row is entirely masked, attention_weights will have NaN
+</span>        <span class="c1"># Replace NaN with 0
+</span>        <span class="n">attention_weights</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">where</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">attention_weights</span><span class="p">),</span> 
+                                      <span class="n">torch</span><span class="p">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">attention_weights</span><span class="p">),</span> 
+                                      <span class="n">attention_weights</span><span class="p">)</span>
+    
+    <span class="c1"># Apply attention to values
+</span>    <span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">attention_weights</span><span class="p">,</span> <span class="n">V</span><span class="p">)</span>
+    
+    <span class="k">return</span> <span class="n">output</span>
+</code></pre></div></div>
+
+<p><strong>Attention Mechanism Flow:</strong></p>
+
+<p><img src="/assets/picture/2025-09-13-cs336-build-a-transformer-language-model/attention_flow.png" alt="Attention Mechanism Flow" /></p>
+
+<p><strong>Features:</strong></p>
+<ul>
+  <li><strong>Causal masking:</strong> Prevents looking at future words (essential for language modeling)</li>
+  <li><strong>Scaling:</strong> Divides by √d_k for numerical stability</li>
+  <li><strong>Flexible dimensions:</strong> Works with any number of batch dimensions</li>
+</ul>
+
+<h4 id="6-rotary-position-embedding-rope-cs336_basicsropepy">6. Rotary Position Embedding (RoPE) (<code class="language-plaintext highlighter-rouge">cs336_basics/rope.py</code>)</h4>
+
+<p><strong>What it does:</strong> Tells the model where each word is positioned in the sequence by rotating the attention vectors based on position.</p>
+
+<p><strong>Why it’s needed:</strong> Without position information, “cat sat on mat” and “mat sat on cat” would look identical to the model.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># RoPE rotates query and key vectors based on their position
+</span><span class="n">rope</span> <span class="o">=</span> <span class="n">RotaryPositionalEmbedding</span><span class="p">(</span><span class="n">theta</span><span class="o">=</span><span class="mf">10000.0</span><span class="p">,</span> <span class="n">d_k</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">max_seq_len</span><span class="o">=</span><span class="mi">512</span><span class="p">)</span>
+<span class="n">rotated_queries</span> <span class="o">=</span> <span class="n">rope</span><span class="p">(</span><span class="n">queries</span><span class="p">,</span> <span class="n">token_positions</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="n">nn</span>
+
+<span class="k">class</span> <span class="nc">RotaryPositionalEmbedding</span><span class="p">(</span><span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="s">"""
+    Rotary Positional Embedding (RoPE) module.
+    
+    Applies rotary positional embeddings to input tensors by rotating pairs of dimensions
+    based on their position in the sequence.
+    """</span>
+    
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">theta</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">d_k</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">max_seq_len</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">theta</span> <span class="o">=</span> <span class="n">theta</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">d_k</span> <span class="o">=</span> <span class="n">d_k</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">max_seq_len</span> <span class="o">=</span> <span class="n">max_seq_len</span>
+        
+        <span class="c1"># Precompute the frequency values for each dimension pair
+</span>        <span class="k">assert</span> <span class="n">d_k</span> <span class="o">%</span> <span class="mi">2</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="s">"d_k must be even for RoPE"</span>
+        
+        <span class="c1"># Create frequency values: theta^(-2i/d_k) for i = 0, 1, ..., d_k/2 - 1
+</span>        <span class="n">dim_indices</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">d_k</span> <span class="o">//</span> <span class="mi">2</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="p">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">freqs</span> <span class="o">=</span> <span class="n">theta</span> <span class="o">**</span> <span class="p">(</span><span class="o">-</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">dim_indices</span> <span class="o">/</span> <span class="n">d_k</span><span class="p">)</span>
+        
+        <span class="c1"># Create position indices for the maximum sequence length
+</span>        <span class="n">positions</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">arange</span><span class="p">(</span><span class="n">max_seq_len</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="p">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+        
+        <span class="c1"># Compute the angles: position * frequency for each position and frequency
+</span>        <span class="n">angles</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">outer</span><span class="p">(</span><span class="n">positions</span><span class="p">,</span> <span class="n">freqs</span><span class="p">)</span>
+        
+        <span class="c1"># Precompute cos and sin values
+</span>        <span class="c1"># We need to repeat each value twice to match the pairing structure
+</span>        <span class="n">cos_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">repeat_interleave</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">cos</span><span class="p">(</span><span class="n">angles</span><span class="p">),</span> <span class="mi">2</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">sin_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">repeat_interleave</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">sin</span><span class="p">(</span><span class="n">angles</span><span class="p">),</span> <span class="mi">2</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        
+        <span class="c1"># Register as buffers so they move with the module
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s">'cos_cached'</span><span class="p">,</span> <span class="n">cos_vals</span><span class="p">)</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s">'sin_cached'</span><span class="p">,</span> <span class="n">sin_vals</span><span class="p">)</span>
+    
+    <span class="k">def</span> <span class="nf">_rotate_half</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="s">"""
+        Rotate the last dimension of x by swapping and negating pairs of elements.
+        For RoPE, we rotate pairs of dimensions: (x1, x2) -&gt; (-x2, x1)
+        """</span>
+        <span class="c1"># Split into two halves and swap with negation
+</span>        <span class="n">x1</span> <span class="o">=</span> <span class="n">x</span><span class="p">[...,</span> <span class="p">::</span><span class="mi">2</span><span class="p">]</span>  <span class="c1"># Even indices (0, 2, 4, ...)
+</span>        <span class="n">x2</span> <span class="o">=</span> <span class="n">x</span><span class="p">[...,</span> <span class="mi">1</span><span class="p">::</span><span class="mi">2</span><span class="p">]</span>  <span class="c1"># Odd indices (1, 3, 5, ...)
+</span>        
+        <span class="c1"># Interleave -x2 and x1
+</span>        <span class="n">rotated</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">stack</span><span class="p">((</span><span class="o">-</span><span class="n">x2</span><span class="p">,</span> <span class="n">x1</span><span class="p">),</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">rotated</span><span class="p">.</span><span class="n">flatten</span><span class="p">(</span><span class="n">start_dim</span><span class="o">=-</span><span class="mi">2</span><span class="p">)</span>
+    
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">token_positions</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="c1"># Extract cos and sin values for the given positions
+</span>        <span class="n">cos_vals</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">cos_cached</span><span class="p">[</span><span class="n">token_positions</span><span class="p">]</span>  <span class="c1"># (..., seq_len, d_k)
+</span>        <span class="n">sin_vals</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">sin_cached</span><span class="p">[</span><span class="n">token_positions</span><span class="p">]</span>  <span class="c1"># (..., seq_len, d_k)
+</span>        
+        <span class="c1"># Apply RoPE: x * cos + rotate_half(x) * sin
+</span>        <span class="n">rotated_x</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">_rotate_half</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">cos_vals</span> <span class="o">+</span> <span class="n">rotated_x</span> <span class="o">*</span> <span class="n">sin_vals</span>
+</code></pre></div></div>
+
+<p><strong>Key features:</strong></p>
+<ul>
+  <li>Encodes position directly into attention mechanism</li>
+  <li>Works well with different sequence lengths</li>
+  <li>Applied to queries and keys, but not values</li>
+</ul>
+
+<h3 id="advanced-components">Advanced Components</h3>
+
+<h4 id="7-swiglu-feed-forward-network-cs336_basicsswiglupy">7. SwiGLU Feed-Forward Network (<code class="language-plaintext highlighter-rouge">cs336_basics/swiglu.py</code>)</h4>
+
+<p><strong>What it does:</strong> A sophisticated feed-forward network that processes information after attention. It’s like a specialized filter that enhances certain patterns.</p>
+
+<p><strong>Components:</strong></p>
+<ul>
+  <li><strong>SiLU activation:</strong> <code class="language-plaintext highlighter-rouge">SiLU(x) = x × sigmoid(x)</code> - smoother than ReLU</li>
+  <li><strong>Gated Linear Unit:</strong> Combines two transformations with element-wise multiplication</li>
+  <li><strong>Three linear layers:</strong> W1, W2, W3</li>
+</ul>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># SwiGLU formula: W2(SiLU(W1×x) ⊙ W3×x)
+# ⊙ means element-wise multiplication
+</span><span class="n">swiglu</span> <span class="o">=</span> <span class="n">SwiGLU</span><span class="p">(</span><span class="n">d_model</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span> <span class="n">d_ff</span><span class="o">=</span><span class="mi">1365</span><span class="p">)</span>  <span class="c1"># d_ff ≈ 8/3 × d_model
+</span></code></pre></div></div>
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="n">nn</span>
+<span class="kn">from</span> <span class="nn">.linear</span> <span class="kn">import</span> <span class="n">Linear</span>
+
+<span class="k">def</span> <span class="nf">silu</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="s">"""
+    SiLU (Swish) activation function: SiLU(x) = x * sigmoid(x) = x / (1 + e^(-x))
+    """</span>
+    <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">torch</span><span class="p">.</span><span class="n">sigmoid</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+<span class="k">class</span> <span class="nc">SwiGLU</span><span class="p">(</span><span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="s">"""
+    SwiGLU: SiLU-based Gated Linear Unit
+
+    FFN(x) = SwiGLU(x, W1, W2, W3) = W2(SiLU(W1x) ⊙ W3x)
+    where ⊙ represents element-wise multiplication
+    """</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">d_model</span> <span class="o">=</span> <span class="n">d_model</span>
+
+        <span class="c1"># Calculate d_ff if not provided: 8/3 * d_model, rounded to nearest multiple of 64
+</span>        <span class="k">if</span> <span class="n">d_ff</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">d_ff</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mi">8</span><span class="o">/</span><span class="mi">3</span> <span class="o">*</span> <span class="n">d_model</span><span class="p">)</span>
+            <span class="c1"># Round to nearest multiple of 64
+</span>            <span class="n">d_ff</span> <span class="o">=</span> <span class="p">((</span><span class="n">d_ff</span> <span class="o">+</span> <span class="mi">31</span><span class="p">)</span> <span class="o">//</span> <span class="mi">64</span><span class="p">)</span> <span class="o">*</span> <span class="mi">64</span>
+
+        <span class="bp">self</span><span class="p">.</span><span class="n">d_ff</span> <span class="o">=</span> <span class="n">d_ff</span>
+
+        <span class="c1"># Three linear transformations: W1, W2, W3
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">W1</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">W2</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">d_ff</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">W3</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="c1"># SwiGLU(x, W1, W2, W3) = W2(SiLU(W1x) ⊙ W3x)
+</span>        <span class="n">w1_output</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">W1</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>  <span class="c1"># (..., d_ff)
+</span>        <span class="n">w3_output</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">W3</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>  <span class="c1"># (..., d_ff)
+</span>
+        <span class="c1"># Apply SiLU to W1 output and element-wise multiply with W3 output
+</span>        <span class="n">gated</span> <span class="o">=</span> <span class="n">silu</span><span class="p">(</span><span class="n">w1_output</span><span class="p">)</span> <span class="o">*</span> <span class="n">w3_output</span>  <span class="c1"># (..., d_ff)
+</span>
+        <span class="c1"># Final linear transformation
+</span>        <span class="k">return</span> <span class="bp">self</span><span class="p">.</span><span class="n">W2</span><span class="p">(</span><span class="n">gated</span><span class="p">)</span>  <span class="c1"># (..., d_model)
+</span></code></pre></div></div>
+
+<p><strong>SwiGLU Architecture:</strong></p>
+
+<p><img src="/assets/picture/2025-09-13-cs336-build-a-transformer-language-model//swiglu_architecture.png" alt="SwiGLU Architecture" /></p>
+
+<p><strong>Why SwiGLU:</strong></p>
+<ul>
+  <li>More expressive than simple feed-forward networks</li>
+  <li>Gating mechanism helps control information flow</li>
+  <li>Proven to work better in practice for language models</li>
+</ul>
+
+<h4 id="8-multi-head-self-attention-cs336_basicsmultihead_attentionpy">8. Multi-Head Self-Attention (<code class="language-plaintext highlighter-rouge">cs336_basics/multihead_attention.py</code>)</h4>
+
+<p><strong>What it does:</strong> Implements the complete multi-head attention mechanism with causal masking and RoPE support. This is where the model learns to focus on relevant parts of the input sequence.</p>
+
+<p><strong>Key features:</strong></p>
+<ul>
+  <li><strong>Multiple attention heads:</strong> Each head can focus on different types of relationships</li>
+  <li><strong>Causal masking:</strong> Prevents looking at future tokens</li>
+  <li><strong>RoPE integration:</strong> Position encoding directly in the attention mechanism</li>
+  <li><strong>Parallel computation:</strong> All heads computed simultaneously</li>
+</ul>
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="n">nn</span>
+<span class="kn">from</span> <span class="nn">.linear</span> <span class="kn">import</span> <span class="n">Linear</span>
+<span class="kn">from</span> <span class="nn">.attention</span> <span class="kn">import</span> <span class="n">scaled_dot_product_attention</span>
+<span class="kn">from</span> <span class="nn">.rope</span> <span class="kn">import</span> <span class="n">RotaryPositionalEmbedding</span>
+
+<span class="k">class</span> <span class="nc">MultiHeadSelfAttention</span><span class="p">(</span><span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="s">"""
+    Causal Multi-Head Self-Attention module.
+
+    Implements the multi-head self-attention mechanism with causal masking
+    to prevent attending to future tokens.
+    """</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">num_heads</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">d_model</span> <span class="o">=</span> <span class="n">d_model</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">num_heads</span> <span class="o">=</span> <span class="n">num_heads</span>
+
+        <span class="c1"># Following Vaswani et al., d_k = d_v = d_model / num_heads
+</span>        <span class="k">assert</span> <span class="n">d_model</span> <span class="o">%</span> <span class="n">num_heads</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="s">"d_model must be divisible by num_heads"</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">d_k</span> <span class="o">=</span> <span class="n">d_model</span> <span class="o">//</span> <span class="n">num_heads</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">d_v</span> <span class="o">=</span> <span class="n">d_model</span> <span class="o">//</span> <span class="n">num_heads</span>
+
+        <span class="c1"># Linear projections for Q, K, V
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">W_q</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">W_k</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">W_v</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+
+        <span class="c1"># Output projection
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">W_o</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">rope</span><span class="p">:</span> <span class="n">RotaryPositionalEmbedding</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span> <span class="n">token_positions</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="bp">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">batch_size</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="n">d_model</span> <span class="o">=</span> <span class="n">x</span><span class="p">.</span><span class="n">shape</span>
+
+        <span class="c1"># Apply linear projections
+</span>        <span class="n">Q</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">W_q</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>  <span class="c1"># (batch_size, seq_len, d_model)
+</span>        <span class="n">K</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">W_k</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>  <span class="c1"># (batch_size, seq_len, d_model)
+</span>        <span class="n">V</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">W_v</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>  <span class="c1"># (batch_size, seq_len, d_model)
+</span>
+        <span class="c1"># Reshape to multi-head format
+</span>        <span class="n">Q</span> <span class="o">=</span> <span class="n">Q</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">num_heads</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">d_k</span><span class="p">)</span>
+        <span class="n">K</span> <span class="o">=</span> <span class="n">K</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">num_heads</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">d_k</span><span class="p">)</span>
+        <span class="n">V</span> <span class="o">=</span> <span class="n">V</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">num_heads</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">d_v</span><span class="p">)</span>
+
+        <span class="c1"># Transpose to (batch_size, num_heads, seq_len, d_k/d_v)
+</span>        <span class="n">Q</span> <span class="o">=</span> <span class="n">Q</span><span class="p">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">K</span> <span class="o">=</span> <span class="n">K</span><span class="p">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">V</span> <span class="o">=</span> <span class="n">V</span><span class="p">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="c1"># Apply RoPE if provided (only to Q and K, not V)
+</span>        <span class="k">if</span> <span class="n">rope</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">token_positions</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c1"># Reshape for RoPE
+</span>            <span class="n">Q_rope</span> <span class="o">=</span> <span class="n">Q</span><span class="p">.</span><span class="n">contiguous</span><span class="p">().</span><span class="n">view</span><span class="p">(</span><span class="n">batch_size</span> <span class="o">*</span> <span class="bp">self</span><span class="p">.</span><span class="n">num_heads</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">d_k</span><span class="p">)</span>
+            <span class="n">K_rope</span> <span class="o">=</span> <span class="n">K</span><span class="p">.</span><span class="n">contiguous</span><span class="p">().</span><span class="n">view</span><span class="p">(</span><span class="n">batch_size</span> <span class="o">*</span> <span class="bp">self</span><span class="p">.</span><span class="n">num_heads</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">d_k</span><span class="p">)</span>
+
+            <span class="c1"># Expand token_positions to match
+</span>            <span class="n">token_positions_expanded</span> <span class="o">=</span> <span class="n">token_positions</span><span class="p">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">).</span><span class="n">expand</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">num_heads</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">).</span><span class="n">contiguous</span><span class="p">().</span><span class="n">view</span><span class="p">(</span><span class="n">batch_size</span> <span class="o">*</span> <span class="bp">self</span><span class="p">.</span><span class="n">num_heads</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">)</span>
+
+            <span class="c1"># Apply RoPE
+</span>            <span class="n">Q_rope</span> <span class="o">=</span> <span class="n">rope</span><span class="p">(</span><span class="n">Q_rope</span><span class="p">,</span> <span class="n">token_positions_expanded</span><span class="p">)</span>
+            <span class="n">K_rope</span> <span class="o">=</span> <span class="n">rope</span><span class="p">(</span><span class="n">K_rope</span><span class="p">,</span> <span class="n">token_positions_expanded</span><span class="p">)</span>
+
+            <span class="c1"># Reshape back
+</span>            <span class="n">Q</span> <span class="o">=</span> <span class="n">Q_rope</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">num_heads</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">d_k</span><span class="p">)</span>
+            <span class="n">K</span> <span class="o">=</span> <span class="n">K_rope</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">num_heads</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">d_k</span><span class="p">)</span>
+
+        <span class="c1"># Create causal mask: lower triangular matrix
+</span>        <span class="n">causal_mask</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">triu</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">ones</span><span class="p">(</span><span class="n">seq_len</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="p">.</span><span class="nb">bool</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">x</span><span class="p">.</span><span class="n">device</span><span class="p">),</span> <span class="n">diagonal</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">causal_mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">causal_mask</span>  <span class="c1"># Invert: True means attend, False means don't attend
+</span>
+        <span class="c1"># Apply scaled dot-product attention
+</span>        <span class="n">attn_output</span> <span class="o">=</span> <span class="n">scaled_dot_product_attention</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span><span class="p">,</span> <span class="n">causal_mask</span><span class="p">)</span>
+
+        <span class="c1"># Transpose back and reshape
+</span>        <span class="n">attn_output</span> <span class="o">=</span> <span class="n">attn_output</span><span class="p">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">attn_output</span> <span class="o">=</span> <span class="n">attn_output</span><span class="p">.</span><span class="n">contiguous</span><span class="p">().</span><span class="n">view</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="n">d_model</span><span class="p">)</span>
+
+        <span class="c1"># Apply output projection
+</span>        <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">W_o</span><span class="p">(</span><span class="n">attn_output</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">output</span>
+</code></pre></div></div>
+
+<p><strong>Multi-Head Attention Flow:</strong>
+<img src="/assets/picture/2025-09-13-cs336-build-a-transformer-language-model/multi_head_attention_flow.png" alt="Multi-Head Attention Flow" /></p>
+
+<h3 id="putting-it-all-together">Putting It All Together</h3>
+
+<h4 id="9-transformer-block-cs336_basicstransformer_blockpy">9. Transformer Block (<code class="language-plaintext highlighter-rouge">cs336_basics/transformer_block.py</code>)</h4>
+
+<p><strong>What it does:</strong> Combines attention and feed-forward processing with residual connections and normalization. This is the core building block of the Transformer.</p>
+
+<p><strong>Architecture (Pre-Norm):</strong></p>
+
+<p><img src="/assets/picture/2025-09-13-cs336-build-a-transformer-language-model/transformer_block.png" alt="Transformer Block Architecture" /></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Each transformer block does:
+# 1. x = x + attention(norm(x))
+# 2. x = x + feedforward(norm(x))
+</span><span class="n">transformer_block</span> <span class="o">=</span> <span class="n">TransformerBlock</span><span class="p">(</span><span class="n">d_model</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span> <span class="n">num_heads</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">d_ff</span><span class="o">=</span><span class="mi">1365</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Key concepts:</strong></p>
+<ul>
+  <li><strong>Residual connections:</strong> Add input to output (<code class="language-plaintext highlighter-rouge">x + f(x)</code>) - helps training deep networks</li>
+  <li><strong>Pre-normalization:</strong> Apply normalization before operations, not after</li>
+  <li><strong>Multi-head attention:</strong> Run multiple attention operations in parallel</li>
+</ul>
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="n">nn</span>
+<span class="kn">from</span> <span class="nn">.rmsnorm</span> <span class="kn">import</span> <span class="n">RMSNorm</span>
+<span class="kn">from</span> <span class="nn">.multihead_attention</span> <span class="kn">import</span> <span class="n">MultiHeadSelfAttention</span>
+<span class="kn">from</span> <span class="nn">.swiglu</span> <span class="kn">import</span> <span class="n">SwiGLU</span>
+<span class="kn">from</span> <span class="nn">.rope</span> <span class="kn">import</span> <span class="n">RotaryPositionalEmbedding</span>
+
+<span class="k">class</span> <span class="nc">TransformerBlock</span><span class="p">(</span><span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="s">"""
+    A pre-norm Transformer block as shown in Figure 2.
+
+    Architecture (from bottom to top):
+    1. Input tensor
+    2. Norm -&gt; Causal Multi-Head Self-Attention w/ RoPE -&gt; Add (residual)
+    3. Norm -&gt; Position-Wise Feed-Forward -&gt; Add (residual)
+    4. Output tensor
+    """</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">num_heads</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">d_model</span> <span class="o">=</span> <span class="n">d_model</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">num_heads</span> <span class="o">=</span> <span class="n">num_heads</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">d_ff</span> <span class="o">=</span> <span class="n">d_ff</span>
+
+        <span class="c1"># Layer normalization for the two sublayers (RMSNorm)
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">ln1</span> <span class="o">=</span> <span class="n">RMSNorm</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>  <span class="c1"># Before attention
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">ln2</span> <span class="o">=</span> <span class="n">RMSNorm</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>  <span class="c1"># Before feed-forward
+</span>
+        <span class="c1"># Causal Multi-Head Self-Attention w/ RoPE
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">attn</span> <span class="o">=</span> <span class="n">MultiHeadSelfAttention</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">num_heads</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+
+        <span class="c1"># Position-Wise Feed-Forward (using SwiGLU)
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">ffn</span> <span class="o">=</span> <span class="n">SwiGLU</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">rope</span><span class="p">:</span> <span class="n">RotaryPositionalEmbedding</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span> <span class="n">token_positions</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="bp">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="c1"># First sublayer: Norm -&gt; Causal Multi-Head Self-Attention w/ RoPE -&gt; Add
+</span>        <span class="n">norm1_output</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">ln1</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">attn_output</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">attn</span><span class="p">(</span><span class="n">norm1_output</span><span class="p">,</span> <span class="n">rope</span><span class="o">=</span><span class="n">rope</span><span class="p">,</span> <span class="n">token_positions</span><span class="o">=</span><span class="n">token_positions</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="n">attn_output</span>  <span class="c1"># Residual connection
+</span>
+        <span class="c1"># Second sublayer: Norm -&gt; Position-Wise Feed-Forward -&gt; Add
+</span>        <span class="n">norm2_output</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">ln2</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">ffn_output</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">ffn</span><span class="p">(</span><span class="n">norm2_output</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="n">ffn_output</span>  <span class="c1"># Residual connection
+</span>
+        <span class="k">return</span> <span class="n">x</span>
+</code></pre></div></div>
+
+<h3 id="the-complete-transformer">The Complete Transformer</h3>
+
+<h4 id="10-transformer-language-model-cs336_basicstransformer_lmpy">10. Transformer Language Model (<code class="language-plaintext highlighter-rouge">cs336_basics/transformer_lm.py</code>)</h4>
+
+<p><strong>What it does:</strong> Combines everything into a complete language model that can predict the next word in a sequence.</p>
+
+<p><strong>Full Architecture:</strong></p>
+
+<p><img src="/assets/picture/2025-09-13-cs336-build-a-transformer-language-model/full_architecture.png" alt="Complete Transformer Language Model Architecture" /></p>
+
+<p><strong>Architecture Flow:</strong></p>
+<ol>
+  <li><strong>Token IDs</strong> → Input integers representing words/subwords</li>
+  <li><strong>Token Embeddings</strong> → Convert IDs to dense vectors</li>
+  <li><strong>Transformer Blocks</strong> (repeated num_layers times):
+    <ul>
+      <li>RMSNorm → Multi-Head Attention (with RoPE) → Residual connection</li>
+      <li>RMSNorm → SwiGLU Feed-Forward → Residual connection</li>
+    </ul>
+  </li>
+  <li><strong>Final RMSNorm</strong> → Normalize before output</li>
+  <li><strong>Linear Head</strong> → Project to vocabulary size</li>
+  <li><strong>Softmax</strong> → Convert to probabilities (optional)</li>
+</ol>
+
+<p><strong>How it works:</strong></p>
+<ol>
+  <li><strong>Input Processing:</strong> Convert word IDs to embeddings</li>
+  <li><strong>Pattern Recognition:</strong> Each Transformer block learns different patterns</li>
+  <li><strong>Output Generation:</strong> Final layer predicts next word probabilities</li>
+</ol>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Complete model
+</span><span class="n">model</span> <span class="o">=</span> <span class="n">TransformerLM</span><span class="p">(</span>
+    <span class="n">vocab_size</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span>      <span class="c1"># Number of possible words
+</span>    <span class="n">context_length</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span>    <span class="c1"># Maximum sequence length
+</span>    <span class="n">d_model</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span>           <span class="c1"># Model dimension
+</span>    <span class="n">num_layers</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span>          <span class="c1"># Number of transformer blocks
+</span>    <span class="n">num_heads</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>           <span class="c1"># Number of attention heads
+</span>    <span class="n">d_ff</span><span class="o">=</span><span class="mi">1365</span>             <span class="c1"># Feed-forward dimension
+</span><span class="p">)</span>
+
+<span class="c1"># Usage
+</span><span class="n">logits</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">input_ids</span><span class="p">)</span>  <span class="c1"># Get next-word predictions
+</span></code></pre></div></div>
+
+<p><strong>Complete Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="n">nn</span>
+<span class="kn">from</span> <span class="nn">.embedding</span> <span class="kn">import</span> <span class="n">Embedding</span>
+<span class="kn">from</span> <span class="nn">.transformer_block</span> <span class="kn">import</span> <span class="n">TransformerBlock</span>
+<span class="kn">from</span> <span class="nn">.rmsnorm</span> <span class="kn">import</span> <span class="n">RMSNorm</span>
+<span class="kn">from</span> <span class="nn">.linear</span> <span class="kn">import</span> <span class="n">Linear</span>
+<span class="kn">from</span> <span class="nn">.rope</span> <span class="kn">import</span> <span class="n">RotaryPositionalEmbedding</span>
+<span class="kn">from</span> <span class="nn">.softmax</span> <span class="kn">import</span> <span class="n">softmax</span>
+
+<span class="k">class</span> <span class="nc">TransformerLM</span><span class="p">(</span><span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="s">"""
+    A Transformer language model as described in Figure 1.
+
+    Architecture (from bottom to top):
+    1. Inputs (token IDs)
+    2. Token Embedding
+    3. Multiple Transformer Blocks (num_layers)
+    4. Norm (RMSNorm)
+    5. Linear (Output Embedding)
+    6. Softmax
+    7. Output Probabilities
+    """</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">vocab_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">context_length</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">d_model</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">num_layers</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">num_heads</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">d_ff</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">rope_theta</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10000.0</span><span class="p">,</span>
+        <span class="n">device</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="bp">None</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">vocab_size</span> <span class="o">=</span> <span class="n">vocab_size</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">context_length</span> <span class="o">=</span> <span class="n">context_length</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">d_model</span> <span class="o">=</span> <span class="n">d_model</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">num_layers</span> <span class="o">=</span> <span class="n">num_layers</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">num_heads</span> <span class="o">=</span> <span class="n">num_heads</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">d_ff</span> <span class="o">=</span> <span class="n">d_ff</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">rope_theta</span> <span class="o">=</span> <span class="n">rope_theta</span>
+
+        <span class="c1"># Token Embedding
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">token_embeddings</span> <span class="o">=</span> <span class="n">Embedding</span><span class="p">(</span><span class="n">vocab_size</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+
+        <span class="c1"># Transformer Blocks
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">layers</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">ModuleList</span><span class="p">([</span>
+            <span class="n">TransformerBlock</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">num_heads</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_layers</span><span class="p">)</span>
+        <span class="p">])</span>
+
+        <span class="c1"># Final layer norm
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">ln_f</span> <span class="o">=</span> <span class="n">RMSNorm</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+
+        <span class="c1"># Output projection (Linear - Output Embedding)
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">lm_head</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">vocab_size</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+
+        <span class="c1"># RoPE module
+</span>        <span class="n">d_k</span> <span class="o">=</span> <span class="n">d_model</span> <span class="o">//</span> <span class="n">num_heads</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">rope</span> <span class="o">=</span> <span class="n">RotaryPositionalEmbedding</span><span class="p">(</span>
+            <span class="n">theta</span><span class="o">=</span><span class="n">rope_theta</span><span class="p">,</span>
+            <span class="n">d_k</span><span class="o">=</span><span class="n">d_k</span><span class="p">,</span>
+            <span class="n">max_seq_len</span><span class="o">=</span><span class="n">context_length</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="n">device</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_ids</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">apply_softmax</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="bp">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">batch_size</span><span class="p">,</span> <span class="n">seq_len</span> <span class="o">=</span> <span class="n">input_ids</span><span class="p">.</span><span class="n">shape</span>
+
+        <span class="c1"># Generate token positions for RoPE
+</span>        <span class="n">token_positions</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">arange</span><span class="p">(</span><span class="n">seq_len</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">input_ids</span><span class="p">.</span><span class="n">device</span><span class="p">).</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="n">expand</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="c1"># Token Embedding
+</span>        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">token_embeddings</span><span class="p">(</span><span class="n">input_ids</span><span class="p">)</span>  <span class="c1"># (batch_size, seq_len, d_model)
+</span>
+        <span class="c1"># Apply Transformer blocks
+</span>        <span class="k">for</span> <span class="n">layer</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">.</span><span class="n">layers</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">rope</span><span class="o">=</span><span class="bp">self</span><span class="p">.</span><span class="n">rope</span><span class="p">,</span> <span class="n">token_positions</span><span class="o">=</span><span class="n">token_positions</span><span class="p">)</span>
+
+        <span class="c1"># Final layer norm
+</span>        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">ln_f</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>  <span class="c1"># (batch_size, seq_len, d_model)
+</span>
+        <span class="c1"># Output projection
+</span>        <span class="n">logits</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">lm_head</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>  <span class="c1"># (batch_size, seq_len, vocab_size)
+</span>
+        <span class="c1"># Apply softmax if requested
+</span>        <span class="k">if</span> <span class="n">apply_softmax</span><span class="p">:</span>
+            <span class="c1"># Apply softmax over the vocabulary dimension (last dimension)
+</span>            <span class="n">output_probs</span> <span class="o">=</span> <span class="n">softmax</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">output_probs</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">logits</span>
+</code></pre></div></div>
+
+<h3 id="how-everything-works-together">How Everything Works Together</h3>
+
+<ol>
+  <li><strong>Token Embeddings</strong> convert words to vectors the model can process</li>
+  <li><strong>RMSNorm</strong> keeps values stable before major operations</li>
+  <li><strong>Attention</strong> lets the model look at relevant previous words</li>
+  <li><strong>RoPE</strong> tells attention where each word is positioned</li>
+  <li><strong>SwiGLU</strong> processes information after attention</li>
+  <li><strong>Linear layers</strong> transform dimensions throughout the model</li>
+  <li><strong>Softmax</strong> converts final outputs to word probabilities</li>
+  <li><strong>Transformer blocks</strong> stack these operations to learn complex patterns</li>
+</ol>
+
+<p>The beauty of this architecture is its simplicity and effectiveness. With these building blocks, we can now understand the core technology behind ChatGPT, GPT-4, and other large language models.</p>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="cs336" /><summary type="html"><![CDATA[Building a Transformer Language Model: A Complete Guide]]></summary></entry><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [4]</title><link href="http://localhost:4000/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [4]" /><published>2025-08-10T00:00:00-07:00</published><updated>2025-08-10T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind</id><content type="html" xml:base="http://localhost:4000/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind.html"><![CDATA[<h2 id="demystifying-gpt-2s-pre-tokenization-how-one-regex-pattern-handles-the-worlds-languages">Demystifying GPT-2’s Pre-Tokenization: How One Regex Pattern Handles the World’s Languages</h2>
 
 <p>While working on <strong>Assignment 1</strong> of <em>Stanford’s CS336: Language Modeling from Scratch</em>, I came across a deceptively simple — yet remarkably powerful — regex pattern used in the pre-tokenization stage of the BPE algorithm.</p>
 
