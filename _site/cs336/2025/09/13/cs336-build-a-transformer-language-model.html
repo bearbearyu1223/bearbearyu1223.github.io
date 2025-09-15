@@ -338,6 +338,17 @@ By the end of this guide, you’ll understand:</p>
   <li><strong>Queries (Q):</strong> “What am I looking for?”</li>
   <li><strong>Keys (K):</strong> “What information is available?”</li>
   <li><strong>Values (V):</strong> “What is the actual information?”</li>
+  <li><strong>Dimension Requirements</strong>
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  # Q: [batch, seq_len_q, d_k]  - Query dimension
+  # K: [batch, seq_len_k, d_k]  - Key dimension  
+  # V: [batch, seq_len_v, d_v]  - Value dimension
+
+  # Requirements:
+  # 1. Q and K MUST have same d_k (for dot product)
+  # 2. K and V MUST have same seq_len (they describe the same items)
+  # 3. V can have different d_v (output dimension can differ)
+</code></pre></div>    </div>
+  </li>
 </ul>
 
 <div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Attention formula: Attention(Q,K,V) = softmax(Q×K^T / √d_k) × V
@@ -475,7 +486,7 @@ By the end of this guide, you’ll understand:</p>
 <ul>
   <li>Encodes position directly into attention mechanism</li>
   <li>Works well with different sequence lengths</li>
-  <li>Applied to queries and keys, but not values</li>
+  <li>Applied to queries and keys, but not values, because positional information is used for attention computation, not for the content being retrieved</li>
 </ul>
 
 <h3 id="advanced-components">Advanced Components</h3>
@@ -568,6 +579,85 @@ By the end of this guide, you’ll understand:</p>
   <li><strong>Parallel computation:</strong> All heads computed simultaneously</li>
 </ul>
 
+<p><strong>Why Multiple Heads?</strong></p>
+
+<p>The motivation is <strong>representation power</strong> and <strong>diversity of attention patterns</strong>.</p>
+
+<ol>
+  <li><strong>Different subspaces of information</strong>
+    <ul>
+      <li>Each head learns its own set of projection matrices (<code class="language-plaintext highlighter-rouge">W_q</code>, <code class="language-plaintext highlighter-rouge">W_k</code>, <code class="language-plaintext highlighter-rouge">W_v</code>).</li>
+      <li>Each head looks at the input through a <em>different lens</em>, projecting embeddings into different subspaces.</li>
+      <li>One head might focus on syntactic relations, another on semantics, another on positional information.</li>
+    </ul>
+  </li>
+  <li><strong>Richer attention patterns</strong>
+    <ul>
+      <li>Multiple heads can attend to <strong>different tokens simultaneously</strong>.</li>
+      <li>Example: in translation, one head might track word order, another align nouns, another focus on verbs.</li>
+    </ul>
+  </li>
+  <li><strong>Stability and expressiveness</strong>
+    <ul>
+      <li>A single attention head is essentially a weighted average — too simple.</li>
+      <li>Multiple heads prevent the model from collapsing into one dominant pattern and encourage <strong>diverse contextualization</strong>.</li>
+    </ul>
+  </li>
+</ol>
+
+<p><strong>How to Select the Number of Heads?</strong></p>
+
+<p>There’s no universal formula, but here are <strong>practical guidelines</strong>:</p>
+
+<ol>
+  <li><strong>Divisibility with model dimension</strong>
+    <ul>
+      <li>Embedding dimension <code class="language-plaintext highlighter-rouge">d_model</code> must be divisible by the number of heads <code class="language-plaintext highlighter-rouge">h</code>.</li>
+      <li>Each head gets a sub-dimension <code class="language-plaintext highlighter-rouge">d_k = d_model / h</code>.</li>
+      <li>Example: <code class="language-plaintext highlighter-rouge">d_model = 512</code>, common choices are <code class="language-plaintext highlighter-rouge">h = 8</code> (<code class="language-plaintext highlighter-rouge">d_k = 64</code>) or <code class="language-plaintext highlighter-rouge">h = 16</code> (<code class="language-plaintext highlighter-rouge">d_k = 32</code>).</li>
+    </ul>
+  </li>
+  <li><strong>Balance between capacity and efficiency</strong>
+    <ul>
+      <li>Too few heads → each head has a large <code class="language-plaintext highlighter-rouge">d_k</code> → less diversity, harder to capture multiple relations.</li>
+      <li>Too many heads → each head has a tiny <code class="language-plaintext highlighter-rouge">d_k</code> → may lose expressive power, and overhead grows.</li>
+    </ul>
+  </li>
+  <li><strong>Empirical rules from practice</strong>
+    <ul>
+      <li><strong>Original Transformer (Vaswani et al.)</strong>:
+        <ul>
+          <li><code class="language-plaintext highlighter-rouge">d_model = 512</code>, <code class="language-plaintext highlighter-rouge">h = 8</code> → <code class="language-plaintext highlighter-rouge">d_k = 64</code>.</li>
+        </ul>
+      </li>
+      <li><strong>BERT-base</strong>:
+        <ul>
+          <li><code class="language-plaintext highlighter-rouge">d_model = 768</code>, <code class="language-plaintext highlighter-rouge">h = 12</code> → <code class="language-plaintext highlighter-rouge">d_k = 64</code>.</li>
+        </ul>
+      </li>
+      <li><strong>BERT-large / GPT-3 style models</strong>:
+        <ul>
+          <li><code class="language-plaintext highlighter-rouge">d_model = 1024–12288</code>, <code class="language-plaintext highlighter-rouge">h = 16–96</code>, often keeping <code class="language-plaintext highlighter-rouge">d_k ≈ 64</code>.</li>
+        </ul>
+      </li>
+      <li>In practice, many architectures fix <strong><code class="language-plaintext highlighter-rouge">d_k ≈ 64</code> per head</strong> and scale <code class="language-plaintext highlighter-rouge">h</code> with model size.</li>
+    </ul>
+  </li>
+  <li><strong>Scaling law intuition</strong>
+    <ul>
+      <li>Larger models tend to use more heads.</li>
+      <li>But going below <code class="language-plaintext highlighter-rouge">d_k &lt; 32</code> per head often hurts performance — each head needs enough dimensions to be useful.</li>
+    </ul>
+  </li>
+</ol>
+
+<p><strong>Intuition</strong></p>
+
+<ul>
+  <li><strong>One head = one spotlight.</strong> It can only focus on <em>one kind</em> of relationship at a time.</li>
+  <li><strong>Multiple heads = multiple spotlights.</strong> Each head looks at different aspects, and their outputs are concatenated and mixed to form a richer representation.</li>
+</ul>
+
 <p><strong>Implementation:</strong></p>
 
 <div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
@@ -654,8 +744,9 @@ By the end of this guide, you’ll understand:</p>
         <span class="k">return</span> <span class="n">output</span>
 </code></pre></div></div>
 
-<p><strong>Multi-Head Attention Flow:</strong>
-<img src="/assets/picture/2025-09-13-cs336-build-a-transformer-language-model/multi_head_attention_flow.png" alt="Multi-Head Attention Flow" /></p>
+<p><strong>Multi-Head Attention Flow:</strong></p>
+
+<p><img src="/assets/picture/2025-09-13-cs336-build-a-transformer-language-model/multi_head_attention_flow.png" alt="Multi-Head Attention Flow" /></p>
 
 <h3 id="putting-it-all-together">Putting It All Together</h3>
 

@@ -281,6 +281,17 @@ class RMSNorm(nn.Module):
 - **Queries (Q):** "What am I looking for?"
 - **Keys (K):** "What information is available?"  
 - **Values (V):** "What is the actual information?"
+- **Dimension Requirements**
+    ```
+    # Q: [batch, seq_len_q, d_k]  - Query dimension
+    # K: [batch, seq_len_k, d_k]  - Key dimension  
+    # V: [batch, seq_len_v, d_v]  - Value dimension
+
+    # Requirements:
+    # 1. Q and K MUST have same d_k (for dot product)
+    # 2. K and V MUST have same seq_len (they describe the same items)
+    # 3. V can have different d_v (output dimension can differ)
+    ```
 
 ```python
 # Attention formula: Attention(Q,K,V) = softmax(Q×K^T / √d_k) × V
@@ -418,7 +429,7 @@ class RotaryPositionalEmbedding(nn.Module):
 **Key features:**
 - Encodes position directly into attention mechanism
 - Works well with different sequence lengths
-- Applied to queries and keys, but not values
+- Applied to queries and keys, but not values, because positional information is used for attention computation, not for the content being retrieved
 
 ### Advanced Components
 
@@ -505,6 +516,56 @@ class SwiGLU(nn.Module):
 - **Causal masking:** Prevents looking at future tokens
 - **RoPE integration:** Position encoding directly in the attention mechanism
 - **Parallel computation:** All heads computed simultaneously
+
+**Why Multiple Heads?**
+
+The motivation is **representation power** and **diversity of attention patterns**.
+
+1. **Different subspaces of information**  
+   - Each head learns its own set of projection matrices (`W_q`, `W_k`, `W_v`).  
+   - Each head looks at the input through a *different lens*, projecting embeddings into different subspaces.  
+   - One head might focus on syntactic relations, another on semantics, another on positional information.
+
+2. **Richer attention patterns**  
+   - Multiple heads can attend to **different tokens simultaneously**.  
+   - Example: in translation, one head might track word order, another align nouns, another focus on verbs.
+
+3. **Stability and expressiveness**  
+   - A single attention head is essentially a weighted average — too simple.  
+   - Multiple heads prevent the model from collapsing into one dominant pattern and encourage **diverse contextualization**.
+
+
+**How to Select the Number of Heads?**
+
+There’s no universal formula, but here are **practical guidelines**:
+
+1. **Divisibility with model dimension**  
+   - Embedding dimension `d_model` must be divisible by the number of heads `h`.  
+   - Each head gets a sub-dimension `d_k = d_model / h`.  
+   - Example: `d_model = 512`, common choices are `h = 8` (`d_k = 64`) or `h = 16` (`d_k = 32`).
+
+2. **Balance between capacity and efficiency**  
+   - Too few heads → each head has a large `d_k` → less diversity, harder to capture multiple relations.  
+   - Too many heads → each head has a tiny `d_k` → may lose expressive power, and overhead grows.
+
+3. **Empirical rules from practice**  
+   - **Original Transformer (Vaswani et al.)**:  
+     - `d_model = 512`, `h = 8` → `d_k = 64`.  
+   - **BERT-base**:  
+     - `d_model = 768`, `h = 12` → `d_k = 64`.  
+   - **BERT-large / GPT-3 style models**:  
+     - `d_model = 1024–12288`, `h = 16–96`, often keeping `d_k ≈ 64`.  
+   - In practice, many architectures fix **`d_k ≈ 64` per head** and scale `h` with model size.
+
+4. **Scaling law intuition**  
+   - Larger models tend to use more heads.  
+   - But going below `d_k < 32` per head often hurts performance — each head needs enough dimensions to be useful.
+
+
+**Intuition**
+
+- **One head = one spotlight.** It can only focus on *one kind* of relationship at a time.  
+- **Multiple heads = multiple spotlights.** Each head looks at different aspects, and their outputs are concatenated and mixed to form a richer representation.
 
 **Implementation:**
 
@@ -594,6 +655,7 @@ class MultiHeadSelfAttention(nn.Module):
 ```
 
 **Multi-Head Attention Flow:**
+
 ![Multi-Head Attention Flow](/assets/picture/2025-09-13-cs336-build-a-transformer-language-model/multi_head_attention_flow.png)
 
 

@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <link rel="shortcut icon" type="image/png" href="/assets/favicon.png">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>Study Notes: Stanford CS336 Language Modeling from Scratch [6] | 🍒 Han’s Generative AI Quest</title>
+<meta name="generator" content="Jekyll v4.3.2" />
+<meta property="og:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [6]" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="An Overview of Popular Transformer Architectures" />
+<meta property="og:description" content="An Overview of Popular Transformer Architectures" />
+<link rel="canonical" href="http://localhost:4000/cs336/2025/09/14/cs336-transformer-architecture-overview.html" />
+<meta property="og:url" content="http://localhost:4000/cs336/2025/09/14/cs336-transformer-architecture-overview.html" />
+<meta property="og:site_name" content="🍒 Han’s Generative AI Quest" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2025-09-14T00:00:00-07:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [6]" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2025-09-14T00:00:00-07:00","datePublished":"2025-09-14T00:00:00-07:00","description":"An Overview of Popular Transformer Architectures","headline":"Study Notes: Stanford CS336 Language Modeling from Scratch [6]","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/cs336/2025/09/14/cs336-transformer-architecture-overview.html"},"url":"http://localhost:4000/cs336/2025/09/14/cs336-transformer-architecture-overview.html"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/css/style.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="🍒 Han&apos;s Generative AI Quest" />
+</head>
+<body><header class="site-header">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">🍒 Han&#39;s Generative AI Quest</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/about/">About</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Study Notes: Stanford CS336 Language Modeling from Scratch [6]</h1>
+    <p class="post-meta"><time class="dt-published" datetime="2025-09-14T00:00:00-07:00" itemprop="datePublished">
+        Sep 14, 2025
+      </time>• 
+          <span itemprop="author" itemscope itemtype="http://schema.org/Person">
+            <span class="p-author h-card" itemprop="name">Han Yu</span></span></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <h2 id="an-overview-of-popular-transformer-architectures">An Overview of Popular Transformer Architectures</h2>
+
+<p>While working on the Transformer LM assignments, I realized it would be helpful to also step back and look at some of the most popular Transformer architectures. Here are my notes and takeaways.</p>
+
+<h3 id="table-of-contents">Table of Contents</h3>
+<ol>
+  <li><a href="#introduction">Introduction</a></li>
+  <li><a href="#architecture-overview">Architecture Overview</a></li>
+  <li><a href="#encoder-decoder-transformers">Encoder-Decoder Transformers</a></li>
+  <li><a href="#decoder-only-transformers">Decoder-Only Transformers</a></li>
+  <li><a href="#encoder-only-transformers">Encoder-Only Transformers</a></li>
+  <li><a href="#comparison-summary">Comparison Summary</a></li>
+  <li><a href="#modern-trends-and-applications">Modern Trends and Applications</a></li>
+</ol>
+
+<h3 id="introduction">Introduction</h3>
+
+<p>Transformer architectures have revolutionized natural language processing and machine learning. Since the original “Attention is All You Need” paper in 2017, three main architectural variants have emerged, each optimized for different types of tasks:</p>
+
+<ul>
+  <li><strong>Encoder-Decoder</strong>: Sequence-to-sequence transformations</li>
+  <li><strong>Decoder-Only</strong>: Autoregressive text generation</li>
+  <li><strong>Encoder-Only</strong>: Text understanding and classification</li>
+</ul>
+
+<p>This note provides an overview of how each architecture works, their training methodologies, evaluation approaches, and practical applications.</p>
+
+<hr />
+
+<h3 id="architecture-overview">Architecture Overview</h3>
+
+<h4 id="core-components">Core Components</h4>
+
+<p>All transformer architectures share fundamental building blocks:</p>
+
+<ul>
+  <li><strong>Self-Attention Mechanism</strong>: Allows tokens to attend to other tokens</li>
+  <li><strong>Feed-Forward Networks</strong>: Position-wise processing layers</li>
+  <li><strong>Layer Normalization</strong>: Stabilizes training</li>
+  <li><strong>Residual Connections</strong>: Enables deep architectures</li>
+  <li><strong>Positional Encodings</strong>: Provides sequence position information</li>
+</ul>
+
+<h4 id="key-differences">Key Differences</h4>
+
+<p>The main distinction lies in the <strong>attention patterns</strong>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Architecture</th>
+      <th>Attention Pattern</th>
+      <th>Primary Use Case</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Encoder-Decoder</td>
+      <td>Bidirectional (encoder) + Causal (decoder)</td>
+      <td>Sequence-to-sequence tasks</td>
+    </tr>
+    <tr>
+      <td>Decoder-Only</td>
+      <td>Causal only</td>
+      <td>Autoregressive generation</td>
+    </tr>
+    <tr>
+      <td>Encoder-Only</td>
+      <td>Bidirectional only</td>
+      <td>Understanding and classification</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h3 id="encoder-decoder-transformers">Encoder-Decoder Transformers</h3>
+
+<h4 id="architecture-design">Architecture Design</h4>
+
+<p>The encoder-decoder architecture consists of two separate stacks connected through cross-attention:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Input Sequence → Encoder (Bidirectional) → Context Representations
+                                                    ↓
+Target Sequence → Decoder (Causal + Cross-Attention) → Output Sequence
+</code></pre></div></div>
+
+<p><strong>Key Components:</strong></p>
+<ul>
+  <li><strong>Encoder</strong>: Uses bidirectional self-attention to process input</li>
+  <li><strong>Decoder</strong>: Uses causal self-attention + cross-attention to encoder</li>
+  <li><strong>Cross-Attention</strong>: Allows decoder to attend to encoder representations</li>
+</ul>
+
+<h4 id="training-methodology">Training Methodology</h4>
+
+<p><strong>Objective</strong>: Learn to map input sequences to output sequences</p>
+
+<p><strong>Training Process:</strong></p>
+<ol>
+  <li><strong>Teacher Forcing</strong>: Use ground truth target tokens as decoder input</li>
+  <li><strong>Parallel Training</strong>: All target positions trained simultaneously</li>
+  <li><strong>Cross-Entropy Loss</strong>: Computed over target vocabulary</li>
+</ol>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Training pseudocode
+</span><span class="k">def</span> <span class="nf">train_encoder_decoder</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">dataloader</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">dataloader</span><span class="p">:</span>
+        <span class="n">src_tokens</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s">'source'</span><span class="p">]</span>      <span class="c1"># Input sequence
+</span>        <span class="n">tgt_tokens</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s">'target'</span><span class="p">]</span>      <span class="c1"># Target sequence
+</span>        
+        <span class="c1"># Teacher forcing setup
+</span>        <span class="n">tgt_input</span> <span class="o">=</span> <span class="n">tgt_tokens</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>       <span class="c1"># Decoder input
+</span>        <span class="n">tgt_output</span> <span class="o">=</span> <span class="n">tgt_tokens</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>       <span class="c1"># Expected output
+</span>        
+        <span class="c1"># Forward pass
+</span>        <span class="n">logits</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">src_tokens</span><span class="p">,</span> <span class="n">tgt_input</span><span class="p">)</span>
+        
+        <span class="c1"># Compute loss
+</span>        <span class="n">loss</span> <span class="o">=</span> <span class="n">cross_entropy</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">tgt_output</span><span class="p">)</span>
+        
+        <span class="c1"># Backpropagation
+</span>        <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+        <span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+</code></pre></div></div>
+
+<p><strong>Training Data Requirements:</strong></p>
+<ul>
+  <li><strong>Parallel Corpora</strong>: Paired input-output sequences</li>
+  <li><strong>Domain-Specific</strong>: Task-dependent datasets</li>
+  <li><strong>Quality</strong>: High-quality alignments crucial for performance</li>
+</ul>
+
+<h4 id="evaluation-methods">Evaluation Methods</h4>
+
+<p><strong>Generation-Based Evaluation:</strong></p>
+
+<ol>
+  <li><strong>Automatic Metrics</strong>:
+    <ul>
+      <li><strong>BLEU</strong>: N-gram overlap for translation</li>
+      <li><strong>ROUGE</strong>: Recall-oriented for summarization</li>
+      <li><strong>METEOR</strong>: Semantic similarity measures</li>
+      <li><strong>BERTScore</strong>: Contextual embeddings comparison</li>
+    </ul>
+  </li>
+  <li><strong>Human Evaluation</strong>:
+    <ul>
+      <li><strong>Fluency</strong>: How natural the output sounds</li>
+      <li><strong>Adequacy</strong>: How well meaning is preserved</li>
+      <li><strong>Faithfulness</strong>: Accuracy to source content</li>
+    </ul>
+  </li>
+</ol>
+
+<p><strong>Task-Specific Benchmarks:</strong></p>
+<ul>
+  <li><strong>Translation</strong>: WMT datasets, OPUS corpora</li>
+  <li><strong>Summarization</strong>: CNN/DailyMail, XSum</li>
+  <li><strong>Question Answering</strong>: SQuAD variants</li>
+</ul>
+
+<h4 id="use-cases-and-applications">Use Cases and Applications</h4>
+
+<p><strong>Primary Applications:</strong></p>
+<ul>
+  <li><strong>Machine Translation</strong>: Language pair transformations</li>
+  <li><strong>Text Summarization</strong>: Document to summary conversion</li>
+  <li><strong>Dialogue Systems</strong>: Context-aware response generation</li>
+  <li><strong>Code Translation</strong>: Between programming languages</li>
+  <li><strong>Data-to-Text</strong>: Structured data to natural language</li>
+</ul>
+
+<p><strong>Examples:</strong></p>
+<ul>
+  <li>Google Translate (earlier versions)</li>
+  <li>T5 (Text-to-Text Transfer Transformer)</li>
+  <li>BART (Bidirectional and Auto-Regressive Transformers)</li>
+  <li>mT5 (Multilingual T5)</li>
+</ul>
+
+<hr />
+
+<h3 id="decoder-only-transformers">Decoder-Only Transformers</h3>
+
+<h4 id="architecture-design-1">Architecture Design</h4>
+
+<p>Decoder-only models use a single stack with causal attention:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Input Tokens → Causal Self-Attention → Output Probabilities
+</code></pre></div></div>
+
+<p><strong>Key Characteristics:</strong></p>
+<ul>
+  <li><strong>Causal Masking</strong>: Prevents attention to future tokens</li>
+  <li><strong>Autoregressive Generation</strong>: Produces one token at a time</li>
+  <li><strong>Unified Architecture</strong>: Same model for various tasks</li>
+</ul>
+
+<h4 id="training-methodology-1">Training Methodology</h4>
+
+<p><strong>Objective</strong>: Learn to predict the next token given previous context</p>
+
+<p><strong>Training Process:</strong></p>
+<ol>
+  <li><strong>Next Token Prediction</strong>: Core training objective</li>
+  <li><strong>Causal Masking</strong>: Maintains autoregressive property during training</li>
+  <li><strong>Large-Scale Data</strong>: Trained on massive text corpora</li>
+</ol>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Training pseudocode
+</span><span class="k">def</span> <span class="nf">train_decoder_only</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">dataloader</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">dataloader</span><span class="p">:</span>
+        <span class="c1"># Sequence: "The cat sat on the mat"
+</span>        <span class="n">input_tokens</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s">'tokens'</span><span class="p">][:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>   <span class="c1"># "The cat sat on the"
+</span>        <span class="n">target_tokens</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s">'tokens'</span><span class="p">][</span><span class="mi">1</span><span class="p">:]</span>   <span class="c1"># "cat sat on the mat"
+</span>        
+        <span class="c1"># Forward pass with causal masking
+</span>        <span class="n">logits</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">input_tokens</span><span class="p">)</span>
+        
+        <span class="c1"># Next token prediction loss
+</span>        <span class="n">loss</span> <span class="o">=</span> <span class="n">cross_entropy</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">target_tokens</span><span class="p">)</span>
+        
+        <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+        <span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+</code></pre></div></div>
+
+<p><strong>Multi-Stage Training:</strong></p>
+
+<ol>
+  <li><strong>Pre-training</strong>:
+    <ul>
+      <li><strong>Data</strong>: Large-scale web text, books, articles</li>
+      <li><strong>Objective</strong>: Next token prediction</li>
+      <li><strong>Scale</strong>: Billions to trillions of tokens</li>
+    </ul>
+  </li>
+  <li><strong>Instruction Fine-tuning</strong>:
+    <ul>
+      <li><strong>Data</strong>: Human-written instruction-response pairs</li>
+      <li><strong>Objective</strong>: Follow instructions accurately</li>
+      <li><strong>Benefits</strong>: Improved task performance</li>
+    </ul>
+  </li>
+  <li><strong>Reinforcement Learning from Human Feedback (RLHF)</strong>:
+    <ul>
+      <li><strong>Data</strong>: Human preference comparisons</li>
+      <li><strong>Objective</strong>: Align with human values</li>
+      <li><strong>Benefits</strong>: Safer, more helpful responses</li>
+    </ul>
+  </li>
+</ol>
+
+<h4 id="evaluation-methods-1">Evaluation Methods</h4>
+
+<p><strong>Multiple Evaluation Paradigms:</strong></p>
+
+<ol>
+  <li><strong>Perplexity Measurement</strong>:
+    <div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">compute_perplexity</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">test_data</span><span class="p">):</span>
+ <span class="n">total_loss</span> <span class="o">=</span> <span class="mi">0</span>
+ <span class="n">total_tokens</span> <span class="o">=</span> <span class="mi">0</span>
+    
+ <span class="k">for</span> <span class="n">sequence</span> <span class="ow">in</span> <span class="n">test_data</span><span class="p">:</span>
+     <span class="n">loss</span> <span class="o">=</span> <span class="n">model</span><span class="p">.</span><span class="n">compute_loss</span><span class="p">(</span><span class="n">sequence</span><span class="p">)</span>
+     <span class="n">total_loss</span> <span class="o">+=</span> <span class="n">loss</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">sequence</span><span class="p">)</span>
+     <span class="n">total_tokens</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">sequence</span><span class="p">)</span>
+    
+ <span class="k">return</span> <span class="n">exp</span><span class="p">(</span><span class="n">total_loss</span> <span class="o">/</span> <span class="n">total_tokens</span><span class="p">)</span>
+</code></pre></div>    </div>
+  </li>
+  <li><strong>Generation Quality</strong>:
+    <ul>
+      <li><strong>Human Evaluation</strong>: Coherence, relevance, helpfulness</li>
+      <li><strong>Automatic Metrics</strong>: Diversity, repetition, toxicity</li>
+      <li><strong>Task-Specific</strong>: BLEU for translation, ROUGE for summarization</li>
+    </ul>
+  </li>
+  <li><strong>Benchmark Evaluation</strong>:
+    <ul>
+      <li><strong>GLUE/SuperGLUE</strong>: General language understanding</li>
+      <li><strong>MMLU</strong>: Massive multitask language understanding</li>
+      <li><strong>HumanEval</strong>: Code generation capabilities</li>
+      <li><strong>HellaSwag</strong>: Commonsense reasoning</li>
+    </ul>
+  </li>
+</ol>
+
+<h4 id="use-cases-and-applications-1">Use Cases and Applications</h4>
+
+<p><strong>Primary Applications:</strong></p>
+<ul>
+  <li><strong>Text Generation</strong>: Creative writing, content creation</li>
+  <li><strong>Conversational AI</strong>: Chatbots, virtual assistants</li>
+  <li><strong>Code Generation</strong>: Programming assistance</li>
+  <li><strong>Question Answering</strong>: Information retrieval and reasoning</li>
+  <li><strong>Few-Shot Learning</strong>: Task adaptation through prompting</li>
+</ul>
+
+<p><strong>Examples:</strong></p>
+<ul>
+  <li>GPT family (GPT-2, GPT-3, GPT-4)</li>
+  <li>LLaMA (Large Language Model Meta AI)</li>
+  <li>PaLM (Pathways Language Model)</li>
+  <li>Claude (Anthropic’s assistant)</li>
+  <li>ChatGPT and GPT-4</li>
+</ul>
+
+<hr />
+
+<h3 id="encoder-only-transformers">Encoder-Only Transformers</h3>
+
+<h4 id="architecture-design-2">Architecture Design</h4>
+
+<p>Encoder-only models use bidirectional attention for understanding:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Input Tokens → Bidirectional Self-Attention → Contextualized Representations
+</code></pre></div></div>
+
+<p><strong>Key Characteristics:</strong></p>
+<ul>
+  <li><strong>Bidirectional Context</strong>: Can attend to all positions</li>
+  <li><strong>Rich Representations</strong>: Deep contextual understanding</li>
+  <li><strong>Task Adaptation</strong>: Requires fine-tuning for downstream tasks</li>
+</ul>
+
+<h4 id="training-methodology-2">Training Methodology</h4>
+
+<p><strong>Pre-training Objective</strong>: Masked Language Modeling (MLM)</p>
+
+<p><strong>Training Process:</strong></p>
+<ol>
+  <li><strong>Token Masking</strong>: Randomly mask 15% of input tokens</li>
+  <li><strong>Bidirectional Processing</strong>: Full context available for predictions</li>
+  <li><strong>Mask Prediction</strong>: Reconstruct original tokens</li>
+</ol>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Training pseudocode
+</span><span class="k">def</span> <span class="nf">train_encoder_only</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">dataloader</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">dataloader</span><span class="p">:</span>
+        <span class="c1"># Original: "The cat sat on the mat"
+</span>        <span class="c1"># Masked:   "The [MASK] sat on the [MASK]"
+</span>        
+        <span class="n">masked_tokens</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s">'masked_input'</span><span class="p">]</span>
+        <span class="n">original_tokens</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s">'original_input'</span><span class="p">]</span>
+        <span class="n">mask_positions</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s">'mask_positions'</span><span class="p">]</span>
+        
+        <span class="c1"># Bidirectional encoding
+</span>        <span class="n">hidden_states</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">masked_tokens</span><span class="p">)</span>
+        
+        <span class="c1"># Predict only at masked positions
+</span>        <span class="n">masked_predictions</span> <span class="o">=</span> <span class="n">hidden_states</span><span class="p">[</span><span class="n">mask_positions</span><span class="p">]</span>
+        <span class="n">masked_targets</span> <span class="o">=</span> <span class="n">original_tokens</span><span class="p">[</span><span class="n">mask_positions</span><span class="p">]</span>
+        
+        <span class="n">loss</span> <span class="o">=</span> <span class="n">cross_entropy</span><span class="p">(</span><span class="n">masked_predictions</span><span class="p">,</span> <span class="n">masked_targets</span><span class="p">)</span>
+        
+        <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+        <span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+</code></pre></div></div>
+
+<p><strong>Masking Strategy:</strong></p>
+<ul>
+  <li><strong>80%</strong>: Replace with [MASK] token</li>
+  <li><strong>10%</strong>: Replace with random token</li>
+  <li><strong>10%</strong>: Keep original token</li>
+</ul>
+
+<p><strong>Fine-tuning for Downstream Tasks:</strong></p>
+
+<p>After pre-training, models are fine-tuned for specific applications:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">finetune_classification</span><span class="p">(</span><span class="n">pretrained_model</span><span class="p">,</span> <span class="n">task_data</span><span class="p">):</span>
+    <span class="c1"># Add task-specific classification head
+</span>    <span class="n">classifier</span> <span class="o">=</span> <span class="n">Linear</span><span class="p">(</span><span class="n">hidden_size</span><span class="p">,</span> <span class="n">num_classes</span><span class="p">)</span>
+    
+    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">task_data</span><span class="p">:</span>
+        <span class="n">inputs</span><span class="p">,</span> <span class="n">labels</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s">'text'</span><span class="p">],</span> <span class="n">batch</span><span class="p">[</span><span class="s">'labels'</span><span class="p">]</span>
+        
+        <span class="c1"># Get contextual representations
+</span>        <span class="n">hidden_states</span> <span class="o">=</span> <span class="n">pretrained_model</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span>
+        
+        <span class="c1"># Use [CLS] token for classification
+</span>        <span class="n">cls_representation</span> <span class="o">=</span> <span class="n">hidden_states</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span>
+        
+        <span class="c1"># Classification prediction
+</span>        <span class="n">logits</span> <span class="o">=</span> <span class="n">classifier</span><span class="p">(</span><span class="n">cls_representation</span><span class="p">)</span>
+        <span class="n">loss</span> <span class="o">=</span> <span class="n">cross_entropy</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">labels</span><span class="p">)</span>
+        
+        <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+        <span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+</code></pre></div></div>
+
+<h4 id="evaluation-methods-2">Evaluation Methods</h4>
+
+<p><strong>Task-Specific Evaluation:</strong></p>
+
+<ol>
+  <li><strong>Classification Tasks</strong>:
+    <ul>
+      <li><strong>Accuracy</strong>: Percentage of correct predictions</li>
+      <li><strong>F1-Score</strong>: Harmonic mean of precision and recall</li>
+      <li><strong>Matthews Correlation</strong>: Balanced measure for imbalanced data</li>
+    </ul>
+  </li>
+  <li><strong>Token-Level Tasks</strong>:
+    <ul>
+      <li><strong>Named Entity Recognition</strong>: Entity-level F1</li>
+      <li><strong>Part-of-Speech Tagging</strong>: Token-level accuracy</li>
+      <li><strong>Dependency Parsing</strong>: Unlabeled/labeled attachment scores</li>
+    </ul>
+  </li>
+  <li><strong>Span-Based Tasks</strong>:
+    <ul>
+      <li><strong>Question Answering</strong>: Exact match and F1 scores</li>
+      <li><strong>Reading Comprehension</strong>: Answer extraction accuracy</li>
+    </ul>
+  </li>
+</ol>
+
+<p><strong>Benchmark Suites:</strong></p>
+<ul>
+  <li><strong>GLUE</strong>: General Language Understanding Evaluation</li>
+  <li><strong>SuperGLUE</strong>: More challenging language understanding tasks</li>
+  <li><strong>SentEval</strong>: Sentence representation evaluation</li>
+</ul>
+
+<h4 id="use-cases-and-applications-2">Use Cases and Applications</h4>
+
+<p><strong>Primary Applications:</strong></p>
+<ul>
+  <li><strong>Text Classification</strong>: Sentiment analysis, topic classification</li>
+  <li><strong>Named Entity Recognition</strong>: Information extraction</li>
+  <li><strong>Question Answering</strong>: Extractive QA systems</li>
+  <li><strong>Semantic Similarity</strong>: Text matching and retrieval</li>
+  <li><strong>Language Understanding</strong>: Intent classification, slot filling</li>
+</ul>
+
+<p><strong>Examples:</strong></p>
+<ul>
+  <li>BERT (Bidirectional Encoder Representations from Transformers)</li>
+  <li>RoBERTa (Robustly Optimized BERT Pretraining Approach)</li>
+  <li>DeBERTa (Decoding-enhanced BERT with Disentangled Attention)</li>
+  <li>ELECTRA (Efficiently Learning an Encoder that Classifies Token Replacements Accurately)</li>
+</ul>
+
+<hr />
+
+<h3 id="comparison-summary">Comparison Summary</h3>
+
+<h4 id="architecture-comparison">Architecture Comparison</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Aspect</th>
+      <th>Encoder-Decoder</th>
+      <th>Decoder-Only</th>
+      <th>Encoder-Only</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Attention Pattern</strong></td>
+      <td>Bidirectional + Causal</td>
+      <td>Causal Only</td>
+      <td>Bidirectional Only</td>
+    </tr>
+    <tr>
+      <td><strong>Primary Strength</strong></td>
+      <td>Seq2seq transformation</td>
+      <td>Text generation</td>
+      <td>Text understanding</td>
+    </tr>
+    <tr>
+      <td><strong>Training Data</strong></td>
+      <td>Parallel sequences</td>
+      <td>Raw text</td>
+      <td>Raw text + labels</td>
+    </tr>
+    <tr>
+      <td><strong>Evaluation Focus</strong></td>
+      <td>Generation quality</td>
+      <td>Perplexity + tasks</td>
+      <td>Task performance</td>
+    </tr>
+    <tr>
+      <td><strong>Inference</strong></td>
+      <td>Autoregressive</td>
+      <td>Autoregressive</td>
+      <td>Single forward pass</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="training-requirements">Training Requirements</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Requirement</th>
+      <th>Encoder-Decoder</th>
+      <th>Decoder-Only</th>
+      <th>Encoder-Only</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Data Quantity</strong></td>
+      <td>Moderate (paired data)</td>
+      <td>Large (raw text)</td>
+      <td>Moderate (raw + labeled)</td>
+    </tr>
+    <tr>
+      <td><strong>Data Quality</strong></td>
+      <td>High (alignment crucial)</td>
+      <td>Variable (web-scale)</td>
+      <td>High (clean text)</td>
+    </tr>
+    <tr>
+      <td><strong>Compute Cost</strong></td>
+      <td>Moderate</td>
+      <td>Very High</td>
+      <td>Moderate</td>
+    </tr>
+    <tr>
+      <td><strong>Training Time</strong></td>
+      <td>Days to weeks</td>
+      <td>Weeks to months</td>
+      <td>Days to weeks</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="use-case-suitability">Use Case Suitability</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Task Type</th>
+      <th>Best Architecture</th>
+      <th>Rationale</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Translation</strong></td>
+      <td>Encoder-Decoder</td>
+      <td>Structured input-output mapping</td>
+    </tr>
+    <tr>
+      <td><strong>Text Generation</strong></td>
+      <td>Decoder-Only</td>
+      <td>Autoregressive nature</td>
+    </tr>
+    <tr>
+      <td><strong>Classification</strong></td>
+      <td>Encoder-Only</td>
+      <td>Bidirectional understanding</td>
+    </tr>
+    <tr>
+      <td><strong>Summarization</strong></td>
+      <td>Encoder-Decoder / Decoder-Only</td>
+      <td>Both work well</td>
+    </tr>
+    <tr>
+      <td><strong>Question Answering</strong></td>
+      <td>All three</td>
+      <td>Depends on QA type</td>
+    </tr>
+    <tr>
+      <td><strong>Dialogue</strong></td>
+      <td>Decoder-Only</td>
+      <td>Generative conversation</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h3 id="modern-trends-and-applications">Modern Trends and Applications</h3>
+
+<h4 id="current-landscape">Current Landscape</h4>
+
+<p><strong>Decoder-Only Dominance:</strong></p>
+<ul>
+  <li>Large Language Models (LLMs) predominantly use decoder-only architecture</li>
+  <li>Scaling laws favor simple, unified architectures</li>
+  <li>In-context learning capabilities emerge at scale</li>
+  <li>Instruction following through prompting</li>
+</ul>
+
+<p><strong>Specialized Applications:</strong></p>
+<ul>
+  <li>Encoder-only models still excel at understanding tasks</li>
+  <li>Encoder-decoder models remain optimal for translation</li>
+  <li>Hybrid approaches emerging for specific domains</li>
+</ul>
+
+<h4 id="emerging-developments">Emerging Developments</h4>
+
+<p><strong>Architectural Innovations:</strong></p>
+<ul>
+  <li><strong>Mixture of Experts (MoE)</strong>: Scaling with sparse computation</li>
+  <li><strong>Retrieval Augmentation</strong>: Combining parametric and non-parametric knowledge</li>
+  <li><strong>Multi-modal Extensions</strong>: Vision-language and audio-language models</li>
+  <li><strong>Efficient Attention</strong>: Linear attention, sparse attention patterns</li>
+</ul>
+
+<p><strong>Training Advances:</strong></p>
+<ul>
+  <li><strong>Constitutional AI</strong>: Training with AI feedback</li>
+  <li><strong>Chain-of-Thought</strong>: Reasoning through intermediate steps</li>
+  <li><strong>Few-Shot Learning</strong>: Task adaptation without fine-tuning</li>
+  <li><strong>Parameter-Efficient Fine-tuning</strong>: LoRA, adapters, prompt tuning</li>
+</ul>
+
+<h4 id="future-directions">Future Directions</h4>
+
+<p><strong>Research Frontiers:</strong></p>
+<ul>
+  <li><strong>Unified Architectures</strong>: Single models for all modalities</li>
+  <li><strong>Emergent Capabilities</strong>: Understanding scaling phenomena</li>
+  <li><strong>Efficient Training</strong>: Reducing computational requirements</li>
+  <li><strong>Safety and Alignment</strong>: Ensuring beneficial AI systems</li>
+</ul>
+
+<p><strong>Practical Considerations:</strong></p>
+<ul>
+  <li><strong>Cost-Performance Trade-offs</strong>: Balancing capability and efficiency</li>
+  <li><strong>Domain Adaptation</strong>: Specializing general models</li>
+  <li><strong>Deployment Optimization</strong>: Edge computing and inference efficiency</li>
+  <li><strong>Ethical AI</strong>: Responsible development and deployment</li>
+</ul>
+
+<hr />
+
+<h3 id="conclusion">Conclusion</h3>
+
+<p>The choice of transformer architecture depends heavily on the intended application:</p>
+
+<ul>
+  <li><strong>Choose Encoder-Decoder</strong> for well-defined input-output transformations with structured data requirements</li>
+  <li><strong>Choose Decoder-Only</strong> for flexible text generation, conversational AI, and general-purpose language tasks</li>
+  <li><strong>Choose Encoder-Only</strong> for text understanding, classification, and when bidirectional context is crucial</li>
+</ul>
+
+<p>As the field continues to evolve, decoder-only architectures have gained prominence due to their simplicity, scalability, and emergent capabilities at large scales. However, encoder-only and encoder-decoder models remain valuable for specialized applications where their architectural strengths align with task requirements.</p>
+
+<p>Understanding these architectural differences, training methodologies, and evaluation approaches is crucial for practitioners working with transformer models and for making informed decisions about model selection and deployment strategies.</p>
+
+  </div><a class="u-url" href="/cs336/2025/09/14/cs336-transformer-architecture-overview.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col">
+        <p class="feed-subscribe">
+          <a href="http://localhost:4000/feed.xml">
+            <svg class="svg-icon orange">
+              <use xlink:href="/assets/minima-social-icons.svg#rss"></use>
+            </svg><span>Subscribe</span>
+          </a>
+        </p>
+      </div>
+      <div class="footer-col">
+        <p>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</p>
+      </div>
+    </div>
+
+    <div class="social-links"><ul class="social-media-list"></ul>
+</div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>
