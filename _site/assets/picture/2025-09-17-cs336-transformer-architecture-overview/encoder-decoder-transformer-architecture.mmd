@@ -1,0 +1,117 @@
+flowchart TD
+    %% Input Processing
+    A[Source Sentence<br/>How are you today?] --> A1[Input Embeddings<br/>+ Positional Encoding]
+    B[Target Sentence<br/>Comment allez-vous aujourd'hui?] --> B1[Target Embeddings<br/>+ Positional Encoding]
+
+    %% Layer-by-Layer Processing
+    subgraph L1["🔄 LAYER 1"]
+        direction LR
+        subgraph ENC1["🔍 Encoder Layer 1"]
+            direction TB
+            A1 --> E1_1[Multi-Head<br/>Self-Attention]
+            E1_1 --> E1_2[Add & Norm]
+            E1_2 --> E1_3[Feed Forward]
+            E1_3 --> E1_4[Add & Norm]
+            E1_4 --> E1_Out[Layer 1 Output]
+        end
+
+        subgraph DEC1["🎯 Decoder Layer 1"]
+            direction TB
+            B1 --> D1_1[Masked<br/>Self-Attention]
+            D1_1 --> D1_2[Add & Norm]
+            D1_2 --> D1_3[Cross-Attention]
+            D1_3 --> D1_4[Add & Norm]
+            D1_4 --> D1_5[Feed Forward]
+            D1_5 --> D1_6[Add & Norm]
+            D1_6 --> D1_Out[Layer 1 Output]
+        end
+
+        E1_Out -.->|Keys & Values| D1_3
+    end
+
+    subgraph L2["🔄 LAYER 2"]
+        direction LR
+        subgraph ENC2["🔍 Encoder Layer 2"]
+            direction TB
+            E1_Out --> E2_1[Multi-Head<br/>Self-Attention]
+            E2_1 --> E2_2[Add & Norm]
+            E2_2 --> E2_3[Feed Forward]
+            E2_3 --> E2_4[Add & Norm]
+            E2_4 --> E2_Out[Layer 2 Output]
+        end
+
+        subgraph DEC2["🎯 Decoder Layer 2"]
+            direction TB
+            D1_Out --> D2_1[Masked<br/>Self-Attention]
+            D2_1 --> D2_2[Add & Norm]
+            D2_2 --> D2_3[Cross-Attention]
+            D2_3 --> D2_4[Add & Norm]
+            D2_4 --> D2_5[Feed Forward]
+            D2_5 --> D2_6[Add & Norm]
+            D2_6 --> D2_Out[Layer 2 Output]
+        end
+
+        E2_Out -.->|Keys & Values| D2_3
+    end
+
+    subgraph L3["🔄 LAYER 3"]
+        direction LR
+        subgraph ENC3["🔍 Encoder Layer 3"]
+            direction TB
+            E2_Out --> E3_1[Multi-Head<br/>Self-Attention]
+            E3_1 --> E3_2[Add & Norm]
+            E3_2 --> E3_3[Feed Forward]
+            E3_3 --> E3_4[Add & Norm]
+            E3_4 --> E3_Out[Layer 3 Output]
+        end
+
+        subgraph DEC3["🎯 Decoder Layer 3"]
+            direction TB
+            D2_Out --> D3_1[Masked<br/>Self-Attention]
+            D3_1 --> D3_2[Add & Norm]
+            D3_2 --> D3_3[Cross-Attention]
+            D3_3 --> D3_4[Add & Norm]
+            D3_4 --> D3_5[Feed Forward]
+            D3_5 --> D3_6[Add & Norm]
+            D3_6 --> D3_Out[Layer 3 Output]
+        end
+
+        E3_Out -.->|Keys & Values| D3_3
+    end
+
+    subgraph DOTS["⋮"]
+        direction TB
+        Dots1[Layers 4, 5, 6...]
+        Dots2[Same Pattern]
+        Dots1 --> Dots2
+    end
+
+    E3_Out --> DOTS
+    D3_Out --> DOTS
+
+    %% Output Processing
+    DOTS --> FinalOut[Final Layer Output]
+    FinalOut --> O1[Linear Projection<br/>to Vocabulary Size]
+    O1 --> O2[Softmax<br/>Probability Distribution]
+    O2 --> Final[Generated Translation<br/>Comment allez-vous aujourd'hui?]
+
+    %% Key Features
+    subgraph FEATURES["🔑 KEY FEATURES"]
+        direction TB
+        BiDir[🔄 Bidirectional Encoder<br/>Full context understanding<br/>for source sequence]
+        Cross[🔗 Cross-Attention<br/>Decoder attends to<br/>encoder representations]
+        SeqToSeq[📝 Sequence-to-Sequence<br/>Translation, Summarization,<br/>Question Answering]
+    end
+    
+    %% Styling
+    classDef encoder fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef decoder fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef attention fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef output fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef features fill:#fce4ec,stroke:#ad1457,stroke-width:2px
+
+    class ENC encoder
+    class DEC decoder
+    class E1,D1,D3 attention
+    class O2,Final output
+    class FEATURES,BiDir,Cross,SeqToSeq features

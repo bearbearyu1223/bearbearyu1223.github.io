@@ -10,15 +10,15 @@
 <meta property="og:locale" content="en_US" />
 <meta name="description" content="An Overview of Popular Transformer Architectures" />
 <meta property="og:description" content="An Overview of Popular Transformer Architectures" />
-<link rel="canonical" href="http://localhost:4000/cs336/2025/09/14/cs336-transformer-architecture-overview.html" />
-<meta property="og:url" content="http://localhost:4000/cs336/2025/09/14/cs336-transformer-architecture-overview.html" />
+<link rel="canonical" href="http://localhost:4000/cs336/2025/09/17/cs336-transformer-architecture-overview.html" />
+<meta property="og:url" content="http://localhost:4000/cs336/2025/09/17/cs336-transformer-architecture-overview.html" />
 <meta property="og:site_name" content="🍒 Han’s Generative AI Quest" />
 <meta property="og:type" content="article" />
-<meta property="article:published_time" content="2025-09-14T00:00:00-07:00" />
+<meta property="article:published_time" content="2025-09-17T00:00:00-07:00" />
 <meta name="twitter:card" content="summary" />
 <meta property="twitter:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [6]" />
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2025-09-14T00:00:00-07:00","datePublished":"2025-09-14T00:00:00-07:00","description":"An Overview of Popular Transformer Architectures","headline":"Study Notes: Stanford CS336 Language Modeling from Scratch [6]","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/cs336/2025/09/14/cs336-transformer-architecture-overview.html"},"url":"http://localhost:4000/cs336/2025/09/14/cs336-transformer-architecture-overview.html"}</script>
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2025-09-17T00:00:00-07:00","datePublished":"2025-09-17T00:00:00-07:00","description":"An Overview of Popular Transformer Architectures","headline":"Study Notes: Stanford CS336 Language Modeling from Scratch [6]","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/cs336/2025/09/17/cs336-transformer-architecture-overview.html"},"url":"http://localhost:4000/cs336/2025/09/17/cs336-transformer-architecture-overview.html"}</script>
 <!-- End Jekyll SEO tag -->
 <link rel="stylesheet" href="/assets/css/style.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="🍒 Han&apos;s Generative AI Quest" />
 </head>
@@ -43,8 +43,8 @@
 
   <header class="post-header">
     <h1 class="post-title p-name" itemprop="name headline">Study Notes: Stanford CS336 Language Modeling from Scratch [6]</h1>
-    <p class="post-meta"><time class="dt-published" datetime="2025-09-14T00:00:00-07:00" itemprop="datePublished">
-        Sep 14, 2025
+    <p class="post-meta"><time class="dt-published" datetime="2025-09-17T00:00:00-07:00" itemprop="datePublished">
+        Sep 17, 2025
       </time>• 
           <span itemprop="author" itemscope itemtype="http://schema.org/Person">
             <span class="p-author h-card" itemprop="name">Han Yu</span></span></p>
@@ -94,6 +94,23 @@
   <li><strong>Positional Encodings</strong>: Provides sequence position information</li>
 </ul>
 
+<h4 id="multi-head-self-attention-deep-dive">Multi-Head Self-Attention Deep Dive</h4>
+
+<p>The multi-head self-attention mechanism is the core innovation of transformers. Here’s how it works in detail:</p>
+
+<p><img src="/assets/picture/2025-09-17-cs336-transformer-architecture-overview/encoder-multi-head-self-attention.png" alt="Multi-Head Self-Attention Mechanism" width="1080" /></p>
+
+<p><strong>Key Steps:</strong></p>
+<ol>
+  <li><strong>Linear Projections</strong>: Input embeddings are transformed into Query (Q), Key (K), and Value (V) matrices</li>
+  <li><strong>Head Splitting</strong>: Q, K, V matrices are reshaped and split into multiple attention heads</li>
+  <li><strong>Parallel Attention</strong>: Each head computes attention independently using scaled dot-product attention</li>
+  <li><strong>Concatenation</strong>: All head outputs are concatenated back together</li>
+  <li><strong>Final Projection</strong>: A final linear layer projects the concatenated result back to the model dimension</li>
+</ol>
+
+<p>This parallel processing allows the model to attend to different types of relationships simultaneously - some heads might focus on syntactic relationships while others capture semantic connections.</p>
+
 <h4 id="key-differences">Key Differences</h4>
 
 <p>The main distinction lies in the <strong>attention patterns</strong>:</p>
@@ -133,17 +150,24 @@
 
 <p>The encoder-decoder architecture consists of two separate stacks connected through cross-attention:</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Input Sequence → Encoder (Bidirectional) → Context Representations
-                                                    ↓
-Target Sequence → Decoder (Causal + Cross-Attention) → Output Sequence
-</code></pre></div></div>
+<p><img src="/assets/picture/2025-09-17-cs336-transformer-architecture-overview/encoder-decoder-transformer-architecture.png" alt="Encoder-Decoder Transformer Architecture" width="1080" /></p>
 
 <p><strong>Key Components:</strong></p>
 <ul>
-  <li><strong>Encoder</strong>: Uses bidirectional self-attention to process input</li>
-  <li><strong>Decoder</strong>: Uses causal self-attention + cross-attention to encoder</li>
-  <li><strong>Cross-Attention</strong>: Allows decoder to attend to encoder representations</li>
+  <li><strong>Encoder</strong>: Uses bidirectional self-attention to process input sequence with full context</li>
+  <li><strong>Decoder</strong>: Uses causal self-attention + cross-attention to generate output sequence</li>
+  <li><strong>Cross-Attention</strong>: Allows decoder to attend to encoder representations at each layer</li>
+  <li><strong>Layer-by-Layer Processing</strong>: Each decoder layer receives information from the corresponding encoder layer</li>
 </ul>
+
+<p><strong>Key Features:</strong></p>
+<ul>
+  <li><strong>🔄 Bidirectional Encoder</strong>: Full context understanding for source sequence</li>
+  <li><strong>🔗 Cross-Attention</strong>: Decoder attends to encoder representations</li>
+  <li><strong>📝 Sequence-to-Sequence</strong>: Perfect for translation, summarization, and question answering</li>
+</ul>
+
+<p>This architecture excels at tasks requiring structured input-output transformations where the model needs to understand the entire input before generating the output.</p>
 
 <h4 id="training-methodology">Training Methodology</h4>
 
@@ -240,15 +264,24 @@ Target Sequence → Decoder (Causal + Cross-Attention) → Output Sequence
 
 <p>Decoder-only models use a single stack with causal attention:</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Input Tokens → Causal Self-Attention → Output Probabilities
-</code></pre></div></div>
+<p><img src="/assets/picture/2025-09-17-cs336-transformer-architecture-overview/decoder-only-transformer-lm.png" alt="Decoder-Only Transformer Architecture" width="880" /></p>
 
 <p><strong>Key Characteristics:</strong></p>
 <ul>
-  <li><strong>Causal Masking</strong>: Prevents attention to future tokens</li>
-  <li><strong>Autoregressive Generation</strong>: Produces one token at a time</li>
-  <li><strong>Unified Architecture</strong>: Same model for various tasks</li>
+  <li><strong>Causal Masking</strong>: Prevents attention to future tokens during training and inference</li>
+  <li><strong>Autoregressive Generation</strong>: Produces one token at a time during generation</li>
+  <li><strong>Unified Architecture</strong>: Same model architecture handles various tasks through different prompting strategies</li>
+  <li><strong>Scalability</strong>: Architecture scales well to very large model sizes (billions of parameters)</li>
 </ul>
+
+<p><strong>Key Features:</strong></p>
+<ul>
+  <li><strong>🔒 Causal Masking</strong>: Can only attend to previous tokens</li>
+  <li><strong>🔄 Autoregressive</strong>: Generates tokens one at a time</li>
+  <li><strong>💬 Text Generation</strong>: Chat, completion, and code generation</li>
+</ul>
+
+<p>This architecture has become the foundation for modern large language models like GPT, excelling at open-ended text generation and few-shot learning through prompting.</p>
 
 <h4 id="training-methodology-1">Training Methodology</h4>
 
@@ -367,15 +400,24 @@ Target Sequence → Decoder (Causal + Cross-Attention) → Output Sequence
 
 <p>Encoder-only models use bidirectional attention for understanding:</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Input Tokens → Bidirectional Self-Attention → Contextualized Representations
-</code></pre></div></div>
+<p><img src="/assets/picture/2025-09-17-cs336-transformer-architecture-overview/encoder-only-transformer-lm.png" alt="Encoder-Only Transformer Architecture" width="880" /></p>
 
 <p><strong>Key Characteristics:</strong></p>
 <ul>
-  <li><strong>Bidirectional Context</strong>: Can attend to all positions</li>
-  <li><strong>Rich Representations</strong>: Deep contextual understanding</li>
-  <li><strong>Task Adaptation</strong>: Requires fine-tuning for downstream tasks</li>
+  <li><strong>Bidirectional Context</strong>: Can attend to all positions in the sequence simultaneously</li>
+  <li><strong>Rich Representations</strong>: Deep contextual understanding from both left and right context</li>
+  <li><strong>Task Adaptation</strong>: Requires fine-tuning for downstream tasks but excels at understanding</li>
+  <li><strong>Special Tokens</strong>: Uses [CLS] and [SEP] tokens for sequence classification and separation</li>
 </ul>
+
+<p><strong>Key Features:</strong></p>
+<ul>
+  <li><strong>🔄 Bidirectional Attention</strong>: Full context understanding from both directions</li>
+  <li><strong>🧠 Understanding Tasks</strong>: Classification, extraction, comprehension</li>
+  <li><strong>📚 Pre-training + Fine-tuning</strong>: Masked language modeling then task-specific training</li>
+</ul>
+
+<p>This architecture excels at tasks requiring deep understanding of text, where the model benefits from seeing the entire context before making predictions. The bidirectional nature makes it particularly powerful for classification and extraction tasks.</p>
 
 <h4 id="training-methodology-2">Training Methodology</h4>
 
@@ -502,6 +544,8 @@ Target Sequence → Decoder (Causal + Cross-Attention) → Output Sequence
 
 <h4 id="architecture-comparison">Architecture Comparison</h4>
 
+<p>The three transformer architectures shown in the diagrams above have distinct characteristics that make them suitable for different tasks:</p>
+
 <table>
   <thead>
     <tr>
@@ -541,6 +585,18 @@ Target Sequence → Decoder (Causal + Cross-Attention) → Output Sequence
       <td>Autoregressive</td>
       <td>Autoregressive</td>
       <td>Single forward pass</td>
+    </tr>
+    <tr>
+      <td><strong>Architecture Complexity</strong></td>
+      <td>Most complex (2 stacks)</td>
+      <td>Simple (1 stack)</td>
+      <td>Simple (1 stack)</td>
+    </tr>
+    <tr>
+      <td><strong>Cross-Attention</strong></td>
+      <td>✅ Required</td>
+      <td>❌ None</td>
+      <td>❌ None</td>
     </tr>
   </tbody>
 </table>
@@ -598,110 +654,80 @@ Target Sequence → Decoder (Causal + Cross-Attention) → Output Sequence
     <tr>
       <td><strong>Translation</strong></td>
       <td>Encoder-Decoder</td>
-      <td>Structured input-output mapping</td>
+      <td>Structured input-output mapping with cross-attention</td>
     </tr>
     <tr>
       <td><strong>Text Generation</strong></td>
       <td>Decoder-Only</td>
-      <td>Autoregressive nature</td>
+      <td>Autoregressive nature with causal masking</td>
     </tr>
     <tr>
       <td><strong>Classification</strong></td>
       <td>Encoder-Only</td>
-      <td>Bidirectional understanding</td>
+      <td>Bidirectional understanding with task-specific heads</td>
     </tr>
     <tr>
       <td><strong>Summarization</strong></td>
       <td>Encoder-Decoder / Decoder-Only</td>
-      <td>Both work well</td>
+      <td>Both work well - encoder-decoder for extractive, decoder-only for abstractive</td>
     </tr>
     <tr>
       <td><strong>Question Answering</strong></td>
       <td>All three</td>
-      <td>Depends on QA type</td>
+      <td>Encoder-only for extractive, decoder-only for generative, encoder-decoder for complex reasoning</td>
     </tr>
     <tr>
       <td><strong>Dialogue</strong></td>
       <td>Decoder-Only</td>
-      <td>Generative conversation</td>
+      <td>Generative conversation with context understanding</td>
+    </tr>
+    <tr>
+      <td><strong>Code Generation</strong></td>
+      <td>Decoder-Only</td>
+      <td>Sequential token generation with programming syntax</td>
+    </tr>
+    <tr>
+      <td><strong>Sentiment Analysis</strong></td>
+      <td>Encoder-Only</td>
+      <td>Classification task with bidirectional context</td>
+    </tr>
+    <tr>
+      <td><strong>Named Entity Recognition</strong></td>
+      <td>Encoder-Only</td>
+      <td>Token-level classification with full context</td>
     </tr>
   </tbody>
 </table>
 
-<hr />
+<h4 id="architecture-selection-guide">Architecture Selection Guide</h4>
 
-<h3 id="modern-trends-and-applications">Modern Trends and Applications</h3>
-
-<h4 id="current-landscape">Current Landscape</h4>
-
-<p><strong>Decoder-Only Dominance:</strong></p>
+<p><strong>Choose Encoder-Decoder when:</strong></p>
 <ul>
-  <li>Large Language Models (LLMs) predominantly use decoder-only architecture</li>
-  <li>Scaling laws favor simple, unified architectures</li>
-  <li>In-context learning capabilities emerge at scale</li>
-  <li>Instruction following through prompting</li>
+  <li>You have paired input-output data (parallel corpora)</li>
+  <li>Tasks require understanding input completely before generating output</li>
+  <li>You need structured transformations (translation, summarization)</li>
+  <li>Cross-attention between source and target is beneficial</li>
 </ul>
 
-<p><strong>Specialized Applications:</strong></p>
+<p><strong>Choose Decoder-Only when:</strong></p>
 <ul>
-  <li>Encoder-only models still excel at understanding tasks</li>
-  <li>Encoder-decoder models remain optimal for translation</li>
-  <li>Hybrid approaches emerging for specific domains</li>
+  <li>You want a unified model for multiple tasks</li>
+  <li>Open-ended text generation is the primary goal</li>
+  <li>You have large amounts of raw text data</li>
+  <li>You want to leverage in-context learning and prompting</li>
 </ul>
 
-<h4 id="emerging-developments">Emerging Developments</h4>
-
-<p><strong>Architectural Innovations:</strong></p>
+<p><strong>Choose Encoder-Only when:</strong></p>
 <ul>
-  <li><strong>Mixture of Experts (MoE)</strong>: Scaling with sparse computation</li>
-  <li><strong>Retrieval Augmentation</strong>: Combining parametric and non-parametric knowledge</li>
-  <li><strong>Multi-modal Extensions</strong>: Vision-language and audio-language models</li>
-  <li><strong>Efficient Attention</strong>: Linear attention, sparse attention patterns</li>
+  <li>Understanding and classification are the primary goals</li>
+  <li>You don’t need to generate long sequences</li>
+  <li>You have labeled data for fine-tuning</li>
+  <li>Bidirectional context improves performance significantly</li>
 </ul>
 
-<p><strong>Training Advances:</strong></p>
-<ul>
-  <li><strong>Constitutional AI</strong>: Training with AI feedback</li>
-  <li><strong>Chain-of-Thought</strong>: Reasoning through intermediate steps</li>
-  <li><strong>Few-Shot Learning</strong>: Task adaptation without fine-tuning</li>
-  <li><strong>Parameter-Efficient Fine-tuning</strong>: LoRA, adapters, prompt tuning</li>
-</ul>
+<p>This is just a quick note 📝 — to dive into the details, you’d probably need to read some relevant papers 📚, but I hope it still shared something useful ✨</p>
 
-<h4 id="future-directions">Future Directions</h4>
-
-<p><strong>Research Frontiers:</strong></p>
-<ul>
-  <li><strong>Unified Architectures</strong>: Single models for all modalities</li>
-  <li><strong>Emergent Capabilities</strong>: Understanding scaling phenomena</li>
-  <li><strong>Efficient Training</strong>: Reducing computational requirements</li>
-  <li><strong>Safety and Alignment</strong>: Ensuring beneficial AI systems</li>
-</ul>
-
-<p><strong>Practical Considerations:</strong></p>
-<ul>
-  <li><strong>Cost-Performance Trade-offs</strong>: Balancing capability and efficiency</li>
-  <li><strong>Domain Adaptation</strong>: Specializing general models</li>
-  <li><strong>Deployment Optimization</strong>: Edge computing and inference efficiency</li>
-  <li><strong>Ethical AI</strong>: Responsible development and deployment</li>
-</ul>
-
-<hr />
-
-<h3 id="conclusion">Conclusion</h3>
-
-<p>The choice of transformer architecture depends heavily on the intended application:</p>
-
-<ul>
-  <li><strong>Choose Encoder-Decoder</strong> for well-defined input-output transformations with structured data requirements</li>
-  <li><strong>Choose Decoder-Only</strong> for flexible text generation, conversational AI, and general-purpose language tasks</li>
-  <li><strong>Choose Encoder-Only</strong> for text understanding, classification, and when bidirectional context is crucial</li>
-</ul>
-
-<p>As the field continues to evolve, decoder-only architectures have gained prominence due to their simplicity, scalability, and emergent capabilities at large scales. However, encoder-only and encoder-decoder models remain valuable for specialized applications where their architectural strengths align with task requirements.</p>
-
-<p>Understanding these architectural differences, training methodologies, and evaluation approaches is crucial for practitioners working with transformer models and for making informed decisions about model selection and deployment strategies.</p>
-
-  </div><a class="u-url" href="/cs336/2025/09/14/cs336-transformer-architecture-overview.html" hidden></a>
+  </div><a class="u-url" href="/cs336/2025/09/17/cs336-transformer-architecture-overview.html" hidden></a>
 </article>
 
       </div>

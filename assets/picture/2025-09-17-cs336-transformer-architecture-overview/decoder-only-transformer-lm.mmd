@@ -1,0 +1,38 @@
+flowchart TD
+    %% Input Processing
+    Input[Input Prompt<br/>The cat sat on the]
+    Input --> Embeddings[Token + Position Embeddings<br/>BOS The cat sat on the]
+
+    %% Simplified Decoder Stack
+    subgraph DEC["🎯 DECODER STACK - GPT Architecture"]
+        direction TB
+        Embeddings --> Layer1[Decoder Layer 1<br/>Masked Self-Attention + FFN]
+        Layer1 --> Layer2[Decoder Layer 2<br/>Masked Self-Attention + FFN]
+        Layer2 --> Dots[⋮<br/>Layers 3 to N-1]
+        Dots --> LayerN[Decoder Layer N<br/>Masked Self-Attention + FFN]
+    end
+
+    %% Output Processing
+    LayerN --> LMHead[Language Model Head<br/>Linear + Softmax]
+    LMHead --> NextToken[Next Token Prediction<br/>→ mat]
+
+    %% Key Characteristics
+    subgraph FEATURES["🔑 KEY FEATURES"]
+        direction TB
+        Causal[🔒 Causal Masking<br/>Can only attend to<br/>previous tokens]
+        AutoReg[🔄 Autoregressive<br/>Generates tokens<br/>one at a time]
+        UseCase[💬 Text Generation<br/>Chat, Completion,<br/>Code Generation]
+    end
+
+    %% Styling
+    classDef input fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef embedding fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef decoder fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef output fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef features fill:#fce4ec,stroke:#ad1457,stroke-width:2px
+
+    class Input input
+    class Embeddings embedding
+    class DEC,Layer1,Layer2,Dots,LayerN decoder
+    class LMHead,NextToken output
+    class FEATURES,Causal,AutoReg,UseCase features

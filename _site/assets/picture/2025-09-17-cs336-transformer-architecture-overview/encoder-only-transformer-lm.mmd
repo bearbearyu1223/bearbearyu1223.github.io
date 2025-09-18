@@ -1,0 +1,48 @@
+flowchart TD
+    %% Input Processing
+    Input[Input Text<br/>The cat sat on the mat]
+    Input --> Tokenize[Add Special Tokens<br/>CLS the cat sat on the mat SEP]
+    Tokenize --> Embeddings[Token + Position + Segment<br/>Embeddings]
+
+    %% Simplified Encoder Stack
+    subgraph ENC["🔍 ENCODER STACK - 12 Layers"]
+        direction TB
+        Embeddings --> Layer1[Encoder Layer 1<br/>Multi-Head Attention + FFN]
+        Layer1 --> Layer2[Encoder Layer 2<br/>Multi-Head Attention + FFN]
+        Layer2 --> Dots[⋮<br/>Layers 3-11]
+        Dots --> LayerN[Encoder Layer 12<br/>Multi-Head Attention + FFN]
+    end
+
+    %% Output Processing
+    LayerN --> Outputs[Contextual Representations<br/>All token embeddings]
+
+    %% Task-Specific Applications
+    subgraph TASKS["🎯 TASK-SPECIFIC HEADS"]
+        direction LR
+        Outputs --> CLS_Task[Sequence Classification<br/>Use CLS token<br/>→ Sentiment, Document Classification]
+        Outputs --> MLM_Task[Masked Language Model<br/>Predict masked tokens<br/>→ Pre-training Task]
+        Outputs --> Token_Task[Token Classification<br/>Use all tokens<br/>→ NER, POS Tagging]
+    end
+
+    %% Key Features
+    subgraph FEATURES["🔑 KEY FEATURES"]
+        direction TB
+        BiDir[🔄 Bidirectional Attention<br/>Full context understanding<br/>from both directions]
+        Understand[🧠 Understanding Tasks<br/>Classification, extraction,<br/>comprehension]
+        PreTrain[📚 Pre-training + Fine-tuning<br/>Masked language modeling<br/>then task-specific training]
+    end
+
+    %% Styling
+    classDef input fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef embedding fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef encoder fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef output fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef task fill:#fce4ec,stroke:#ad1457,stroke-width:2px
+    classDef features fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+
+    class Input,Tokenize input
+    class Embeddings embedding
+    class ENC,Layer1,Layer2,Dots,LayerN encoder
+    class Outputs output
+    class TASKS,CLS_Task,MLM_Task,Token_Task task
+    class FEATURES,BiDir,Understand,PreTrain features

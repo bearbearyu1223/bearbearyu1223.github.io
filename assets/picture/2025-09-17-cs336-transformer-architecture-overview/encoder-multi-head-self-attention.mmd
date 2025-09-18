@@ -1,0 +1,95 @@
+flowchart TD
+    %% Input Processing
+    Input[Input Embeddings<br/>X: batch × seq_len × d_model<br/>The cat sat on the mat]
+
+    %% Multi-Head Self-Attention Detail
+    subgraph MHSA["🔍 MULTI-HEAD SELF-ATTENTION"]
+        direction TB
+
+        %% Linear Projections - All from same input
+        Input --> LinearQ[Linear Q<br/>W_Q: d_model × d_model]
+        Input --> LinearK[Linear K<br/>W_K: d_model × d_model]
+        Input --> LinearV[Linear V<br/>W_V: d_model × d_model]
+
+        LinearQ --> Q[Q Matrix<br/>batch × seq_len × d_model]
+        LinearK --> K[K Matrix<br/>batch × seq_len × d_model]
+        LinearV --> V[V Matrix<br/>batch × seq_len × d_model]
+
+        %% Split into heads
+        Q --> QSplit[Split Q into h heads<br/>batch × seq_len × h × d_k]
+        K --> KSplit[Split K into h heads<br/>batch × seq_len × h × d_k]
+        V --> VSplit[Split V into h heads<br/>batch × seq_len × h × d_v]
+
+        %% Parallel Head Processing
+        QSplit --> AttentionHeads[Parallel Attention<br/>for all h heads]
+        KSplit --> AttentionHeads
+        VSplit --> AttentionHeads
+
+        subgraph HEADS["All Heads Process in Parallel"]
+            direction TB
+
+            subgraph HEAD1_DETAIL["Head 1 - Detailed Operations"]
+                direction TB
+                AttentionHeads --> Q1[Q1<br/>batch × seq_len × d_k]
+                AttentionHeads --> K1[K1<br/>batch × seq_len × d_k]
+                AttentionHeads --> V1[V1<br/>batch × seq_len × d_v]
+
+                Q1 --> MatMul1[Q1 × K1^T<br/>batch × seq_len × seq_len]
+                K1 --> MatMul1
+                MatMul1 --> Scale1[Scale by 1/√d_k<br/>Prevent gradient vanishing]
+                Scale1 --> Softmax1[Softmax<br/>Attention Weights<br/>sum over seq_len = 1]
+                Softmax1 --> AttnOut1[Attention × V1<br/>batch × seq_len × d_v]
+                V1 --> AttnOut1
+            end
+
+            subgraph DOTS_DETAIL["... (Heads 2 to h-1)"]
+                direction TB
+                DotsText[Same operations<br/>for each head<br/>Q_i × K_i^T / √d_k<br/>→ Softmax → × V_i]
+            end
+
+            subgraph HEADH_DETAIL["Head h - Detailed Operations"]
+                direction TB
+                AttentionHeads --> Qh[Qh<br/>batch × seq_len × d_k]
+                AttentionHeads --> Kh[Kh<br/>batch × seq_len × d_k]
+                AttentionHeads --> Vh[Vh<br/>batch × seq_len × d_v]
+
+                Qh --> MatMulh[Qh × Kh^T<br/>batch × seq_len × seq_len]
+                Kh --> MatMulh
+                MatMulh --> Scaleh[Scale by 1/√d_k<br/>Prevent gradient vanishing]
+                Scaleh --> Softmaxh[Softmax<br/>Attention Weights<br/>sum over seq_len = 1]
+                Softmaxh --> AttnOuth[Attention × Vh<br/>batch × seq_len × d_v]
+                Vh --> AttnOuth
+            end
+        end
+
+        %% Concatenate outputs
+        AttnOut1 --> Concat[Concatenate<br/>all head outputs<br/>batch × seq_len × d_model]
+        AttnOuth --> Concat
+        DotsText -.-> Concat
+
+        %% Final linear projection
+        Concat --> FinalLinear[Linear W_O<br/>d_model × d_model]
+        FinalLinear --> AttentionOut[Multi-Head<br/>Attention Output<br/>batch × seq_len × d_model]
+    end
+
+
+    %% Residual Connection and Layer Norm
+    AttentionOut --> Add[Add & Norm<br/>Residual Connection]
+    Input -.->|Residual| Add
+    Add --> Output[Layer Output<br/>Ready for Feed Forward]
+
+    %% Styling
+    classDef input fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef embedding fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef projection fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef head fill:#ffebee,stroke:#c62828,stroke-width:2px
+    classDef attention fill:#fce4ec,stroke:#ad1457,stroke-width:2px
+    classDef output fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef bidir fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+
+    class Input input
+    class LinearQ,LinearK,LinearV,Q,K,V projection
+    class QSplit,KSplit,VSplit head
+    class HEADS,AttentionHeads,HEAD1_DETAIL,HEADH_DETAIL,DOTS_DETAIL attention
+    class Q1,K1,V1,Qh,Kh,Vh,MatMul1,MatMulh,Scale1,Scaleh,Softmax1,Softmaxh,AttnOut1,AttnOuth,DotsText attention
+    class Concat,FinalLinear,AttentionOut,Add,Output output
