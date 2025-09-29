@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <link rel="shortcut icon" type="image/png" href="/assets/favicon.png">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>Study Notes: Stanford CS336 Language Modeling from Scratch [7] | 🍒 Han’s Generative AI Quest</title>
+<meta name="generator" content="Jekyll v4.3.2" />
+<meta property="og:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [7]" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Understanding where the computation really goes in transformer language models*" />
+<meta property="og:description" content="Understanding where the computation really goes in transformer language models*" />
+<link rel="canonical" href="http://localhost:4000/cs336/2025/09/28/cs336-understand-computation-cost-of-transformer-model.html" />
+<meta property="og:url" content="http://localhost:4000/cs336/2025/09/28/cs336-understand-computation-cost-of-transformer-model.html" />
+<meta property="og:site_name" content="🍒 Han’s Generative AI Quest" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2025-09-28T00:00:00-07:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [7]" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2025-09-28T00:00:00-07:00","datePublished":"2025-09-28T00:00:00-07:00","description":"Understanding where the computation really goes in transformer language models*","headline":"Study Notes: Stanford CS336 Language Modeling from Scratch [7]","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/cs336/2025/09/28/cs336-understand-computation-cost-of-transformer-model.html"},"url":"http://localhost:4000/cs336/2025/09/28/cs336-understand-computation-cost-of-transformer-model.html"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/css/style.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="🍒 Han&apos;s Generative AI Quest" />
+</head>
+<body><header class="site-header">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">🍒 Han&#39;s Generative AI Quest</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/about/">About</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Study Notes: Stanford CS336 Language Modeling from Scratch [7]</h1>
+    <p class="post-meta"><time class="dt-published" datetime="2025-09-28T00:00:00-07:00" itemprop="datePublished">
+        Sep 28, 2025
+      </time>• 
+          <span itemprop="author" itemscope itemtype="http://schema.org/Person">
+            <span class="p-author h-card" itemprop="name">Han Yu</span></span></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <h2 id="understanding-where-the-computation-really-goes-in-transformer-language-models">Understanding where the computation really goes in transformer language models*</h2>
+
+<p>When we talk about large language models like GPT-4 or Claude, we often hear impressive numbers: “175 billion parameters,” “3.5 trillion FLOPs,” “trained on thousands of GPUs.” But what do these numbers actually mean? Where does all that computation go during inference? And how do these patterns change as models scale up?</p>
+
+<p>In this notes, we’ll dissect the computational anatomy of GPT-2 models, from the smallest to the largest variants, to understand exactly where the mathematical heavy lifting happens. By the end, hope you’ll have an intuitive understanding of why certain optimization techniques matter more than others, and how the computational landscape shifts dramatically with model size and context length.</p>
+
+<p><em>This analysis was based on GPT-2 architectures, but the principles apply broadly to transformer-based language models. The specific percentages may vary, but the scaling laws and optimization insights remain relevant for understanding modern LLMs.</em></p>
+
+<h3 id="table-of-contents">Table of Contents</h3>
+
+<ol>
+  <li><a href="#setting-the-stage-gpt-2-xl-under-the-microscope">Setting the Stage: GPT-2 XL Under the Microscope</a></li>
+  <li><a href="#part-1-counting-every-parameter">Part 1: Counting Every Parameter</a>
+    <ul>
+      <li><a href="#the-156-billion-parameter-breakdown">The 1.56 Billion Parameter Breakdown</a></li>
+      <li><a href="#memory-requirements">Memory Requirements</a></li>
+    </ul>
+  </li>
+  <li><a href="#part-2-following-the-flops-floating-point-operations-per-second">Part 2: Following the FLOPS (Floating Point Operations per Second)</a>
+    <ul>
+      <li><a href="#the-35-trillion-flops-journey">The 3.5 Trillion FLOPs Journey</a></li>
+      <li><a href="#the-computational-cost-hierarchy">The Computational Cost Hierarchy</a></li>
+    </ul>
+  </li>
+  <li><a href="#part-3-how-computational-patterns-change-with-model-scale">Part 3: How Computational Patterns Change with Model Scale</a>
+    <ul>
+      <li><a href="#scaling-trends">Scaling Trends</a></li>
+      <li><a href="#optimization-strategy-by-model-size">Optimization Strategy by Model Size</a></li>
+    </ul>
+  </li>
+  <li><a href="#part-4-the-long-context-revolution">Part 4: The Long Context Revolution</a>
+    <ul>
+      <li><a href="#the-38-computational-explosion">The 38× Computational Explosion</a></li>
+      <li><a href="#the-quadratic-takeover">The Quadratic Takeover</a></li>
+      <li><a href="#memory-implications">Memory Implications</a></li>
+    </ul>
+  </li>
+  <li><a href="#part-5-understanding-mixture-of-experts-moe">Part 5: Understanding Mixture of Experts (MoE)</a>
+    <ul>
+      <li><a href="#the-restaurant-kitchen-analogy">The Restaurant Kitchen Analogy</a></li>
+      <li><a href="#how-moe-works-in-practice">How MoE Works in Practice</a></li>
+      <li><a href="#why-moe-provides-massive-savings">Why MoE Provides Massive Savings</a></li>
+    </ul>
+  </li>
+  <li><a href="#part-6-key-insights-and-practical-implications">Part 6: Key Insights and Practical Implications</a>
+    <ul>
+      <li><a href="#for-model-developers">For Model Developers</a></li>
+      <li><a href="#for-infrastructure-teams">For Infrastructure Teams</a></li>
+    </ul>
+  </li>
+  <li><a href="#conclusion">Conclusion</a></li>
+</ol>
+
+<h3 id="setting-the-stage-gpt-2-xl-under-the-microscope"><strong>Setting the Stage: GPT-2 XL Under the Microscope</strong></h3>
+
+<p>Let’s start by examining GPT-2 XL, one of the largest publicly available GPT-2 models, with these specifications:</p>
+
+<ul>
+  <li><strong>Vocabulary size</strong>: 50,257 tokens</li>
+  <li><strong>Context/sequence length</strong>: 1,024 tokens</li>
+  <li><strong>Layers</strong>: 48 transformer blocks</li>
+  <li><strong>Embedding Model dimension (d_model)</strong>: 1,600</li>
+  <li><strong>Attention heads</strong>: 25</li>
+  <li><strong>Feed forward dimension (d_ff)</strong>: 6,400</li>
+</ul>
+
+<h3 id="part-1-counting-every-parameter"><strong>Part 1: Counting Every Parameter</strong></h3>
+
+<h4 id="the-156-billion-parameter-breakdown"><strong>The 1.56 Billion Parameter Breakdown</strong></h4>
+
+<p>When we say GPT-2 XL has <code class="language-plaintext highlighter-rouge">1.56 billion</code> parameters, where exactly do they all go?</p>
+
+<p><strong>Token &amp; Position Embeddings: 82M parameters (5.3%)</strong></p>
+<ul>
+  <li><strong>Token embeddings</strong>: 50,257 tokens × 1,600 dimensions -&gt; 80.4M parameters</li>
+  <li><strong>Position embeddings</strong>: 1,024 positions × 1,600 dimensions -&gt; 1.6M parameters</li>
+</ul>
+
+<p><em>Think of these as lookup tables: each token gets its own 1,600-dimensional vector, and each position (1st word, 2nd word, etc.) gets its own vector too.</em></p>
+
+<p><strong>Transformer Layers: 1.47B parameters (94.7%)</strong></p>
+
+<p>Each of the 48 layers contains:</p>
+
+<ul>
+  <li><em>Multi-Head Attention (10.2M parameters per layer):</em>
+    <ul>
+      <li><strong>Q, K, V projections</strong>: 3 × (1,600 × 1,600) = 7.68M parameters</li>
+      <li><strong>Output projection</strong>: 1,600 × 1,600 = 2.56M parameters</li>
+    </ul>
+  </li>
+  <li><em>Feed Forward Network (20.5M parameters per layer):</em>
+    <ul>
+      <li><strong>Expansion layer (linear projection up)</strong>: 1,600 × 6,400 + 6,400 bias = 10.24M parameters</li>
+      <li><strong>Contraction layer (linear project down)</strong>: 6,400 × 1,600 + 1,600 bias = 10.24M parameters</li>
+    </ul>
+  </li>
+  <li><em>Layer Normalization (6,400 parameters per layer):</em>
+    <ul>
+      <li><strong>Two layer norms (e.g.,RMSNorm)</strong> × 2 parameters each (e.g., two learnable parameters used in RMSNorm) × 1,600 dimensions = 6,400 parameters</li>
+    </ul>
+  </li>
+</ul>
+
+<p><strong>Final Layer Norm (e.g., 1 RMSNorm layer with 2 parameters, 1,600 dimensions): 3,200 parameters</strong></p>
+
+<p><strong>Key Insight</strong>: The feed forward networks contain <code class="language-plaintext highlighter-rouge">67%</code> of parameters per layer, while attention uses <code class="language-plaintext highlighter-rouge">33%</code>. This <code class="language-plaintext highlighter-rouge">2:1</code> ratio will become important when we analyze computation.</p>
+
+<h4 id="memory-requirements"><strong>Memory Requirements</strong></h4>
+
+<p>With single-precision floating point (each parameter is represented by 32 bits which is 4 bytes per parameter):</p>
+<ul>
+  <li><strong>Total memory</strong>: <code class="language-plaintext highlighter-rouge">1.56B × 4 bytes</code> -&gt; <strong><code class="language-plaintext highlighter-rouge">6.2 GB</code></strong></li>
+</ul>
+
+<p>This is just for storing the model weights—actual inference requires additional memory for activations, gradients (if training), intermediate computations, and other overhead for using frameworks.</p>
+
+<h3 id="part-2-following-the-flops-floating-point-operations-per-second"><strong>Part 2: Following the FLOPS (Floating Point Operations per Second)</strong></h3>
+
+<p>Now comes the crucial question: during a forward pass with 1,024 input tokens, where does the computational work actually happen?</p>
+
+<h4 id="the-35-trillion-flops-journey"><strong>The 3.5 Trillion FLOPs Journey</strong></h4>
+<p>A FLOP stands for Floating Point Operation. It means one basic arithmetic operation (addition, subtraction, multiplication, division, etc.) performed on floating-point numbers (like 32-bit floats in neural nets).</p>
+
+<p>Example:</p>
+<blockquote>
+  <p>3.14×2.71 → 1 FLOP</p>
+
+  <p>(3.14 × 2.71) + 1.23 → 2 FLOPs</p>
+</blockquote>
+
+<p>FLOPS vs FLOP:</p>
+
+<blockquote>
+  <p>FLOP = one operation.</p>
+
+  <p>FLOPS = FLOPs per second → a measure of compute speed.</p>
+</blockquote>
+
+<p>Example:</p>
+<blockquote>
+  <p>A GPU that can perform 1×10^12 FLOPs per second = 1 TFLOPS.</p>
+</blockquote>
+
+<p>When we talk about FLOPs of a model: it means the total number of floating-point operations required for one forward pass (sometimes forward + backward during training).</p>
+
+<p>Example:</p>
+<blockquote>
+  <p>A Transformer block does a lot of matrix multiplications (like attention and feedforward layers). Counting their FLOPs helps estimate compute cost and compare model efficiency.</p>
+</blockquote>
+
+<p>Note:</p>
+<blockquote>
+  <p>For matrix multiplication (M × N) @ (N × K), the FLOPs = 2 × M × N × K</p>
+</blockquote>
+
+<p><strong>Feed Forward Networks: 2.01 TFLOPs (57.4%)</strong></p>
+<ul>
+  <li>Two matrix multiplications per layer: d_model ↔ d_ff expansion and contraction</li>
+  <li>Why so expensive: The <code class="language-plaintext highlighter-rouge">4×</code> expansion (1,600 → 6,400), then contraction (6,400 → 1,600) creates huge matrix operations</li>
+  <li>Per layer cost: 2 × 1,600 × 6,400 + 2 × 6,400 × 1,600 -&gt; 41.9 GFLOPs</li>
+  <li>Total across all layers: 41.9 GFLOPs × 48 layers -&gt; 2.01 TFLOPs</li>
+</ul>
+
+<p><strong>Attention Linear Projections: 1.01 TFLOPs (28.7%)</strong></p>
+<ul>
+  <li>Four projections per layer: Query, Key, Value, and Output matrices</li>
+  <li>Each projection: (1,024 × 1,600) @ (1,600 × 1,600) matrix multiplication</li>
+  <li>Per projection cost: 2 × 1,024 × 1,600 × 1,600 = 5.24 GFLOPs</li>
+  <li>Per layer cost (4 projections): 4 × 5.24 GFLOPs = 20.97 GFLOPs</li>
+  <li>Total across all layers: 20.97 GFLOPs × 48 layers = 1.007 TFLOPs</li>
+</ul>
+
+<p><strong>Attention Computation: 0.32 TFLOPs (9.2%)</strong></p>
+<ul>
+  <li><strong>Q@K^T</strong>: Computing attention scores
+    <ul>
+      <li>Creates the attention matrix that determines which tokens attend to which</li>
+      <li>Matrix multiplication: (1,024 × 1,600) @ (1,600 × 1,024)</li>
+      <li>FLOPs per layer = 2 × 1024 × 1600 × 1024 -&gt;  3,355,443,200 FLOPs per layer</li>
+      <li>Total across all layers: 3,355,443,200 × 48 layers -&gt; 0.16 TFLOPs</li>
+    </ul>
+  </li>
+  <li><strong>Attention@V</strong>: Applying attention weights to values
+    <ul>
+      <li>Applies attention weights to value vectors to get final attended representations</li>
+      <li>Matrix multiplication: (1,024 × 1,024)  @  (1,024 × 1,600)</li>
+      <li>FLOPs per layer = 2 × 1024 × 1024 × 1600 -&gt;  3,355,443,200 FLOPs per layer</li>
+      <li>Total across all layers: 3,355,443,200 × 48 layers -&gt; 0.16 TFLOPs</li>
+    </ul>
+  </li>
+  <li><strong>Currently small</strong> but <em>grows quadratically with longer sequences</em></li>
+</ul>
+
+<p><strong>Output Projection: 0.16 TFLOPs (4.7%)</strong></p>
+<ul>
+  <li>Final projection from hidden states to 50,257 vocabulary logits
+    <ul>
+      <li>Input shape: (1,024 × 1,600) hidden states</li>
+      <li>Weight shape: (1,600 × 50,257) vocabulary projection</li>
+      <li>Output shape: (1,024 × 50,257) logits for each position</li>
+      <li>FLOPs: 2 × 1,024 × 1,600 × 50,257 -&gt; 0.16 TFLOPs</li>
+    </ul>
+  </li>
+  <li>Large vocabulary makes this significant despite being a single operation</li>
+</ul>
+
+<h4 id="the-computational-cost-hierarchy"><strong>The Computational Cost Hierarchy</strong></h4>
+
+<p><strong>🥇 Feed Forward is the King (57.4%)</strong></p>
+
+<p>This is the most important finding: <em>feed forward networks consume more computation than everything else combined</em>. The 4× expansion factor creates the largest matrix operations in the entire model.</p>
+
+<p><strong>🥈 Attention Linear Projections Runner-Up (28.7%)</strong></p>
+
+<p>The four linear projections (Q, K, V, O) that prepare attention computations use nearly 30% of all FLOPs.</p>
+
+<p><strong>🥉 The Famous Attention Mechanism (9.2%)</strong></p>
+
+<p>Despite getting most research attention, the actual attention computation (the part that makes transformers special) uses less than 10% of computation for typical sequence lengths. But, it can <em>grow quadratically with longer sequences or context window</em>.</p>
+
+<p><strong>🏅 Vocabulary Bottleneck (4.7%)</strong></p>
+
+<p>The final projection to vocabulary logits is notable due to GPT-2 XL’s large vocabulary.</p>
+
+<p><strong>Why This Distribution Matters</strong></p>
+
+<p>This analysis reveals that <strong>feed forward networks are the computational elephant in the room</strong>. For current sequence lengths, optimizing feed forward networks provides bigger computational savings than optimizing attention mechanisms.</p>
+
+<h3 id="part-3-how-computational-patterns-change-with-model-scale"><strong>Part 3: How Computational Patterns Change with Model Scale</strong></h3>
+
+<p>Let’s examine how FLOP distribution evolves across the entire GPT-2 family:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Model</th>
+      <th>Layers</th>
+      <th>d_model</th>
+      <th>Total FLOPs</th>
+      <th>Feed Forward %</th>
+      <th>Attention Linear Proj %</th>
+      <th>Attention Computation %</th>
+      <th>Output Projection %</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Small</strong></td>
+      <td>12</td>
+      <td>768</td>
+      <td>0.29 TFLOPs</td>
+      <td>39.8%</td>
+      <td>19.9%</td>
+      <td>13.3%</td>
+      <td><strong>27.1%</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Medium</strong></td>
+      <td>24</td>
+      <td>1024</td>
+      <td>0.83 TFLOPs</td>
+      <td>49.9%</td>
+      <td>24.9%</td>
+      <td>12.5%</td>
+      <td>12.7%</td>
+    </tr>
+    <tr>
+      <td><strong>Large</strong></td>
+      <td>36</td>
+      <td>1280</td>
+      <td>1.78 TFLOPs</td>
+      <td>54.5%</td>
+      <td>27.2%</td>
+      <td>10.9%</td>
+      <td>7.4%</td>
+    </tr>
+    <tr>
+      <td><strong>XL</strong></td>
+      <td>48</td>
+      <td>1600</td>
+      <td>3.51 TFLOPs</td>
+      <td><strong>57.4%</strong></td>
+      <td><strong>28.7%</strong></td>
+      <td>9.2%</td>
+      <td>4.7%</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="scaling-trends"><strong>Scaling Trends</strong></h4>
+
+<p><strong>📈 Feed Forward Dominance Grows</strong></p>
+<ul>
+  <li>Small: 39.8% → XL: 57.4% (+17.7 percentage points)</li>
+  <li><strong>Why</strong>: Scales as O(d_model² × layers), growing faster than other components, and <em>growing quadratically with larger embedding model</em>.</li>
+</ul>
+
+<p><strong>📉 Output Projection Becomes Negligible</strong></p>
+<ul>
+  <li>Small: 27.1% → XL: 4.7% (-22.4 percentage points)</li>
+  <li><strong>Why</strong>: Scales as O(d_model) while vocabulary size stays constant</li>
+</ul>
+
+<p><strong>📉 Attention Computation Relatively Shrinks</strong></p>
+<ul>
+  <li>Small: 13.3% → XL: 9.2% (-4.1 percentage points)</li>
+  <li><strong>Why</strong>: Scales as O(d_model × layers), but growing only linear with larger embedding model.</li>
+</ul>
+
+<p><strong>📈 Attention Projections Grow Steadily</strong></p>
+<ul>
+  <li>Small: 19.9% → XL: 28.7% (+8.8 percentage points)</li>
+  <li><strong>Why</strong>: Scales same as feed forward: O(d_model² × layers), and <em>growing quadratically with larger embedding model</em>.</li>
+</ul>
+
+<h4 id="optimization-strategy-by-model-size"><strong>Optimization Strategy by Model Size</strong></h4>
+
+<p><strong>Small Models</strong>: Output projection matters most (27% of computation)</p>
+<ul>
+  <li>Focus on vocabulary efficiency and embedding optimizations</li>
+</ul>
+
+<p><strong>Large Models</strong>: Feed forward networks dominate (57% of computation)</p>
+<ul>
+  <li>Focus on Mixture of Experts (MoE), pruning, and quantization</li>
+</ul>
+
+<p>This scaling analysis explains why techniques like <strong>Mixture of Experts</strong>—which primarily optimize feed forward networks—become increasingly important for large models (we will explain that later in this notes).</p>
+
+<h3 id="part-4-the-long-context-revolution"><strong>Part 4: The Long Context Revolution</strong></h3>
+
+<p>What happens when we extend GPT-2 XL’s context from 1,024 to 16,384 tokens? The results are dramatic.</p>
+
+<h4 id="the-38-computational-explosion"><strong>The 38× Computational Explosion</strong></h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Component</th>
+      <th>1K Context</th>
+      <th>16K Context</th>
+      <th>Scaling</th>
+      <th>Change</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Attention Computation</strong></td>
+      <td><strong>9.2%</strong></td>
+      <td><strong>61.8%</strong></td>
+      <td><strong>256×</strong></td>
+      <td><strong>+52.6 pts</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Feed Forward</strong></td>
+      <td><strong>57.4%</strong></td>
+      <td><strong>24.1%</strong></td>
+      <td><strong>16×</strong></td>
+      <td><strong>-33.3 pts</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Attention Projections</strong></td>
+      <td><strong>28.7%</strong></td>
+      <td><strong>12.1%</strong></td>
+      <td><strong>16×</strong></td>
+      <td><strong>-16.6 pts</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Output Projection</strong></td>
+      <td><strong>4.7%</strong></td>
+      <td><strong>2.0%</strong></td>
+      <td><strong>16×</strong></td>
+      <td><strong>-2.7 pts</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="the-quadratic-takeover"><strong>The Quadratic Takeover</strong></h4>
+
+<p><strong>Total FLOPs</strong>: 3.5 TFLOPs → 133.4 TFLOPs (38× increase)</p>
+
+<p>The most shocking change: <strong>attention computation explodes from 9% to 62%</strong> of total computation. Here’s why:</p>
+
+<ul>
+  <li><strong>Sequence length scaling</strong>: 1,024 → 16,384 tokens (16× increase)</li>
+  <li><strong>Linear components</strong> (feed forward, projections): Scale by 16×</li>
+  <li><strong>Quadratic components</strong> (attention computation): Scale by 16² = 256×</li>
+</ul>
+
+<p>The mathematical culprits are the <code class="language-plaintext highlighter-rouge">Q@K^T</code> and <code class="language-plaintext highlighter-rouge">Attention@V</code> operations, which both scale as <code class="language-plaintext highlighter-rouge">O(sequence_length²)</code>.</p>
+
+<h4 id="memory-implications"><strong>Memory Implications</strong></h4>
+
+<p>The memory story is even more dramatic:</p>
+<ul>
+  <li><strong>Attention matrices</strong>: 50M → 12,885M elements (256× increase)</li>
+  <li><strong>Storage requirement</strong>: Each attention head must store a 16K×16K matrix</li>
+</ul>
+
+<p>This reveals why <strong>long context is the next major frontier</strong> in LLM optimization, requiring techniques like:</p>
+<ul>
+  <li><strong>Flash Attention</strong>: Memory-efficient attention computation</li>
+  <li><strong>Sparse Attention</strong>: Only compute attention for relevant tokens</li>
+  <li><strong>Linear Attention</strong>: Approximate attention with linear complexity</li>
+  <li><strong>Sliding Window</strong>: Limit attention to recent tokens</li>
+</ul>
+
+<h3 id="part-5-understanding-mixture-of-experts-moe"><strong>Part 5: Understanding Mixture of Experts (MoE)</strong></h3>
+
+<p>Given that feed forward networks dominate computation (57% in large models), let’s understand why <strong>Mixture of Experts</strong> has become a game-changing optimization technique.</p>
+
+<h4 id="the-restaurant-kitchen-analogy"><strong>The Restaurant Kitchen Analogy</strong></h4>
+
+<p><strong>Traditional Model</strong>: One super-chef tries to cook everything—pizza, sushi, pasta, desserts. The chef gets exhausted and slower as the menu grows.</p>
+
+<p><strong>MoE Model</strong>: Multiple specialist chefs (pizza expert, sushi master, pasta chef, dessert specialist) with a smart dispatcher who sends each order to the right specialist. Only the relevant chef works on each dish.</p>
+
+<h4 id="how-moe-works-in-practice">How MoE Works in Practice</h4>
+<p>Instead of one giant feedforward network, we have many smaller expert networks (say 64 FFNs). A router (small gating network) decides which subset of experts (often 1 or 2) each token should use. Thus, for each token: Only ~1–2 experts are activated
+The others are inactive (no compute for them).</p>
+<h4 id="why-moe-provides-massive-savings">Why MoE Provides Massive Savings</h4>
+<p><strong>Computational Savings</strong>:</p>
+<ul>
+  <li><strong>Before</strong>: Use 100% of the giant network for every input</li>
+  <li><strong>After</strong>: Use only 10-20% of total network capacity</li>
+  <li><strong>Result</strong>: 5-10× faster inference with same quality</li>
+</ul>
+
+<p><strong>Specialization Benefits</strong>:</p>
+<ul>
+  <li><strong>Expert 1</strong>: Math and science</li>
+  <li><strong>Expert 2</strong>: Creative writing</li>
+  <li><strong>Expert 3</strong>: Code and programming</li>
+  <li><strong>Expert 4</strong>: Languages and translation</li>
+</ul>
+
+<p><strong>Scale Without Pain</strong>:</p>
+<ul>
+  <li><strong>Traditional</strong>: 2× bigger model = 2× more computation</li>
+  <li><strong>MoE</strong>: 2× more experts ≈ same computation (since only 1-2 active)</li>
+</ul>
+
+<p>Since feed forward networks use 57% of computation in large models, MoE can reduce this to 6-12%, eliminating the primary bottleneck.</p>
+
+<h3 id="part-6-key-insights-and-practical-implications"><strong>Part 6: Key Insights and Practical Implications</strong></h3>
+
+<h4 id="for-model-developers"><strong>For Model Developers</strong></h4>
+
+<p><strong>Small Models (&lt; 1B parameters)</strong>:</p>
+<ul>
+  <li>Output projection optimization matters most</li>
+  <li>Vocabulary efficiency and embedding techniques provide biggest gains</li>
+  <li>Feed forward optimization secondary</li>
+</ul>
+
+<p><strong>Large Models (&gt; 10B parameters)</strong>:</p>
+<ul>
+  <li>Feed forward networks are the primary target (MoE, quantization, pruning)</li>
+  <li>Attention projection optimizations become important</li>
+  <li>Output projection becomes negligible</li>
+</ul>
+
+<p><strong>Long Context Models</strong>:</p>
+<ul>
+  <li>Attention computation becomes dominant bottleneck</li>
+  <li>Memory optimization equally critical as computation optimization</li>
+  <li>Linear attention mechanisms essential</li>
+</ul>
+
+<h4 id="for-infrastructure-teams"><strong>For Infrastructure Teams</strong></h4>
+
+<p><strong>Hardware Requirements Scale Predictably</strong>:</p>
+
+<p>Computational Scaling Patterns:</p>
+
+<ul>
+  <li>Feed forward: Scales as O(d_model² × layers)
+    <ul>
+      <li>GPT-2 Small → XL: d_model grows 2.1x, layers grow 4x → FF computation grows ~17x</li>
+      <li>Dominates short-sequence/context window workloads (57% of computation)</li>
+      <li>Requires high tensor core utilization for matrix multiplication</li>
+    </ul>
+  </li>
+  <li>Attention: Scales as O(sequence_length² × layers)
+    <ul>
+      <li>1K → 16K context window: sequence_length grows 16x → attention grows 256x</li>
+      <li>Becomes dominant for long sequences (62% computation at 16K context)</li>
+      <li>Requires specialized attention kernels and memory optimization</li>
+    </ul>
+  </li>
+</ul>
+
+<p>Memory Scaling Reality:</p>
+<ul>
+  <li>Model weights: Static ~6 GB for GPT-2 XL (predictable)</li>
+  <li>Activations: Variable based on sequence length
+    <ul>
+      <li>Short sequences (1K): ~0.5 GB activations</li>
+      <li>Long sequences (16K): ~57 GB activations (100x more!)</li>
+    </ul>
+  </li>
+  <li>Attention matrices: The memory killer at long sequences
+    <ul>
+      <li>1K context: 0.2 GB attention matrices</li>
+      <li>16K context: 51.5 GB attention matrices (256x increase)</li>
+    </ul>
+  </li>
+</ul>
+
+<p><em>Activations</em> are the intermediate values computed during the forward pass that must be stored in memory for:</p>
+<ul>
+  <li>Computing the next layer’s input</li>
+  <li>Backpropagation (during training)</li>
+  <li>Gradient computation</li>
+</ul>
+
+<p><strong>Optimization Priorities</strong>:</p>
+<ul>
+  <li><strong>Short sequences</strong>: Focus on feed forward efficiency</li>
+  <li><strong>Long sequences</strong>: Focus on attention efficiency</li>
+  <li><strong>Both</strong>: Memory bandwidth becomes critical</li>
+</ul>
+
+<h3 id="conclusion"><strong>Conclusion</strong></h3>
+
+<p>Large language models may seem like black boxes, but their computational patterns follow clear mathematical principles:</p>
+
+<ol>
+  <li><strong>Feed forward networks dominate</strong> computation in most scenarios (57% for large models)</li>
+  <li><strong>Model scaling</strong> predictably shifts optimization priorities from vocabulary to feed forward efficiency</li>
+  <li><strong>Long context</strong> fundamentally changes the game, making attention the primary bottleneck</li>
+  <li><strong>Memory requirements</strong> often exceed computational requirements for optimization</li>
+</ol>
+
+<p>Understanding these patterns isn’t just academic—it directly informs optimization strategies, hardware requirements, and research directions. As we push toward even larger models and longer contexts, these computational realities will increasingly determine what’s possible and what’s practical in the world of large language models.</p>
+
+  </div><a class="u-url" href="/cs336/2025/09/28/cs336-understand-computation-cost-of-transformer-model.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col">
+        <p class="feed-subscribe">
+          <a href="http://localhost:4000/feed.xml">
+            <svg class="svg-icon orange">
+              <use xlink:href="/assets/minima-social-icons.svg#rss"></use>
+            </svg><span>Subscribe</span>
+          </a>
+        </p>
+      </div>
+      <div class="footer-col">
+        <p>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</p>
+      </div>
+    </div>
+
+    <div class="social-links"><ul class="social-media-list"></ul>
+</div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>
