@@ -1,5 +1,837 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-10-05T15:18:59-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
-</subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [8]</title><link href="http://localhost:4000/cs336/2025/10/05/cs336-training-a-transformer-lm-part-1.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [8]" /><published>2025-10-05T00:00:00-07:00</published><updated>2025-10-05T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/10/05/cs336-training-a-transformer-lm-part-1</id><content type="html" xml:base="http://localhost:4000/cs336/2025/10/05/cs336-training-a-transformer-lm-part-1.html"><![CDATA[<h2 id="planning-llm-training-cross-entropy-loss-optimizers-memory-and-computational-cost-and-other-practical-levers">Planning LLM Training: Cross-Entropy Loss, Optimizers, Memory and Computational Cost, and other practical levers</h2>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-10-19T21:45:42-07:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [9]</title><link href="http://localhost:4000/cs336/2025/10/19/cs336-implement-softmax-log_softmax-cross_entropy.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [9]" /><published>2025-10-19T00:00:00-07:00</published><updated>2025-10-19T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/10/19/cs336-implement-softmax-log_softmax-cross_entropy</id><content type="html" xml:base="http://localhost:4000/cs336/2025/10/19/cs336-implement-softmax-log_softmax-cross_entropy.html"><![CDATA[<h2 id="understanding-softmax-log-softmax-and-cross-entropy-a-complete-implementation-guide">Understanding Softmax, Log-Softmax, and Cross-Entropy: A Complete Implementation Guide</h2>
+<p>This note explains how to implement <code class="language-plaintext highlighter-rouge">Softmax</code>, <code class="language-plaintext highlighter-rouge">Log-Softmax</code>, and <code class="language-plaintext highlighter-rouge">Cross-Entropy</code> from scratch in PyTorch, highlighting key mathematical tricks to ensure numerical stability. It shows why subtracting the maximum logit before exponentiation prevents <strong>overflow</strong> and <strong>underflow</strong>, and walks through essential PyTorch tensor operations—<code class="language-plaintext highlighter-rouge">dim</code>, <code class="language-plaintext highlighter-rouge">keepdim</code>, <code class="language-plaintext highlighter-rouge">view</code>, and <code class="language-plaintext highlighter-rouge">reshape</code>—that are critical for implementing machine learning algorithms efficiently.</p>
+
+<h3 id="table-of-contents">Table of Contents</h3>
+<ol>
+  <li><a href="#numerical-stability-deep-dive">Numerical Stability Deep Dive</a></li>
+  <li><a href="#pytorch-fundamentals">PyTorch Fundamentals: <code class="language-plaintext highlighter-rouge">dim</code>, <code class="language-plaintext highlighter-rouge">keepdim</code>, and <code class="language-plaintext highlighter-rouge">view</code></a></li>
+  <li><a href="#the-implementation">The Implementation</a></li>
+  <li><a href="#detailed-explanation">Detailed Explanation of the Implementation</a></li>
+</ol>
+
+<hr />
+
+<h3 id="numerical-stability-deep-dive">Numerical Stability Deep Dive</h3>
+
+<p>Before diving into the implementation, it’s crucial to understand why numerical stability matters. When implementing operations like softmax and cross-entropy, we must carefully handle potential <strong>overflow</strong> and <strong>underflow</strong> issues. Let’s explore these challenges and their solutions.</p>
+
+<h4 id="why-we-subtract-the-maximum-preventing-overflow-and-underflow">Why We Subtract the Maximum: Preventing Overflow and Underflow</h4>
+
+<p>When implementing softmax from scratch, you’ll encounter a critical numerical stability trick: subtracting the maximum value before computing exponentials. Let’s explore why this matters with concrete examples.</p>
+
+<h4 id="the-problem-exponential-overflow">The Problem: Exponential Overflow</h4>
+
+<p>The softmax formula is:</p>
+
+<p>$\text{softmax}(x_i) = \frac{e^{x_i}}{\sum_{j} e^{x_j}}$</p>
+
+<h5 id="example-1-large-numbers-cause-overflow">Example 1: Large Numbers Cause Overflow</h5>
+
+<p>Suppose you have logits: <code class="language-plaintext highlighter-rouge">[1000, 1001, 1002]</code></p>
+
+<p><strong>Naive approach (without subtracting max):</strong></p>
+
+<p>$e^{1000} \approx 2 \times 10^{434}$,
+$e^{1001} \approx 5 \times 10^{434}$,
+$e^{1002} \approx 1.4 \times 10^{435}$</p>
+
+<p>These numbers are astronomically large and exceed what a computer can represent (approximately $10^{308}$ for 64-bit floats). Python/PyTorch returns <code class="language-plaintext highlighter-rouge">inf</code> (infinity), leading to:</p>
+
+<p><strong>Result:</strong> <code class="language-plaintext highlighter-rouge">[inf, inf, inf]</code> → Division gives <code class="language-plaintext highlighter-rouge">[nan, nan, nan]</code> ❌</p>
+
+<p><strong>Demonstration in PyTorch:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="n">logits</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1000.0</span><span class="p">,</span> <span class="mf">1001.0</span><span class="p">,</span> <span class="mf">1002.0</span><span class="p">])</span>
+
+<span class="c1"># Naive implementation (broken!)
+</span><span class="n">exp_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">exp</span><span class="p">(</span><span class="n">logits</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s">"Exponentials:"</span><span class="p">,</span> <span class="n">exp_vals</span><span class="p">)</span>
+<span class="c1"># Output: tensor([inf, inf, inf])
+</span>
+<span class="n">sum_exp</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">exp_vals</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s">"Sum:"</span><span class="p">,</span> <span class="n">sum_exp</span><span class="p">)</span>
+<span class="c1"># Output: tensor(inf)
+</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">exp_vals</span> <span class="o">/</span> <span class="n">sum_exp</span>
+<span class="k">print</span><span class="p">(</span><span class="s">"Result:"</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
+<span class="c1"># Output: tensor([nan, nan, nan])  ← BROKEN!
+</span></code></pre></div></div>
+
+<h5 id="example-2-with-numerical-stability-trick">Example 2: With Numerical Stability Trick</h5>
+
+<p>Same logits: <code class="language-plaintext highlighter-rouge">[1000, 1001, 1002]</code></p>
+
+<p><strong>Step 1:</strong> Subtract the maximum value (1002):</p>
+
+<p>$[1000, 1001, 1002] - 1002 = [-2, -1, 0]$</p>
+
+<p><strong>Step 2:</strong> Compute exponentials on the stable values:</p>
+
+<p>$e^{-2} \approx 0.135$,
+$e^{-1} \approx 0.368$,
+$e^{0} = 1.0$</p>
+
+<p>These are manageable numbers with no overflow!</p>
+
+<p><strong>Step 3:</strong> Normalize to get probabilities:</p>
+
+<p>$\text{sum} = 0.135 + 0.368 + 1.0 = 1.503$</p>
+
+<p>$\text{softmax} = \left[\frac{0.135}{1.503}, \frac{0.368}{1.503}, \frac{1.0}{1.503}\right] = [0.090, 0.245, 0.665]$</p>
+
+<p><strong>Demonstration in PyTorch:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="n">logits</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1000.0</span><span class="p">,</span> <span class="mf">1001.0</span><span class="p">,</span> <span class="mf">1002.0</span><span class="p">])</span>
+
+<span class="c1"># Stable implementation
+</span><span class="n">max_val</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">max</span><span class="p">(</span><span class="n">logits</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s">"Max value:"</span><span class="p">,</span> <span class="n">max_val</span><span class="p">)</span>
+<span class="c1"># Output: tensor(1002.)
+</span>
+<span class="n">logits_stable</span> <span class="o">=</span> <span class="n">logits</span> <span class="o">-</span> <span class="n">max_val</span>
+<span class="k">print</span><span class="p">(</span><span class="s">"Stabilized logits:"</span><span class="p">,</span> <span class="n">logits_stable</span><span class="p">)</span>
+<span class="c1"># Output: tensor([-2., -1.,  0.])
+</span>
+<span class="n">exp_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">exp</span><span class="p">(</span><span class="n">logits_stable</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s">"Exponentials:"</span><span class="p">,</span> <span class="n">exp_vals</span><span class="p">)</span>
+<span class="c1"># Output: tensor([0.1353, 0.3679, 1.0000])
+</span>
+<span class="n">sum_exp</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">exp_vals</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s">"Sum:"</span><span class="p">,</span> <span class="n">sum_exp</span><span class="p">)</span>
+<span class="c1"># Output: tensor(1.5032)
+</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">exp_vals</span> <span class="o">/</span> <span class="n">sum_exp</span>
+<span class="k">print</span><span class="p">(</span><span class="s">"Result:"</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
+<span class="c1"># Output: tensor([0.0900, 0.2447, 0.6652])  ← WORKS!
+</span>
+<span class="c1"># Verify probabilities sum to 1
+</span><span class="k">print</span><span class="p">(</span><span class="s">"Sum of probabilities:"</span><span class="p">,</span> <span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">result</span><span class="p">))</span>
+<span class="c1"># Output: tensor(1.0000)
+</span></code></pre></div></div>
+<h4 id="mathematical-proof-why-this-works">Mathematical Proof: Why This Works</h4>
+
+<p>The stability trick is mathematically sound because:</p>
+
+<p>$\text{softmax}(x) = \text{softmax}(x - c)$</p>
+
+<p>for any constant $c$!</p>
+
+<p><strong>Proof:</strong></p>
+
+<p>$\frac{e^{x_i - c}}{\sum_{j} e^{x_j - c}} = \frac{e^{x_i} \cdot e^{-c}}{\sum_{j} e^{x_j} \cdot e^{-c}} = \frac{e^{x_i} \cdot e^{-c}}{e^{-c} \cdot \sum_{j} e^{x_j}} = \frac{e^{x_i}}{\sum_{j} e^{x_j}}$</p>
+
+<p>The $e^{-c}$ terms cancel out! By choosing $c = \max(x)$, we ensure the largest exponent becomes 0, preventing overflow while maintaining mathematical correctness.</p>
+
+<h4 id="the-underflow-problem">The Underflow Problem</h4>
+
+<p>There’s also a potential underflow issue with very negative numbers:</p>
+
+<p>$e^{-1000} \approx 0$</p>
+
+<p>This underflows to zero in floating-point arithmetic. However, by subtracting the maximum, the largest value becomes 0 ($e^0 = 1$), and only smaller values might underflow. This is acceptable because extremely small exponentials contribute negligibly to the sum anyway.</p>
+
+<p><strong>Demonstration:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="c1"># Very negative logits
+</span><span class="n">logits</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([</span><span class="o">-</span><span class="mf">1000.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">999.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">998.0</span><span class="p">])</span>
+
+<span class="c1"># Without stability trick
+</span><span class="n">exp_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">exp</span><span class="p">(</span><span class="n">logits</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s">"Exponentials:"</span><span class="p">,</span> <span class="n">exp_vals</span><span class="p">)</span>
+<span class="c1"># Output: tensor([0., 0., 0.])  ← All underflow!
+</span>
+<span class="c1"># With stability trick
+</span><span class="n">max_val</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">max</span><span class="p">(</span><span class="n">logits</span><span class="p">)</span>
+<span class="n">logits_stable</span> <span class="o">=</span> <span class="n">logits</span> <span class="o">-</span> <span class="n">max_val</span>
+<span class="n">exp_vals_stable</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">exp</span><span class="p">(</span><span class="n">logits_stable</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s">"Stable exponentials:"</span><span class="p">,</span> <span class="n">exp_vals_stable</span><span class="p">)</span>
+<span class="c1"># Output: tensor([0.1353, 0.3679, 1.0000])  ← Works perfectly!
+</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">exp_vals_stable</span> <span class="o">/</span> <span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">exp_vals_stable</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s">"Result:"</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
+<span class="c1"># Output: tensor([0.0900, 0.2447, 0.6652])
+</span></code></pre></div></div>
+<h4 id="why-this-matters-in-deep-learning">Why This Matters in Deep Learning</h4>
+
+<p>In deep learning, logits frequently reach magnitudes of hundreds or thousands, especially in:</p>
+
+<ul>
+  <li><strong>Language models</strong> with large vocabulary sizes (tens of thousands of classes)</li>
+  <li><strong>Deep networks</strong> where activations accumulate through many layers</li>
+  <li><strong>Unnormalized outputs</strong> before the final softmax layer</li>
+  <li><strong>Training dynamics</strong> where gradients can push logits to extreme values</li>
+</ul>
+
+<p>Without the stability trick, your model would crash with <code class="language-plaintext highlighter-rouge">nan</code> values during training or inference, making it impossible to:</p>
+<ul>
+  <li>Train the model (gradients become <code class="language-plaintext highlighter-rouge">nan</code>)</li>
+  <li>Make predictions (outputs become <code class="language-plaintext highlighter-rouge">nan</code>)</li>
+  <li>Debug issues (everything breaks catastrophically)</li>
+</ul>
+
+<p>This simple technique—subtracting the maximum—keeps all exponentials in a safe computational range (approximately 0 to 1) while computing the exact same mathematical result.</p>
+
+<p><strong>Real-world example from GPT-2:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Typical logits from a language model
+</span><span class="n">logits</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">50257</span><span class="p">)</span> <span class="o">*</span> <span class="mi">10</span>  <span class="c1"># vocab_size = 50,257
+</span><span class="k">print</span><span class="p">(</span><span class="s">"Logit range:"</span><span class="p">,</span> <span class="n">logits</span><span class="p">.</span><span class="nb">min</span><span class="p">().</span><span class="n">item</span><span class="p">(),</span> <span class="s">"to"</span><span class="p">,</span> <span class="n">logits</span><span class="p">.</span><span class="nb">max</span><span class="p">().</span><span class="n">item</span><span class="p">())</span>
+<span class="c1"># Output: Logit range: -28.3 to 31.7
+</span>
+<span class="c1"># Without stability trick (would overflow!)
+# With stability trick (works perfectly)
+</span><span class="n">probs</span> <span class="o">=</span> <span class="n">softmax</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s">"Probability range:"</span><span class="p">,</span> <span class="n">probs</span><span class="p">.</span><span class="nb">min</span><span class="p">().</span><span class="n">item</span><span class="p">(),</span> <span class="s">"to"</span><span class="p">,</span> <span class="n">probs</span><span class="p">.</span><span class="nb">max</span><span class="p">().</span><span class="n">item</span><span class="p">())</span>
+<span class="c1"># Output: Probability range: 1.2e-27 to 0.0043
+</span><span class="k">print</span><span class="p">(</span><span class="s">"Sum:"</span><span class="p">,</span> <span class="n">probs</span><span class="p">.</span><span class="nb">sum</span><span class="p">().</span><span class="n">item</span><span class="p">())</span>
+<span class="c1"># Output: Sum: 1.0
+</span></code></pre></div></div>
+<hr />
+
+<h3 id="pytorch-fundamentals">PyTorch Fundamentals: <code class="language-plaintext highlighter-rouge">dim</code>, <code class="language-plaintext highlighter-rouge">keepdim</code>, and <code class="language-plaintext highlighter-rouge">view</code></h3>
+
+<p>Now that we understand the importance of numerical stability, we need to master the essential PyTorch operations that enable us to implement these stable operations efficiently. Before diving into the implementation details, it is important to understand the three fundamental PyTorch operations on tensors.</p>
+
+<h4 id="1-understanding-dim-dimensionaxis">1. Understanding <code class="language-plaintext highlighter-rouge">dim</code> (Dimension/Axis)</h4>
+
+<p>In PyTorch, tensors can have multiple dimensions. The <code class="language-plaintext highlighter-rouge">dim</code> parameter specifies <strong>which dimension</strong> to operate along.</p>
+
+<h5 id="dimension-indexing">Dimension Indexing</h5>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="c1"># A 2D tensor (matrix)
+</span><span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span>
+                  <span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">6</span><span class="p">]])</span>
+
+<span class="k">print</span><span class="p">(</span><span class="n">x</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([2, 3])
+# dim=0 → rows (size 2)
+# dim=1 → columns (size 3)
+</span></code></pre></div></div>
+
+<p><strong>Visual representation:</strong></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>        dim=1 →
+       [1, 2, 3]
+dim=0  [4, 5, 6]
+  ↓
+</code></pre></div></div>
+
+<h5 id="operations-along-different-dimensions">Operations Along Different Dimensions</h5>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Sum along dim=0 (collapse rows, keep columns)
+</span><span class="n">result_dim0</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">result_dim0</span><span class="p">)</span>  <span class="c1"># tensor([5, 7, 9])
+# Adds: [1+4, 2+5, 3+6]
+</span>
+<span class="c1"># Sum along dim=1 (collapse columns, keep rows)
+</span><span class="n">result_dim1</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">result_dim1</span><span class="p">)</span>  <span class="c1"># tensor([6, 15])
+# Adds: [1+2+3, 4+5+6]
+</span></code></pre></div></div>
+
+<p><strong>Visual:</strong></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Original:          Sum along dim=0:             Sum along dim=1:
+[1, 2, 3]          [5, 7, 9]                    [6, 15]
+[4, 5, 6]                                       
+</code></pre></div></div>
+
+<h5 id="3d-tensor-example">3D Tensor Example</h5>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Shape: [2, 3, 4] means 2 "matrices" of size 3x4
+</span><span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+
+<span class="k">print</span><span class="p">(</span><span class="n">x</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([2, 3, 4])
+# dim=0 → first dimension (size 2)
+# dim=1 → second dimension (size 3)
+# dim=2 → third dimension (size 4)
+# dim=-1 → last dimension (same as dim=2)
+# dim=-2 → second to last (same as dim=1)
+</span></code></pre></div></div>
+
+<p><strong>Negative indexing:</strong></p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">dim=-1</code> always refers to the <strong>last dimension</strong></li>
+  <li><code class="language-plaintext highlighter-rouge">dim=-2</code> refers to the <strong>second to last</strong>, etc.</li>
+</ul>
+
+<h4 id="2-understanding-keepdimtrue">2. Understanding <code class="language-plaintext highlighter-rouge">keepdim=True</code></h4>
+
+<p><code class="language-plaintext highlighter-rouge">keepdim</code> controls whether the reduced dimension is <strong>kept</strong> or <strong>removed</strong> after an operation.</p>
+
+<h5 id="example-keepdimfalse-default">Example: <code class="language-plaintext highlighter-rouge">keepdim=False</code> (default)</h5>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span>
+                  <span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">6</span><span class="p">]])</span>
+
+<span class="k">print</span><span class="p">(</span><span class="n">x</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([2, 3])
+</span>
+<span class="c1"># Sum along dim=1 WITHOUT keepdim
+</span><span class="n">result</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>        <span class="c1"># tensor([6, 15])
+</span><span class="k">print</span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([2])  ← dimension collapsed!
+</span></code></pre></div></div>
+
+<p>The dimension is <strong>removed</strong>, so shape goes from <code class="language-plaintext highlighter-rouge">[2, 3]</code> → <code class="language-plaintext highlighter-rouge">[2]</code></p>
+
+<h5 id="example-keepdimtrue">Example: <code class="language-plaintext highlighter-rouge">keepdim=True</code></h5>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span>
+                  <span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">6</span><span class="p">]])</span>
+
+<span class="k">print</span><span class="p">(</span><span class="n">x</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([2, 3])
+</span>
+<span class="c1"># Sum along dim=1 WITH keepdim
+</span><span class="n">result</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>        <span class="c1"># tensor([[6], [15]])
+</span><span class="k">print</span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([2, 1])  ← dimension kept!
+</span></code></pre></div></div>
+
+<p>The dimension is <strong>preserved</strong> (but size becomes 1), so shape goes from <code class="language-plaintext highlighter-rouge">[2, 3]</code> → <code class="language-plaintext highlighter-rouge">[2, 1]</code></p>
+
+<h5 id="why-keepdimtrue-matters-broadcasting">Why <code class="language-plaintext highlighter-rouge">keepdim=True</code> Matters: Broadcasting</h5>
+
+<p><code class="language-plaintext highlighter-rouge">keepdim=True</code> is crucial for <strong>broadcasting</strong> operations:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">],</span>
+                  <span class="p">[</span><span class="mf">4.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">]])</span>
+
+<span class="c1"># Without keepdim
+</span><span class="n">mean_no_keep</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">mean</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">mean_no_keep</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([2])
+</span>
+<span class="c1"># This will fail! Shapes don't match for broadcasting
+# x - mean_no_keep  # Error!
+</span>
+<span class="c1"># With keepdim
+</span><span class="n">mean_keep</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">mean</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">mean_keep</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([2, 1])
+</span>
+<span class="c1"># This works! Broadcasting happens correctly
+</span><span class="n">normalized</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">mean_keep</span>
+<span class="k">print</span><span class="p">(</span><span class="n">normalized</span><span class="p">)</span>
+<span class="c1"># tensor([[-1., 0., 1.],
+#         [-1., 0., 1.]])
+</span></code></pre></div></div>
+
+<p><strong>Visual explanation:</strong></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Original x:        mean (keepdim=True):    Broadcasting x - mean:
+[1, 2, 3]          [2]                     [1, 2, 3]   [2]
+[4, 5, 6]          [5]                     [4, 5, 6] - [5]
+                                                        ↓
+Shape [2, 3]       Shape [2, 1]            [1-2, 2-2, 3-2]
+                                           [4-5, 5-5, 6-5]
+                                            = [[-1, 0, 1],
+                                               [-1, 0, 1]]
+</code></pre></div></div>
+
+<h5 id="more-examples-with-different-operations">More Examples with Different Operations</h5>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([[[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span>
+                   <span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">]],</span>
+                  <span class="p">[[</span><span class="mi">5</span><span class="p">,</span> <span class="mi">6</span><span class="p">],</span>
+                   <span class="p">[</span><span class="mi">7</span><span class="p">,</span> <span class="mi">8</span><span class="p">]]])</span>
+<span class="k">print</span><span class="p">(</span><span class="n">x</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([2, 2, 2])
+# x is a stack of two [2,2] tensors:
+# Tensor #0:
+# [[1, 2],
+#  [3, 4]]
+</span>
+<span class="c1"># Tensor #1:
+# [[5, 6],
+#  [7, 8]]
+</span>
+<span class="c1"># Max along dim=0, we're taking the max across the first dimension (dim=0), meaning we compare corresponding elements between the two [2,2] matrices
+# [[max(1,5), max(2,6)],
+#  [max(3,7), max(4,8)]]
+# That gives
+# [[5, 6],
+#  [7, 8]]
+</span>
+<span class="n">max_vals_no_keep</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">max</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">False</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+<span class="k">print</span><span class="p">(</span><span class="n">max_vals_no_keep</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([2, 2])
+</span>
+<span class="n">max_vals_keep</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">max</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+<span class="k">print</span><span class="p">(</span><span class="n">max_vals_keep</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([1, 2, 2])
+</span></code></pre></div></div>
+
+<h4 id="3-understanding-view---reshaping-tensors">3. Understanding <code class="language-plaintext highlighter-rouge">view()</code> - Reshaping Tensors</h4>
+
+<p><code class="language-plaintext highlighter-rouge">view()</code> reshapes a tensor <strong>without changing its data</strong> : which means that the underlying values stored in memory stay exactly the same — PyTorch just interprets that same block of memory in a different shape.</p>
+<h5 id="basic-reshaping">Basic Reshaping</h5>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">6</span><span class="p">])</span>
+<span class="k">print</span><span class="p">(</span><span class="n">x</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([6])
+</span>
+<span class="c1"># Reshape to 2x3
+</span><span class="n">x_2d</span> <span class="o">=</span> <span class="n">x</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">x_2d</span><span class="p">)</span>
+<span class="c1"># tensor([[1, 2, 3],
+#         [4, 5, 6]])
+</span><span class="k">print</span><span class="p">(</span><span class="n">x_2d</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([2, 3])
+</span>
+<span class="c1"># Reshape to 3x2
+</span><span class="n">x_3d</span> <span class="o">=</span> <span class="n">x</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">x_3d</span><span class="p">)</span>
+<span class="c1"># tensor([[1, 2],
+#         [3, 4],
+#         [5, 6]])
+</span></code></pre></div></div>
+
+<p><strong>Important:</strong> The <strong>total number of elements must remain the same</strong>!</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">6</span><span class="p">)</span>
+<span class="n">x</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>  <span class="c1"># ✓ Works: 6 = 2 × 3
+</span><span class="n">x</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>  <span class="c1"># ✓ Works: 6 = 3 × 2
+</span><span class="n">x</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>  <span class="c1"># ✓ Works: 6 = 1 × 6
+# x.view(2, 2)  # ✗ Error: 6 ≠ 2 × 2
+</span></code></pre></div></div>
+
+<h5 id="using--1-for-automatic-dimension-inference">Using <code class="language-plaintext highlighter-rouge">-1</code> for Automatic Dimension Inference</h5>
+
+<p>You can use <code class="language-plaintext highlighter-rouge">-1</code> to let PyTorch <strong>automatically calculate</strong> one dimension:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">12</span><span class="p">)</span>
+
+<span class="c1"># -1 means "figure out this dimension automatically"
+</span><span class="n">x</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>   <span class="c1"># torch.Size([3, 4]) - PyTorch calculates 12/3 = 4
+</span><span class="n">x</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>   <span class="c1"># torch.Size([2, 6]) - PyTorch calculates 12/6 = 2
+</span><span class="n">x</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>   <span class="c1"># torch.Size([12, 1])
+</span><span class="n">x</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>      <span class="c1"># torch.Size([12]) - flattens to 1D
+</span></code></pre></div></div>
+
+<p><strong>Rule:</strong> You can only use <code class="language-plaintext highlighter-rouge">-1</code> for <strong>one dimension</strong> at a time.</p>
+
+<h5 id="flattening-tensors">Flattening Tensors</h5>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Common pattern: flatten all dimensions
+</span><span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>  <span class="c1"># Shape: [2, 3, 4]
+</span><span class="k">print</span><span class="p">(</span><span class="n">x</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([2, 3, 4])
+</span>
+<span class="c1"># Flatten to 1D
+</span><span class="n">x_flat</span> <span class="o">=</span> <span class="n">x</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">x_flat</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([24])  (2*3*4 = 24)
+</span>
+<span class="c1"># Flatten batch dimensions but keep last dimension
+</span><span class="n">x_partial_flat</span> <span class="o">=</span> <span class="n">x</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">x_partial_flat</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([6, 4])  (2*3 = 6)
+</span></code></pre></div></div>
+
+<h5 id="practical-example-batch-processing">Practical Example: Batch Processing</h5>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Batch of images: [batch_size, height, width, channels]
+</span><span class="n">images</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">images</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([32, 28, 28, 3])
+</span>
+<span class="c1"># Flatten each image for a fully connected layer
+# Keep batch dimension, flatten the rest
+</span><span class="n">images_flat</span> <span class="o">=</span> <span class="n">images</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">images_flat</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([32, 2352])  (28*28*3 = 2352)
+</span>
+<span class="c1"># Or equivalently:
+</span><span class="n">images_flat</span> <span class="o">=</span> <span class="n">images</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="n">images</span><span class="p">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">images_flat</span><span class="p">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># torch.Size([32, 2352])
+</span></code></pre></div></div>
+
+<h5 id="view-vs-reshape"><code class="language-plaintext highlighter-rouge">view()</code> vs <code class="language-plaintext highlighter-rouge">reshape()</code></h5>
+
+<p>PyTorch has both <code class="language-plaintext highlighter-rouge">view()</code> and <code class="language-plaintext highlighter-rouge">reshape()</code>:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+
+<span class="c1"># view() - requires contiguous memory
+</span><span class="n">y</span> <span class="o">=</span> <span class="n">x</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="mi">6</span><span class="p">)</span>
+
+<span class="c1"># reshape() - works even if not contiguous (may copy data)
+</span><span class="n">z</span> <span class="o">=</span> <span class="n">x</span><span class="p">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">6</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Key difference:</strong></p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">view()</code>: Only works if tensor is <strong>contiguous in memory</strong>, otherwise raises error</li>
+  <li><code class="language-plaintext highlighter-rouge">reshape()</code> is more flexible:
+    <ul>
+      <li>If the tensor is contiguous, it behaves like .view() (no copy).</li>
+      <li>If it isn’t contiguous, it will make a copy behind the scenes to ensure the new tensor has contiguous memory. That’s why <code class="language-plaintext highlighter-rouge">reshape()</code> is safer, but sometimes slightly slower (copying costs time &amp; memory).</li>
+    </ul>
+  </li>
+</ul>
+
+<h4 id="quick-reference-summary">Quick Reference Summary</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>What it does</th>
+      <th>Example</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">dim=0</code></td>
+      <td>Operate along first dimension</td>
+      <td><code class="language-plaintext highlighter-rouge">torch.sum(x, dim=0)</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">dim=-1</code></td>
+      <td>Operate along last dimension</td>
+      <td><code class="language-plaintext highlighter-rouge">torch.max(x, dim=-1)</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">keepdim=True</code></td>
+      <td>Keep dimension (size→1)</td>
+      <td>Shape <code class="language-plaintext highlighter-rouge">[2,3]</code> → <code class="language-plaintext highlighter-rouge">[2,1]</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">keepdim=False</code></td>
+      <td>Remove dimension</td>
+      <td>Shape <code class="language-plaintext highlighter-rouge">[2,3]</code> → <code class="language-plaintext highlighter-rouge">[2]</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">view(a, b)</code></td>
+      <td>Change the view of the data to <code class="language-plaintext highlighter-rouge">[a, b]</code></td>
+      <td><code class="language-plaintext highlighter-rouge">x.view(2, 3)</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">view(-1)</code></td>
+      <td>Flatten to 1D</td>
+      <td>Shape <code class="language-plaintext highlighter-rouge">[2,3]</code> → <code class="language-plaintext highlighter-rouge">[6]</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">view(-1, n)</code></td>
+      <td>Auto calculate first dim given <code class="language-plaintext highlighter-rouge">n</code></td>
+      <td><code class="language-plaintext highlighter-rouge">x.view(-1, 4)</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h3 id="the-implementation">The Implementation</h3>
+
+<p>With a solid understanding of numerical stability concerns and the fundamental PyTorch operations, we’re now ready to see how these concepts come together in a complete implementation. Below is a sample code snippet showing the complete implementation.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="k">def</span> <span class="nf">softmax</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="s">"""
+    Apply the softmax operation to a tensor along the specified dimension.
+
+    Uses the numerical stability trick of subtracting the maximum value
+    from all elements before applying exponential.
+
+    Args:
+        x: torch.Tensor - Input tensor
+        dim: int - Dimension along which to apply softmax
+
+    Returns:
+        torch.Tensor - Output tensor with same shape as input, with normalized
+                      probability distribution along the specified dimension
+    """</span>
+    <span class="c1"># Subtract maximum for numerical stability
+</span>    <span class="c1"># keepdim=True ensures the shape is preserved for broadcasting
+</span>    <span class="n">max_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">max</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">x_stable</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">max_vals</span>
+
+    <span class="c1"># Apply exponential
+</span>    <span class="n">exp_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">exp</span><span class="p">(</span><span class="n">x_stable</span><span class="p">)</span>
+
+    <span class="c1"># Compute sum along the specified dimension
+</span>    <span class="n">sum_exp</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">exp_vals</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+    <span class="c1"># Normalize to get probabilities
+</span>    <span class="k">return</span> <span class="n">exp_vals</span> <span class="o">/</span> <span class="n">sum_exp</span>
+
+
+<span class="k">def</span> <span class="nf">log_softmax</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="s">"""
+    Apply the log-softmax operation to a tensor along the specified dimension.
+
+    log_softmax(x) = log(softmax(x)) = x - log(sum(exp(x)))
+
+    This is more numerically stable than computing log(softmax(x)) separately
+    because it cancels the exp and log operations.
+
+    Args:
+        x: torch.Tensor - Input tensor
+        dim: int - Dimension along which to apply log-softmax
+
+    Returns:
+        torch.Tensor - Output tensor with same shape as input, containing
+                      log probabilities along the specified dimension
+    """</span>
+    <span class="c1"># Subtract maximum for numerical stability
+</span>    <span class="n">max_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">max</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">x_stable</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">max_vals</span>
+
+    <span class="c1"># Compute log(sum(exp(x_stable)))
+</span>    <span class="n">log_sum_exp</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">log</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">exp</span><span class="p">(</span><span class="n">x_stable</span><span class="p">),</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">))</span>
+
+    <span class="c1"># log_softmax = x_stable - log(sum(exp(x_stable)))
+</span>    <span class="k">return</span> <span class="n">x_stable</span> <span class="o">-</span> <span class="n">log_sum_exp</span>
+
+
+<span class="k">def</span> <span class="nf">cross_entropy</span><span class="p">(</span><span class="n">logits</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">targets</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="s">"""
+    Compute the cross-entropy loss given logits and targets.
+
+    The cross-entropy loss is: -log(softmax(logits)[target])
+
+    This implementation uses the log_softmax function which provides
+    numerical stability by canceling log and exp operations.
+
+    Args:
+        logits: torch.Tensor of shape (..., vocab_size) - Unnormalized logits
+        targets: torch.Tensor of shape (...,) - Target class indices
+
+    Returns:
+        torch.Tensor - Scalar tensor with average cross-entropy loss across all examples
+    """</span>
+    <span class="c1"># Compute log probabilities using log_softmax (numerically stable)
+</span>    <span class="n">log_probs</span> <span class="o">=</span> <span class="n">log_softmax</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="c1"># Get the log probability for the target class for each example
+</span>    <span class="c1"># Flatten batch dimensions to handle any number of batch dims
+</span>    <span class="n">batch_shape</span> <span class="o">=</span> <span class="n">logits</span><span class="p">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">log_probs_flat</span> <span class="o">=</span> <span class="n">log_probs</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">log_probs</span><span class="p">.</span><span class="n">size</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+    <span class="n">targets_flat</span> <span class="o">=</span> <span class="n">targets</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="n">batch_indices</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">arange</span><span class="p">(</span><span class="n">log_probs_flat</span><span class="p">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">device</span><span class="o">=</span><span class="n">logits</span><span class="p">.</span><span class="n">device</span><span class="p">)</span>
+    <span class="n">target_log_probs</span> <span class="o">=</span> <span class="n">log_probs_flat</span><span class="p">[</span><span class="n">batch_indices</span><span class="p">,</span> <span class="n">targets_flat</span><span class="p">]</span>
+
+    <span class="c1"># Reshape back to original batch shape
+</span>    <span class="n">target_log_probs</span> <span class="o">=</span> <span class="n">target_log_probs</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="n">batch_shape</span><span class="p">)</span>
+
+    <span class="c1"># Cross entropy: -log(softmax(o)[target]) = -log_prob[target]
+</span>    <span class="n">cross_entropy_loss</span> <span class="o">=</span> <span class="o">-</span><span class="n">target_log_probs</span>
+
+    <span class="c1"># Return average across all batch dimensions
+</span>    <span class="k">return</span> <span class="n">cross_entropy_loss</span><span class="p">.</span><span class="n">mean</span><span class="p">()</span>
+</code></pre></div></div>
+
+<hr />
+
+<h3 id="detailed-explanation">Detailed Explanation of the Implementation</h3>
+
+<p>Now that we’ve seen the complete implementation, let’s break down each function to understand how they work.</p>
+
+<h4 id="softmax-function">Softmax Function</h4>
+
+<p><strong>Goal:</strong> Convert raw scores (logits) into probabilities that sum to 1.</p>
+
+<p><strong>Formula:</strong> $\text{softmax}(x_i) = \frac{e^{x_i}}{\sum_{j} e^{x_j}}$</p>
+
+<p><strong>Step-by-step:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Step 1: Find maximum (for numerical stability)
+</span><span class="n">max_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">max</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+<span class="c1"># keepdim=True keeps shape [2,1] instead of [2] → enables broadcasting
+# [0] gets values (not indices)
+</span>
+<span class="c1"># Step 2: Subtract maximum
+</span><span class="n">x_stable</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">max_vals</span>
+<span class="c1"># Prevents overflow: softmax(x) = softmax(x - c) mathematically
+</span>
+<span class="c1"># Step 3: Exponentiate
+</span><span class="n">exp_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">exp</span><span class="p">(</span><span class="n">x_stable</span><span class="p">)</span>
+<span class="c1"># Apply e^x to each element
+</span>
+<span class="c1"># Step 4: Sum and normalize
+</span><span class="n">sum_exp</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">exp_vals</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+<span class="k">return</span> <span class="n">exp_vals</span> <span class="o">/</span> <span class="n">sum_exp</span>  <span class="c1"># Division broadcasts correctly
+</span></code></pre></div></div>
+
+<p><strong>Example:</strong> Input <code class="language-plaintext highlighter-rouge">[[1, 2, 3], [4, 5, 6]]</code> → Output <code class="language-plaintext highlighter-rouge">[[0.09, 0.24, 0.67], [0.09, 0.24, 0.67]]</code></p>
+
+<h4 id="log-softmax-function">Log-Softmax Function</h4>
+
+<p><strong>Goal:</strong> Compute $\log(\text{softmax}(x))$ without numerical overflow.</p>
+
+<p><strong>Formula:</strong> $\log(\text{softmax}(x_i)) = x_i - \log\left(\sum_{j} e^{x_j}\right)$</p>
+
+<p><strong>Why not just <code class="language-plaintext highlighter-rouge">log(softmax(x))</code>?</strong> Computing <code class="language-plaintext highlighter-rouge">log(exp(large_number))</code> can overflow. Log-softmax avoids this by staying in log-space.</p>
+
+<p><strong>Step-by-step:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Step 1 &amp; 2: Subtract maximum (same as softmax)
+</span><span class="n">max_vals</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="nb">max</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">x_stable</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">max_vals</span>
+
+<span class="c1"># Step 3: Compute log(sum(exp(x_stable)))
+</span><span class="n">log_sum_exp</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">log</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">exp</span><span class="p">(</span><span class="n">x_stable</span><span class="p">),</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">))</span>
+<span class="c1"># This is the log of the denominator in softmax
+</span>
+<span class="c1"># Step 4: Subtract to get log probabilities
+</span><span class="k">return</span> <span class="n">x_stable</span> <span class="o">-</span> <span class="n">log_sum_exp</span>
+</code></pre></div></div>
+
+<p><strong>Example:</strong> Input <code class="language-plaintext highlighter-rouge">[[1, 2, 3], [4, 5, 6]]</code> → Output <code class="language-plaintext highlighter-rouge">[[-2.41, -1.41, -0.41], [-2.41, -1.41, -0.41]]</code></p>
+
+<h4 id="cross-entropy-function">Cross-Entropy Function</h4>
+
+<p><strong>Goal:</strong> Measure how well predictions match the correct labels.</p>
+
+<p><strong>Formula:</strong> $\mathcal{L} = -\log(\text{softmax}(\text{logits})[\text{target}])$</p>
+
+<p><strong>Intuition:</strong> Penalize low probabilities assigned to the correct class. Lower loss = better prediction.</p>
+
+<p><strong>Step-by-step:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Step 1: Get log probabilities
+</span><span class="n">log_probs</span> <span class="o">=</span> <span class="n">log_softmax</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+<span class="c1"># Shape: [batch, seq, vocab] → [batch, seq, vocab]
+</span>
+<span class="c1"># Step 2: Save batch shape for later
+</span><span class="n">batch_shape</span> <span class="o">=</span> <span class="n">logits</span><span class="p">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>  <span class="c1"># e.g., [2, 2] for shape [2, 2, 3]
+</span>
+<span class="c1"># Step 3: Flatten to 2D for easier indexing
+</span><span class="n">log_probs_flat</span> <span class="o">=</span> <span class="n">log_probs</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">log_probs</span><span class="p">.</span><span class="n">size</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span>  <span class="c1"># [batch*seq, vocab]
+</span><span class="n">targets_flat</span> <span class="o">=</span> <span class="n">targets</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>                           <span class="c1"># [batch*seq]
+# Example: [2, 2, 3] → [4, 3] and [2, 2] → [4]
+</span>
+<span class="c1"># Step 4: Extract log prob for the correct class of each example
+</span><span class="n">batch_indices</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">arange</span><span class="p">(</span><span class="n">log_probs_flat</span><span class="p">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">device</span><span class="o">=</span><span class="n">logits</span><span class="p">.</span><span class="n">device</span><span class="p">)</span>
+<span class="n">target_log_probs</span> <span class="o">=</span> <span class="n">log_probs_flat</span><span class="p">[</span><span class="n">batch_indices</span><span class="p">,</span> <span class="n">targets_flat</span><span class="p">]</span>
+<span class="c1"># Advanced indexing: log_probs_flat[i, targets_flat[i]] for each i
+# Gets the log probability that the model assigned to the correct class
+</span>
+<span class="c1"># Step 5: Reshape back to original batch dimensions
+</span><span class="n">target_log_probs</span> <span class="o">=</span> <span class="n">target_log_probs</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="n">batch_shape</span><span class="p">)</span>
+
+<span class="c1"># Step 6: Apply negative and average
+</span><span class="n">cross_entropy_loss</span> <span class="o">=</span> <span class="o">-</span><span class="n">target_log_probs</span>
+<span class="k">return</span> <span class="n">cross_entropy_loss</span><span class="p">.</span><span class="n">mean</span><span class="p">()</span>
+</code></pre></div></div>
+
+<p><strong>Understanding Advanced Indexing (Step 4):</strong></p>
+
+<p>This is the trickiest part. Let’s break it down with a concrete example:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Suppose we have:
+</span><span class="n">log_probs_flat</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([[</span><span class="o">-</span><span class="mf">2.4</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.4</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.4</span><span class="p">],</span>  <span class="c1"># example 0: log probs for 3 classes
+</span>                               <span class="p">[</span><span class="o">-</span><span class="mf">2.4</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.4</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.4</span><span class="p">],</span>  <span class="c1"># example 1
+</span>                               <span class="p">[</span><span class="o">-</span><span class="mf">2.4</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.4</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.4</span><span class="p">],</span>  <span class="c1"># example 2
+</span>                               <span class="p">[</span><span class="o">-</span><span class="mf">1.1</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.1</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.1</span><span class="p">]])</span> <span class="c1"># example 3
+# Shape: [4, 3]
+</span>
+<span class="n">targets_flat</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>  <span class="c1"># correct class for each example
+# Shape: [4]
+</span>
+<span class="c1"># We want to extract:
+# - example 0, class 2 → log_probs_flat[0, 2] = -0.4
+# - example 1, class 1 → log_probs_flat[1, 1] = -1.4
+# - example 2, class 0 → log_probs_flat[2, 0] = -2.4
+# - example 3, class 1 → log_probs_flat[3, 1] = -1.1
+</span></code></pre></div></div>
+
+<p><strong>How advanced indexing works:</strong></p>
+
+<p>When we have <code class="language-plaintext highlighter-rouge">tensor[indices1, indices2]</code>, PyTorch pairs up elements from both index arrays:</p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">tensor[indices1[0], indices2[0]]</code></li>
+  <li><code class="language-plaintext highlighter-rouge">tensor[indices1[1], indices2[1]]</code></li>
+  <li><code class="language-plaintext highlighter-rouge">tensor[indices1[2], indices2[2]]</code></li>
+  <li>and so on…</li>
+</ul>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">batch_indices</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">])</span>  <span class="c1"># row indices
+</span><span class="n">targets_flat</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>   <span class="c1"># column indices
+</span>
+<span class="c1"># This pairing happens:
+</span><span class="n">result</span> <span class="o">=</span> <span class="n">log_probs_flat</span><span class="p">[</span><span class="n">batch_indices</span><span class="p">,</span> <span class="n">targets_flat</span><span class="p">]</span>
+<span class="c1"># → [log_probs_flat[0,2], log_probs_flat[1,1], log_probs_flat[2,0], log_probs_flat[3,1]]
+# → [-0.4, -1.4, -2.4, -1.1]
+</span></code></pre></div></div>
+
+<p><strong>Why we need <code class="language-plaintext highlighter-rouge">batch_indices</code>:</strong></p>
+
+<p>Without it, we’d just have <code class="language-plaintext highlighter-rouge">log_probs_flat[:, targets_flat]</code>, which tries to select multiple columns for ALL rows—not what we want! We need to select ONE element per row (the correct class for that specific example).</p>
+
+<p><strong>Visual representation:</strong></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>log_probs_flat:          targets_flat:         batch_indices:
+[[-2.4, -1.4, -0.4]         [2                     [0
+ [-2.4, -1.4, -0.4]          1                      1
+ [-2.4, -1.4, -0.4]          0                      2
+ [-1.1, -1.1, -1.1]]         1]                     3]
+
+Pairing: [0,2] [1,1] [2,0] [3,1]
+         ↓     ↓     ↓     ↓
+Result: [-0.4, -1.4, -2.4, -1.1]
+</code></pre></div></div>
+
+<p><strong>Summary:</strong></p>
+<ul>
+  <li>Input: <code class="language-plaintext highlighter-rouge">log_probs_flat</code> shape <code class="language-plaintext highlighter-rouge">[4, 3]</code>, <code class="language-plaintext highlighter-rouge">targets_flat = [2, 1, 0, 1]</code></li>
+  <li>Output: <code class="language-plaintext highlighter-rouge">target_log_probs</code> shape <code class="language-plaintext highlighter-rouge">[4]</code> with values <code class="language-plaintext highlighter-rouge">[-0.4, -1.4, -2.4, -1.1]</code></li>
+  <li>Each value is the log probability of the correct class for that example</li>
+</ul>
+
+<h4 id="putting-it-all-together">Putting It All Together</h4>
+
+<p>Here’s a complete workflow showing how these functions work together:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="c1"># Setup: batch=2, sequence=2, vocab=3
+</span><span class="n">logits</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([[[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">],</span>
+                        <span class="p">[</span><span class="mf">4.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">]],</span>
+                       <span class="p">[[</span><span class="mf">7.0</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">,</span> <span class="mf">9.0</span><span class="p">],</span>
+                        <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">]]])</span>
+<span class="n">targets</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span>
+                        <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]])</span>
+
+<span class="c1"># Compute loss
+</span><span class="n">loss</span> <span class="o">=</span> <span class="n">cross_entropy</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">targets</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Loss: </span><span class="si">{</span><span class="n">loss</span><span class="si">:</span><span class="p">.</span><span class="mi">3</span><span class="n">f</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>  <span class="c1"># Loss: 1.330
+</span></code></pre></div></div>
+
+<p><strong>What happens internally:</strong></p>
+<ol>
+  <li><code class="language-plaintext highlighter-rouge">log_softmax</code> converts logits to log probabilities</li>
+  <li>Flatten everything to make indexing easier</li>
+  <li>Extract log probability for each correct class</li>
+  <li>Reshape back and compute mean loss</li>
+</ol>
+
+<p><strong>Key insight:</strong> The entire pipeline is designed to compute $-\log(P(\text{correct class}))$ efficiently and stably.</p>
+
+<hr />
+
+<h3 id="key-takeaways">Key Takeaways</h3>
+
+<ol>
+  <li>
+    <p><strong>Numerical stability isn’t optional</strong>: It’s the difference between code that works and code that fails in production</p>
+  </li>
+  <li>
+    <p><strong>Always subtract the maximum</strong> before computing softmax or log-softmax</p>
+  </li>
+  <li>
+    <p><strong>Use log-softmax for cross-entropy</strong>: Computing <code class="language-plaintext highlighter-rouge">log(softmax(x))</code> separately is both slower and less stable than log-softmax</p>
+  </li>
+  <li>
+    <p><strong>The math is equivalent</strong>: These tricks don’t change the results—they just make them computable</p>
+  </li>
+  <li><strong>Modern frameworks do this automatically</strong>: PyTorch’s <code class="language-plaintext highlighter-rouge">torch.nn.functional.softmax()</code> and <code class="language-plaintext highlighter-rouge">torch.nn.functional.cross_entropy()</code>include these optimizations, but understanding them helps you:
+    <ul>
+      <li>Debug numerical issues</li>
+      <li>Implement custom loss functions</li>
+      <li>Appreciate the engineering behind deep learning libraries</li>
+    </ul>
+  </li>
+  <li><strong>Test edge cases</strong>: Always test your implementations with extreme values (very large, very small, very negative) to ensure numerical stability</li>
+</ol>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="cs336" /><summary type="html"><![CDATA[Understanding Softmax, Log-Softmax, and Cross-Entropy: A Complete Implementation Guide This note explains how to implement Softmax, Log-Softmax, and Cross-Entropy from scratch in PyTorch, highlighting key mathematical tricks to ensure numerical stability. It shows why subtracting the maximum logit before exponentiation prevents overflow and underflow, and walks through essential PyTorch tensor operations—dim, keepdim, view, and reshape—that are critical for implementing machine learning algorithms efficiently.]]></summary></entry><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [8]</title><link href="http://localhost:4000/cs336/2025/10/05/cs336-training-a-transformer-lm-part-1.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [8]" /><published>2025-10-05T00:00:00-07:00</published><updated>2025-10-05T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/10/05/cs336-training-a-transformer-lm-part-1</id><content type="html" xml:base="http://localhost:4000/cs336/2025/10/05/cs336-training-a-transformer-lm-part-1.html"><![CDATA[<h2 id="planning-llm-training-cross-entropy-loss-optimizers-memory-and-computational-cost-and-other-practical-levers">Planning LLM Training: Cross-Entropy Loss, Optimizers, Memory and Computational Cost, and other practical levers</h2>
 
 <h3 id="table-of-contents">Table of Contents</h3>
 <ol>
@@ -6322,155 +7154,4 @@ Zadie: Toodles
   </li>
 </ol>
 
-<p>I hope my insights resonate with your experience as well!</p>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="Parameter-Efficient-Fine-Tuning" /><summary type="html"><![CDATA[Introduction In today’s business landscape, we are surrounded by a wealth of opportunities to utilize advanced technology powered by AI. Think of large language models(LLMs) as versatile tools in our toolkit: we can customize them for a variety of specific downstream tasks, a process known as fine-tuning. However, a challenge arises in that each fine-tuned model typically maintains the same parameter size as the original. Therefore, managing multiple fine-tuned models requires careful consideration of factors such as accuracy performance, memory management, inference latency, and disk utilization.]]></summary></entry><entry><title type="html">Craft Your Own Kitchen Companion: Leveraging OpenAI Assistant, Image Generation, and Text-to-Speech for a Revolutionary Cooking Experience</title><link href="http://localhost:4000/chatbot/2023/11/21/assistant-api-playground.html" rel="alternate" type="text/html" title="Craft Your Own Kitchen Companion: Leveraging OpenAI Assistant, Image Generation, and Text-to-Speech for a Revolutionary Cooking Experience" /><published>2023-11-21T00:00:00-08:00</published><updated>2023-11-21T00:00:00-08:00</updated><id>http://localhost:4000/chatbot/2023/11/21/assistant-api-playground</id><content type="html" xml:base="http://localhost:4000/chatbot/2023/11/21/assistant-api-playground.html"><![CDATA[<h2 id="tldr">TL;DR</h2>
-<p><img src="/assets/picture/2023_11_21_assistant_api_playground/cropped_image.png" alt="page_cover" /></p>
-
-<p>OpenAI unveiled its <a href="https://platform.openai.com/docs/assistants/overview">Assistant API</a> during its very first developer conference-<a href="https://devday.openai.com/">OpenAI DevDay</a>. This marked a significant addition to the suite of tools and models available for building conversational AI, a domain in which I’ve been actively engaged.</p>
-
-<p>Although I have used other frameworks, tools and models to build customized Assistant in the past (check out my previous posts  <a href="https://bearbearyu1223.github.io/chatbot/2023/07/31/food-qna-on-server-llm.html">Food QnA Chatbot : Help Answer Food Related Questions from Your Own Cookbook</a> and <a href="https://bearbearyu1223.github.io/chatbot/2023/08/14/food-qna-on-device-llm.html">Build On-Device QnA with LangChain and Llama2</a>), intrigued by the new capabilities of the Assistant API, I decided to integrate it into a new project. This sample project is a refreshed demonstration of a simple Cooking Assistant, leveraging not only the Assistant API but also incorporating additional functionalities such as <a href="https://platform.openai.com/docs/guides/text-to-speech">Text-to-Speech</a> and <a href="https://platform.openai.com/docs/guides/images?context=node">Image Generation</a>, showcasing a holistic approach to building conversational AI systems with only a few lines of code.</p>
-
-<p>Get inspired by the latest from Open AI DevDay with my project on <a href="https://github.com/bearbearyu1223/assistant_api_playground"><img src="https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="GitHub" /></a>? Ready to unleash your creativity? Start building your own generative AI-powered experience today, join the forefront of AI innovation, and let us make AI for everyone!</p>
-
-<h2 id="the-crafted-product-experience">The Crafted Product Experience</h2>
-
-<ol>
-  <li><strong>Direct Communication</strong>:
-    <ul>
-      <li>Purposefully address user (in this case, it will be “Han”) directly in all correspondences, ensuring each interaction is clear and personalized.</li>
-    </ul>
-  </li>
-  <li><strong>Resource Utilization</strong>:
-    <ul>
-      <li>Utilize information solely from user’s provided cookbooks when responding to his/her inquiries, ensuring responses are relevant and accurate.</li>
-    </ul>
-  </li>
-  <li><strong>Requests for Visual Representation</strong>:
-    <ul>
-      <li><strong>Initial Acknowledgment</strong>: When user requests a visual representation of a recipe, promptly reply with: “Absolutely! A delightful visual preview of the recipe is coming up shortly. Please hold on!”</li>
-      <li><strong>Action Step</strong>: Subsequently, craft a detailed and imaginative textual prompt to aid in visualizing the specified recipe.</li>
-    </ul>
-  </li>
-  <li><strong>Recipe Responses</strong>:
-    <ul>
-      <li><strong>Introduction</strong>: Initiate responses to recipe queries with: “Here’s a recipe I discovered!”</li>
-      <li><strong>Summary Style</strong>: Summarize the recipe succinctly using bullet points for easy comprehension.</li>
-      <li><strong>Summary Length</strong>: Aim to keep the summary under 150 words to maintain brevity and focus.</li>
-    </ul>
-  </li>
-  <li><strong>Handling Limitations and Concluding Respectfully</strong>:
-    <ul>
-      <li><strong>Addressing Unavailability</strong>: If user’s questions cannot be resolved with the cookbooks at hand, or if an appropriate recipe is not available, inform the user politely about these constraints.</li>
-      <li><strong>Concluding Interactions</strong>: End conversations with respect and professionalism, ensuring a positive and courteous closure.</li>
-    </ul>
-  </li>
-</ol>
-
-<h2 id="set-up-the-development-environment">Set Up the Development Environment</h2>
-
-<p>The provided sample project on <a href="https://github.com/bearbearyu1223/assistant_api_playground">GitHub</a> acts as a prototype to illustrate the product experience described previously. Follow these steps to set up your local development environment:</p>
-
-<ol>
-  <li><strong>Clone the Sample Project</strong>: Use the following command to clone the project from GitHub:
-    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git clone https://github.com/bearbearyu1223/assistant_api_playground
-</code></pre></div>    </div>
-  </li>
-  <li><strong>Create a Virtual Environment</strong>: Navigate to the cloned project directory and create a Python virtual environment named <code class="language-plaintext highlighter-rouge">cooking_assistant</code> by executing:
-    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python3 <span class="nt">-m</span> venv cooking_assistant
-</code></pre></div>    </div>
-  </li>
-  <li><strong>Activate the Virtual Environment</strong>: Activate the newly created virtual environment with:
-    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">source </span>cooking_assistant/bin/activate
-</code></pre></div>    </div>
-  </li>
-  <li><strong>Install Required Libraries</strong>: Inside the activated virtual environment, install the required libraries using the command:
-    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>pip3 <span class="nb">install</span> <span class="nt">-r</span> requirements.txt
-</code></pre></div>    </div>
-  </li>
-  <li><strong>Set Up Environment Variables</strong>: Create a <code class="language-plaintext highlighter-rouge">.env</code> file in the project root directory. Add your OpenAI API key to the file as follows:
-    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>OPENAI_API_KEY=&lt;Your API KEY&gt;
-</code></pre></div>    </div>
-  </li>
-</ol>
-
-<h2 id="run-the-application">Run the Application</h2>
-<p>Simply add your own cookbook in PDF under the directory <code class="language-plaintext highlighter-rouge">cookbook</code>, or just play with the existing cookbook uploaded with my sample project. Engage with the project interactively by issuing food preparation and cooking queries. Initiate the application with the following command:</p>
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python main.py
-</code></pre></div></div>
-<p>To terminate the program, simply use <code class="language-plaintext highlighter-rouge">Ctrl + C</code>. Below is an example of a conversation generated by running the application.</p>
-
-<table>
-  <thead>
-    <tr>
-      <th>Turn ID</th>
-      <th>User Query</th>
-      <th>Assistant Response</th>
-      <th>TTS Playback</th>
-      <th>Notes on Tested User Query</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>0</td>
-      <td>👩🏻‍🍳: Hi there, Thanksgiving is coming! I would like to have some ideas for cooking!</td>
-      <td>🔮: Thanksgiving is a great occasion to prepare a feast. Here are some main dish ideas inspired by the contents of the “Deliciously Healthy Dinners” cookbook that could suit a Thanksgiving dinner: [Main dishes listed]</td>
-      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/06aaa9e8-9833-48a9-950e-95b8f9494c90" controls="control"></video></td>
-      <td>This query is designed to evaluate the clarity of the Assistant’s defined role and the effectiveness of its execution, specifically in tasks such as generating creative ideas for holiday cooking.</td>
-    </tr>
-    <tr>
-      <td>1</td>
-      <td>👩🏻‍🍳: How to make Cornbread-Crusted Turkey?</td>
-      <td>🔮: Here’s a recipe I found for Cornbread-Crusted Turkey from your cookbook: [Recipe details]</td>
-      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/cb672f77-e66d-46cd-bcff-7a8abb1a834c" controls="control"></video></td>
-      <td>This query seeks to assess the Assistant’s ability to accurately extract relevant information from the user’s cookbook and succinctly summarize it.</td>
-    </tr>
-    <tr>
-      <td>2</td>
-      <td>👩🏻‍🍳: Thanks, what kind of salad will pair nicely with it?</td>
-      <td>🔮: An Autumn Salad would pair nicely with Cornbread-Crusted Turkey. Here’s the recipe from your cookbook: [Recipe details]</td>
-      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/cc4b66e0-b158-419e-bd5d-98946fe21404" controls="control"></video></td>
-      <td>This query is intended to assess the Assistant’s ability to provide useful responses to related follow-up questions</td>
-    </tr>
-    <tr>
-      <td>3</td>
-      <td>👩🏻‍🍳: Can I see a visual of the autumn salad with the cornbread crusted turkey?</td>
-      <td>🔮: Absolutely! Prepare for a delightful visual preview of the recipe, coming up shortly. Please hold on!</td>
-      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/1f1765bc-206f-4eed-afa6-d860965ad25c" controls="control"></video></td>
-      <td>This query aims to evaluate the Assistant’s ability to create visualizations based on recipe information previously requested by the user.</td>
-    </tr>
-    <tr>
-      <td> </td>
-      <td> </td>
-      <td>See the visual representation generated from the Assistant via DALL-E-3 based on the textual prompt generated from GPT4: Envision a warm, inviting plate centered with a golden-brown Cornbread-Crusted Turkey fillet, its crunchy exterior hinting at the tender, juicy meat within; Next to it lies a vibrant and colorful Autumn Salad, a bed of mixed lettuce greens punctuated by the bold reds of dried cranberries and the crisp green of thinly sliced Granny Smith apples; Scattered on top are earthy, chopped walnuts and the delicate shimmer of unsalted sunflower seeds, offering both texture and taste; The salad glistens lightly, dressed in a delicate sheen of low-fat raspberry vinaigrette, complementing the robust flavors of the turkey; The plate is a harmonious blend of the heartiness of Thanksgiving and the freshness of autumn, a celebration of both comfort and zest on the palate. <img src="/assets/picture/2023_11_21_assistant_api_playground/recipe_image.png" alt="recipe_image" /></td>
-      <td> </td>
-      <td> </td>
-    </tr>
-    <tr>
-      <td>4</td>
-      <td>👩🏻‍🍳: Oh that is very nice. How many calories per serving, including the autumn salad and the cornbread crusted turkey?</td>
-      <td>🔮: The combined total calories per serving for the Autumn Salad and the Cornbread-Crusted Turkey is 395 calories.</td>
-      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/b87b3eea-786b-4557-b216-66d3acc42d9e" controls="control"></video></td>
-      <td>This query is designed to assess the Assistant’s proficiency in extracting information, applying logical reasoning, and performing basic mathematical calculations.</td>
-    </tr>
-    <tr>
-      <td>5</td>
-      <td>👩🏻‍🍳: Can you give me a breakdown of how the total calories per serving is calculated?</td>
-      <td>🔮: Certainly! Here’s the breakdown of how the total calories per serving is calculated for the combination of Autumn Salad and Cornbread-Crusted Turkey: [Calorie breakdown]</td>
-      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/03bad1bd-e575-4ba2-8958-460298c24993" controls="control"></video></td>
-      <td>More evaluations on the Assistant’s logical reasoning and mathematical skills.</td>
-    </tr>
-    <tr>
-      <td>6</td>
-      <td>👩🏻‍🍳: Nice. Can you help me create a grocery list for making the autumn salad and the cornbread crusted turkey?</td>
-      <td>🔮: Absolutely, here’s your grocery list for making the Autumn Salad and the Cornbread-Crusted Turkey: [Grocery list details]</td>
-      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/9b6b07a1-4fc0-4608-9cdb-150b87a0f387" controls="control"></video></td>
-      <td>This query aims to evaluate the Assistant’s ability to comprehend and summarize information based on its previous conversation history with the user.</td>
-    </tr>
-    <tr>
-      <td>7</td>
-      <td>👩🏻‍🍳: Thank you! Happy Thanksgiving!</td>
-      <td>🔮: You’re welcome! If you need any more help in the future, feel free to reach out. Have a wonderful Thanksgiving and enjoy your delicious meal!</td>
-      <td><video src="https://github.com/bearbearyu1223/assistant_api_playground/assets/7468124/ed240241-2220-4d36-9516-60b5104e1db1" controls="control"></video></td>
-      <td>Assess whether the Assistant can respond politely and meaningfully to the user’s casual conversation.</td>
-    </tr>
-  </tbody>
-</table>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="chatbot" /><summary type="html"><![CDATA[TL;DR]]></summary></entry></feed>
+<p>I hope my insights resonate with your experience as well!</p>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="Parameter-Efficient-Fine-Tuning" /><summary type="html"><![CDATA[Introduction In today’s business landscape, we are surrounded by a wealth of opportunities to utilize advanced technology powered by AI. Think of large language models(LLMs) as versatile tools in our toolkit: we can customize them for a variety of specific downstream tasks, a process known as fine-tuning. However, a challenge arises in that each fine-tuned model typically maintains the same parameter size as the original. Therefore, managing multiple fine-tuned models requires careful consideration of factors such as accuracy performance, memory management, inference latency, and disk utilization.]]></summary></entry></feed>
