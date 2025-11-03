@@ -1,0 +1,1697 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <link rel="shortcut icon" type="image/png" href="/assets/favicon.png">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>Study Notes: Stanford CS336 Language Modeling from Scratch [10] | 🍒 Han’s Generative AI Quest</title>
+<meta name="generator" content="Jekyll v4.3.2" />
+<meta property="og:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [10]" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Building a Complete Training Loop" />
+<meta property="og:description" content="Building a Complete Training Loop" />
+<link rel="canonical" href="http://localhost:4000/cs336/2025/11/02/cs336-building-a-complete-training-loop.html" />
+<meta property="og:url" content="http://localhost:4000/cs336/2025/11/02/cs336-building-a-complete-training-loop.html" />
+<meta property="og:site_name" content="🍒 Han’s Generative AI Quest" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2025-11-02T00:00:00-07:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [10]" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2025-11-02T00:00:00-07:00","datePublished":"2025-11-02T00:00:00-07:00","description":"Building a Complete Training Loop","headline":"Study Notes: Stanford CS336 Language Modeling from Scratch [10]","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/cs336/2025/11/02/cs336-building-a-complete-training-loop.html"},"url":"http://localhost:4000/cs336/2025/11/02/cs336-building-a-complete-training-loop.html"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/css/style.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="🍒 Han&apos;s Generative AI Quest" />
+
+<!-- MathJax Configuration -->
+<script>
+  MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']],
+      processEscapes: true,
+      processEnvironments: true
+    },
+    options: {
+      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+    }
+  };
+</script>
+
+<script type="text/javascript" id="MathJax-script" async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+</script>
+</head>
+<body><header class="site-header">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">🍒 Han&#39;s Generative AI Quest</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/about/">About</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Study Notes: Stanford CS336 Language Modeling from Scratch [10]</h1>
+    <p class="post-meta"><time class="dt-published" datetime="2025-11-02T00:00:00-07:00" itemprop="datePublished">
+        Nov 2, 2025
+      </time>• 
+          <span itemprop="author" itemscope itemtype="http://schema.org/Person">
+            <span class="p-author h-card" itemprop="name">Han Yu</span></span></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <h2 id="building-a-complete-training-loop">Building a Complete Training Loop</h2>
+
+<p>This note documents the journey of assembling all the core components such as optimizer, learning rate scheduling, data loading, checkpointing, and decoding - into a complete training pipeline for Transformer language models. We’ll explore how each piece fits together, the design decisions behind them, and the practical considerations that make the difference between research code and production systems.</p>
+
+<h3 id="table-of-contents">Table of Contents</h3>
+<ol>
+  <li><a href="#introduction">Introduction: The Big Picture</a></li>
+  <li><a href="#adamw-optimizer">The AdamW Optimizer: Decoupled Weight Decay Regularization</a></li>
+  <li><a href="#lr-scheduling">Learning Rate Scheduling: The LLaMA Approach</a></li>
+  <li><a href="#data-loading">Memory-Efficient Data Loading</a></li>
+  <li><a href="#checkpointing">Checkpoint Management</a></li>
+  <li><a href="#decoding">Decoding Strategies: From Model to Text</a></li>
+  <li><a href="#training-script">Putting It All Together: The Training Script</a></li>
+  <li><a href="#testing">Testing and Validation</a></li>
+  <li><a href="#takeaways">Key Takeaways</a></li>
+</ol>
+
+<hr />
+
+<h3 id="introduction">Introduction: The Big Picture</h3>
+
+<p>Training a large language model isn’t just about implementing a forward pass and calling <code class="language-plaintext highlighter-rouge">loss.backward()</code>. A production training pipeline requires careful orchestration of multiple components, each with its own subtleties and potential pitfalls. In this note, we’ll go through how to build a complete training pipeline from scratch, learning why each component matters and how they interact.</p>
+
+<p><strong>What we’ll build:</strong></p>
+<ul>
+  <li>An implementation of the AdamW optimizer</li>
+  <li>A cosine learning rate schedule with warmup, as used in LLaMA</li>
+  <li>Memory-mapped data loading to manage loading datasets larger than RAM</li>
+  <li>Robust checkpoint saving/loading for long training runs</li>
+  <li>Multiple decoding strategies (temperature scaling, top-p sampling)</li>
+  <li>A complete sample training script that ties everything together</li>
+</ul>
+
+<hr />
+
+<h3 id="adamw-optimizer">The AdamW Optimizer: Decoupled Weight Decay Regularization</h3>
+
+<p>The first step in building our training loop is implementing the optimizer. While PyTorch provides <code class="language-plaintext highlighter-rouge">torch.optim.AdamW</code>, understanding the exact algorithm is crucial for debugging training issues and understanding why certain hyperparameters matter.</p>
+
+<h4 id="the-algorithm">The Algorithm</h4>
+
+<p>The AdamW algorithm (from “Decoupled Weight Decay Regularization” by Loshchilov &amp; Hutter, 2019) differs from standard Adam in how it applies weight decay. Here’s Algorithm 2 from the paper:</p>
+
+<p><strong>Initialize:</strong></p>
+<ul>
+  <li>Learnable parameters: $\theta$</li>
+  <li>First moment vector: $m \leftarrow 0$ (same shape as $\theta$)</li>
+  <li>Second moment vector: $v \leftarrow 0$ (same shape as $\theta$)</li>
+</ul>
+
+<p><strong>For</strong> $t = 1, 2, \ldots, T$:</p>
+
+<ol>
+  <li>
+    <p>Sample batch of data $B_t$</p>
+  </li>
+  <li>
+    <p>Compute gradient:</p>
+
+\[g \leftarrow \nabla_\theta \ell(\theta; B_t)\]
+  </li>
+  <li>
+    <p>Update biased first moment estimate:</p>
+
+\[m \leftarrow \beta_1 m + (1 - \beta_1) g\]
+  </li>
+  <li>
+    <p>Update biased second raw moment estimate:</p>
+
+\[v \leftarrow \beta_2 v + (1 - \beta_2) g^2\]
+  </li>
+  <li>
+    <p>Compute bias-corrected learning rate:</p>
+
+\[\alpha_t \leftarrow \alpha \cdot \frac{\sqrt{1 - \beta_2^t}}{1 - \beta_1^t}\]
+  </li>
+  <li>
+    <p>Update parameters with adaptive learning rate:</p>
+
+\[\theta \leftarrow \theta - \alpha_t \frac{m}{\sqrt{v + \varepsilon}}\]
+  </li>
+  <li>
+    <p>Apply decoupled weight decay:</p>
+
+\[\theta \leftarrow \theta - \alpha \lambda \theta\]
+  </li>
+</ol>
+
+<h4 id="why-decoupled-weight-decay-matters">Why Decoupled Weight Decay Matters</h4>
+
+<p>The key innovation in AdamW is <strong>decoupling weight decay from the gradient-based update</strong>. To understand why this matters, let’s compare the two approaches:</p>
+
+<p><strong>Standard Adam with L2 Regularization:</strong></p>
+
+<p>In traditional Adam with L2 regularization, we add the weight decay term to the gradient before computing adaptive moments:</p>
+
+\[g \leftarrow \nabla_\theta \ell(\theta; B_t) + \lambda \theta\]
+
+<p>Then we proceed with the normal Adam update using this modified gradient. This means:</p>
+<ul>
+  <li>Weight decay affects the adaptive moment estimates ($m$ and $v$)</li>
+  <li>The effective weight decay depends on the adaptive learning rate</li>
+  <li>Parameters with large gradients get less regularization (due to adaptive scaling)</li>
+</ul>
+
+<p><strong>AdamW with Decoupled Weight Decay:</strong></p>
+
+<p>In AdamW, we apply weight decay <strong>after</strong> the adaptive update as a separate step:</p>
+
+\[\theta \leftarrow \theta - \alpha_t \frac{m}{\sqrt{v + \varepsilon}} - \alpha \lambda \theta\]
+
+<p>This decoupling means:</p>
+<ul>
+  <li>Weight decay is independent of gradient statistics</li>
+  <li>All parameters receive consistent regularization proportional to their magnitude</li>
+  <li>Weight decay directly shrinks parameters toward zero, regardless of gradient history</li>
+</ul>
+
+<p><strong>Why This Improves Performance:</strong></p>
+
+<ol>
+  <li>
+    <p><strong>Better generalization</strong>: Decoupled weight decay provides more consistent regularization across all parameters, leading to better generalization on downstream tasks.</p>
+  </li>
+  <li>
+    <p><strong>Works with large learning rates</strong>: In standard Adam + L2, increasing the learning rate also increases the effective regularization, creating unwanted coupling. AdamW removes this coupling.</p>
+  </li>
+  <li>
+    <p><strong>More interpretable</strong>: The weight decay hyperparameter $\lambda$ directly controls regularization strength, making it easier to tune.</p>
+  </li>
+</ol>
+
+<p><strong>Practical Impact:</strong></p>
+
+<p>For large language models, this difference is crucial. The original BERT used Adam with L2 regularization and achieved 84.4% on MNLI. Simply switching to AdamW with the same hyperparameters improved accuracy to 84.8% - a significant gain from this single algorithmic change. Similar improvements have been observed across many other deep learning tasks.</p>
+
+<h4 id="complete-implementation">Complete Implementation</h4>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">class</span> <span class="nc">AdamW</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">optim</span><span class="p">.</span><span class="n">Optimizer</span><span class="p">):</span>
+    <span class="s">"""
+    Implements AdamW optimizer following Algorithm 1 from
+    "Decoupled Weight Decay Regularization" (Loshchilov &amp; Hutter, 2019).
+    """</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">,</span> <span class="n">betas</span><span class="o">=</span><span class="p">(</span><span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.999</span><span class="p">),</span> <span class="n">eps</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">,</span> <span class="n">weight_decay</span><span class="o">=</span><span class="mf">0.0</span><span class="p">):</span>
+        <span class="n">defaults</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">,</span> <span class="n">betas</span><span class="o">=</span><span class="n">betas</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">weight_decay</span><span class="o">=</span><span class="n">weight_decay</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">defaults</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">step</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">group</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">.</span><span class="n">param_groups</span><span class="p">:</span>
+            <span class="n">beta1</span><span class="p">,</span> <span class="n">beta2</span> <span class="o">=</span> <span class="n">group</span><span class="p">[</span><span class="s">'betas'</span><span class="p">]</span>
+            <span class="n">lr</span> <span class="o">=</span> <span class="n">group</span><span class="p">[</span><span class="s">'lr'</span><span class="p">]</span>
+            <span class="n">weight_decay</span> <span class="o">=</span> <span class="n">group</span><span class="p">[</span><span class="s">'weight_decay'</span><span class="p">]</span>
+            <span class="n">eps</span> <span class="o">=</span> <span class="n">group</span><span class="p">[</span><span class="s">'eps'</span><span class="p">]</span>
+
+            <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">group</span><span class="p">[</span><span class="s">'params'</span><span class="p">]:</span>
+                <span class="k">if</span> <span class="n">p</span><span class="p">.</span><span class="n">grad</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="k">continue</span>
+
+                <span class="n">grad</span> <span class="o">=</span> <span class="n">p</span><span class="p">.</span><span class="n">grad</span><span class="p">.</span><span class="n">data</span>
+
+                <span class="n">state</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">state</span><span class="p">[</span><span class="n">p</span><span class="p">]</span>
+
+                <span class="c1"># Initialize state on first step
+</span>                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">state</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">state</span><span class="p">[</span><span class="s">'step'</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+                    <span class="n">state</span><span class="p">[</span><span class="s">'exp_avg'</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">p</span><span class="p">.</span><span class="n">data</span><span class="p">)</span>
+                    <span class="n">state</span><span class="p">[</span><span class="s">'exp_avg_sq'</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">p</span><span class="p">.</span><span class="n">data</span><span class="p">)</span>
+
+                <span class="n">exp_avg</span><span class="p">,</span> <span class="n">exp_avg_sq</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="s">'exp_avg'</span><span class="p">],</span> <span class="n">state</span><span class="p">[</span><span class="s">'exp_avg_sq'</span><span class="p">]</span>
+                <span class="n">state</span><span class="p">[</span><span class="s">'step'</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+
+                <span class="c1"># Update biased first moment: m ← β₁m + (1 - β₁)g
+</span>                <span class="n">exp_avg</span><span class="p">.</span><span class="n">mul_</span><span class="p">(</span><span class="n">beta1</span><span class="p">).</span><span class="n">add_</span><span class="p">(</span><span class="n">grad</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mi">1</span> <span class="o">-</span> <span class="n">beta1</span><span class="p">)</span>
+
+                <span class="c1"># Update biased second moment: v ← β₂v + (1 - β₂)g²
+</span>                <span class="n">exp_avg_sq</span><span class="p">.</span><span class="n">mul_</span><span class="p">(</span><span class="n">beta2</span><span class="p">).</span><span class="n">addcmul_</span><span class="p">(</span><span class="n">grad</span><span class="p">,</span> <span class="n">grad</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="mi">1</span> <span class="o">-</span> <span class="n">beta2</span><span class="p">)</span>
+
+                <span class="c1"># Compute bias correction terms
+</span>                <span class="n">bias_correction1</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">beta1</span> <span class="o">**</span> <span class="n">state</span><span class="p">[</span><span class="s">'step'</span><span class="p">]</span>
+                <span class="n">bias_correction2</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">beta2</span> <span class="o">**</span> <span class="n">state</span><span class="p">[</span><span class="s">'step'</span><span class="p">]</span>
+
+                <span class="c1"># Compute adjusted learning rate: α_t ← α √(1-(β₂)^t) / (1-(β₁)^t)
+</span>                <span class="n">alpha_t</span> <span class="o">=</span> <span class="n">lr</span> <span class="o">*</span> <span class="n">math</span><span class="p">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">bias_correction2</span><span class="p">)</span> <span class="o">/</span> <span class="n">bias_correction1</span>
+
+                <span class="c1"># Update parameters: θ ← θ - α_t m / √(v+ε)
+</span>                <span class="n">denom</span> <span class="o">=</span> <span class="n">exp_avg_sq</span><span class="p">.</span><span class="n">sqrt</span><span class="p">().</span><span class="n">add_</span><span class="p">(</span><span class="n">eps</span><span class="p">)</span>
+                <span class="n">p</span><span class="p">.</span><span class="n">addcdiv_</span><span class="p">(</span><span class="n">exp_avg</span><span class="p">,</span> <span class="n">denom</span><span class="p">,</span> <span class="n">value</span><span class="o">=-</span><span class="n">alpha_t</span><span class="p">)</span>
+
+                <span class="c1"># Apply decoupled weight decay: θ ← θ - αλθ
+</span>                <span class="k">if</span> <span class="n">weight_decay</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">p</span><span class="p">.</span><span class="n">add_</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=-</span><span class="n">lr</span> <span class="o">*</span> <span class="n">weight_decay</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Usage example:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">model</span> <span class="o">=</span> <span class="n">TransformerLM</span><span class="p">(</span><span class="n">vocab_size</span><span class="o">=</span><span class="mi">50257</span><span class="p">,</span> <span class="n">d_model</span><span class="o">=</span><span class="mi">768</span><span class="p">,</span> <span class="p">...)</span>
+<span class="n">optimizer</span> <span class="o">=</span> <span class="n">AdamW</span><span class="p">(</span><span class="n">model</span><span class="p">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">,</span> <span class="n">weight_decay</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">dataloader</span><span class="p">:</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">compute_loss</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">batch</span><span class="p">)</span>
+    <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="p">.</span><span class="n">zero_grad</span><span class="p">()</span>
+</code></pre></div></div>
+
+<hr />
+
+<h3 id="lr-scheduling">Learning Rate Scheduling: The LLaMA Approach</h3>
+
+<p>Modern large language models don’t use a fixed learning rate. Instead, they employ sophisticated schedules that warm up the learning rate at the start and gradually decay it during training. The LLaMA paper (Touvron et al., 2023) uses a three-phase cosine schedule that has become standard.</p>
+
+<h4 id="the-three-phase-schedule">The Three-Phase Schedule</h4>
+
+<p><strong>Phase 1 - Warmup</strong> ($t &lt; T_w$):</p>
+
+\[\alpha_t = \frac{t}{T_w} \cdot \alpha_{\text{max}}\]
+
+<p>Linear increase from 0 to $\alpha_{\text{max}}$ over $T_w$ steps.</p>
+
+<p><strong>Phase 2 - Cosine Annealing</strong> ($T_w \leq t \leq T_c$):</p>
+
+\[\alpha_t = \alpha_{\text{min}} + \frac{1}{2} \left(1 + \cos\left(\frac{t - T_w}{T_c - T_w} \cdot \pi\right)\right) \left(\alpha_{\text{max}} - \alpha_{\text{min}}\right)\]
+
+<p>Smooth cosine decay from $\alpha_{\text{max}}$ to $\alpha_{\text{min}}$.</p>
+
+<p><strong>Understanding the Smooth Cosine Decay:</strong></p>
+
+<p>The beauty of cosine annealing lies in its smoothness. The diagram below shows how the learning rate evolves during the cosine annealing phase:</p>
+
+<p><img src="/assets/picture/2025-11-02-cs336-building-a-complete-training-loop/cosine_decay.png" alt="Smooth Cosine Decay" width="50%" /></p>
+
+<p><em>Figure: Cosine annealing schedule showing the smooth decay of learning rate from α<sub>max</sub> to α<sub>min</sub></em></p>
+
+<p><strong>Breaking down the cosine formula:</strong></p>
+
+<p>Let’s denote $p = \frac{t - T_w}{T_c - T_w}$ as the progress through the cosine phase (where $p \in [0, 1]$).</p>
+
+<p>The formula becomes:</p>
+
+\[\alpha_t = \alpha_{\text{min}} + \frac{1}{2}(1 + \cos(p \cdot \pi)) \cdot (\alpha_{\text{max}} - \alpha_{\text{min}})\]
+
+<p><strong>Why cosine creates a smooth curve:</strong></p>
+
+<ol>
+  <li><strong>At start</strong> ($p = 0$):
+    <ul>
+      <li>$\cos(0) = 1$</li>
+      <li>$\alpha_t = \alpha_{\text{min}} + 1 \cdot (\alpha_{\text{max}} - \alpha_{\text{min}}) = \alpha_{\text{max}}$</li>
+    </ul>
+  </li>
+  <li><strong>At middle</strong> ($p = 0.5$):
+    <ul>
+      <li>$\cos(\pi/2) = 0$</li>
+      <li>$\alpha_t = \alpha_{\text{min}} + 0.5 \cdot (\alpha_{\text{max}} - \alpha_{\text{min}})$ (halfway point)</li>
+    </ul>
+  </li>
+  <li><strong>At end</strong> ($p = 1$):
+    <ul>
+      <li>$\cos(\pi) = -1$</li>
+      <li>$\alpha_t = \alpha_{\text{min}} + 0 \cdot (\alpha_{\text{max}} - \alpha_{\text{min}}) = \alpha_{\text{min}}$</li>
+    </ul>
+  </li>
+</ol>
+
+<p><strong>Key properties of the smooth cosine decay:</strong></p>
+
+<ul>
+  <li><strong>Gentle start</strong>: Derivative is near zero at $t = T_w$, creating a smooth transition from warmup</li>
+  <li><strong>Steepest descent</strong>: Maximum decay rate occurs at the midpoint ($p = 0.5$)</li>
+  <li><strong>Gentle landing</strong>: Derivative approaches zero as $t \to T_c$, allowing fine-tuning</li>
+  <li><strong>No discontinuities</strong>: The function and its derivative are continuous everywhere</li>
+</ul>
+
+<p><strong>Phase 3 - Constant</strong> ($t &gt; T_c$):</p>
+
+\[\alpha_t = \alpha_{\text{min}}\]
+
+<p>Maintain minimum learning rate.</p>
+
+<h4 id="why-this-schedule-works">Why This Schedule Works</h4>
+
+<p><strong>Warmup phase:</strong> Starting with a small learning rate prevents the model from making destructive updates when parameters are still randomly initialized. Gradients can be large and unstable early in training, and a small learning rate provides stability.</p>
+
+<p><strong>Cosine decay:</strong> The smooth decay helps the model settle into a good minimum. The cosine schedule provides:</p>
+<ul>
+  <li>Fast initial decay (when model is still far from optimum)</li>
+  <li>Slower decay later (allowing fine-tuning)</li>
+  <li>No sharp transitions (unlike step decay schedules)</li>
+</ul>
+
+<p><strong>Constant minimum:</strong> Maintaining α_min instead of decaying to zero allows continued (albeit slow) learning, which can be useful for very long training runs.</p>
+
+<h4 id="implementation">Implementation</h4>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">get_lr_cosine_schedule</span><span class="p">(</span>
+    <span class="n">it</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">max_learning_rate</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">min_learning_rate</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">warmup_iters</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">cosine_cycle_iters</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+    <span class="s">"""
+    Get learning rate at iteration `it` using cosine schedule with warmup.
+
+    Three phases:
+    1. Warmup: Linear increase from 0 to max_learning_rate
+    2. Cosine annealing: Smooth decay from max to min learning rate
+    3. Constant: Maintain min_learning_rate
+
+    Args:
+        it: Current iteration (0-indexed)
+        max_learning_rate: Maximum learning rate (α_max)
+        min_learning_rate: Minimum learning rate (α_min)
+        warmup_iters: Number of warmup iterations (T_w)
+        cosine_cycle_iters: Total iterations for cosine cycle (T_c)
+
+    Returns:
+        Learning rate for current iteration
+    """</span>
+    <span class="c1"># Phase 1: Warmup (t &lt; T_w)
+</span>    <span class="k">if</span> <span class="n">it</span> <span class="o">&lt;</span> <span class="n">warmup_iters</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">it</span> <span class="o">/</span> <span class="n">warmup_iters</span><span class="p">)</span> <span class="o">*</span> <span class="n">max_learning_rate</span>
+
+    <span class="c1"># Phase 2: Cosine annealing (T_w ≤ t ≤ T_c)
+</span>    <span class="k">if</span> <span class="n">it</span> <span class="o">&lt;=</span> <span class="n">cosine_cycle_iters</span><span class="p">:</span>
+        <span class="n">progress</span> <span class="o">=</span> <span class="p">(</span><span class="n">it</span> <span class="o">-</span> <span class="n">warmup_iters</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">cosine_cycle_iters</span> <span class="o">-</span> <span class="n">warmup_iters</span><span class="p">)</span>
+        <span class="n">cosine_decay</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">math</span><span class="p">.</span><span class="n">cos</span><span class="p">(</span><span class="n">progress</span> <span class="o">*</span> <span class="n">math</span><span class="p">.</span><span class="n">pi</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">min_learning_rate</span> <span class="o">+</span> <span class="n">cosine_decay</span> <span class="o">*</span> <span class="p">(</span><span class="n">max_learning_rate</span> <span class="o">-</span> <span class="n">min_learning_rate</span><span class="p">)</span>
+
+    <span class="c1"># Phase 3: Constant (t &gt; T_c)
+</span>    <span class="k">return</span> <span class="n">min_learning_rate</span>
+</code></pre></div></div>
+
+<p><strong>Critical detail:</strong> The warmup condition is <code class="language-plaintext highlighter-rouge">it &lt; warmup_iters</code> (strict inequality), not <code class="language-plaintext highlighter-rouge">it &lt;= warmup_iters</code>. This ensures iteration <code class="language-plaintext highlighter-rouge">warmup_iters</code> is the first iteration at <code class="language-plaintext highlighter-rouge">max_learning_rate</code>, not the last warmup iteration.</p>
+
+<h4 id="integration-with-training-loop">Integration with Training Loop</h4>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">for</span> <span class="n">iter_num</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_iters</span><span class="p">):</span>
+    <span class="c1"># Get learning rate for this iteration
+</span>    <span class="n">lr</span> <span class="o">=</span> <span class="n">get_lr_cosine_schedule</span><span class="p">(</span>
+        <span class="n">it</span><span class="o">=</span><span class="n">iter_num</span><span class="p">,</span>
+        <span class="n">max_learning_rate</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">,</span>
+        <span class="n">min_learning_rate</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span>
+        <span class="n">warmup_iters</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span>
+        <span class="n">cosine_cycle_iters</span><span class="o">=</span><span class="mi">100000</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Update optimizer learning rate
+</span>    <span class="k">for</span> <span class="n">param_group</span> <span class="ow">in</span> <span class="n">optimizer</span><span class="p">.</span><span class="n">param_groups</span><span class="p">:</span>
+        <span class="n">param_group</span><span class="p">[</span><span class="s">'lr'</span><span class="p">]</span> <span class="o">=</span> <span class="n">lr</span>
+
+    <span class="c1"># Training step
+</span>    <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">get_batch</span><span class="p">(...)</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+    <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="p">.</span><span class="n">zero_grad</span><span class="p">()</span>
+</code></pre></div></div>
+
+<p><strong>Typical hyperparameters for large models:</strong></p>
+<ul>
+  <li>Warmup: 2,000-10,000 iterations (1-5% of total training)</li>
+  <li>Max LR: 1e-4 to 1e-3 (depends on model size; larger models use smaller LR)</li>
+  <li>Min LR: 10% of max LR</li>
+  <li>Cosine cycle: Total training iterations</li>
+</ul>
+
+<hr />
+
+<h3 id="data-loading">Memory-Efficient Data Loading</h3>
+
+<p>When training on large text datasets (hundreds of GBs to TBs), loading the entire dataset into RAM is impossible. The solution is <strong>memory-mapped arrays</strong> using the Unix <code class="language-plaintext highlighter-rouge">mmap</code> system call.</p>
+
+<h4 id="the-problem">The Problem</h4>
+
+<p>Consider training GPT-3-scale models:</p>
+<ul>
+  <li>Common Crawl: ~570GB tokenized</li>
+  <li>Books: ~150GB tokenized</li>
+  <li>Total: ~800GB of tokens</li>
+</ul>
+
+<p>Your machine might have 64-128GB of RAM. Loading this data is impossible.</p>
+
+<h4 id="the-solution-memory-mapping">The Solution: Memory Mapping</h4>
+
+<p>Memory mapping lets you “pretend” the entire dataset is in memory, but the OS only loads the portion you actually access.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Memory-mapped loading
+</span><span class="n">dataset</span> <span class="o">=</span> <span class="n">np</span><span class="p">.</span><span class="n">load</span><span class="p">(</span><span class="s">'train_tokens.npy'</span><span class="p">,</span> <span class="n">mmap_mode</span><span class="o">=</span><span class="s">'r'</span><span class="p">)</span>
+<span class="c1"># This doesn't load the file into RAM!
+# It creates a memory map to the file on disk
+</span>
+<span class="c1"># When you access dataset[1000000:1000512],
+# the OS loads just that small portion into RAM
+</span></code></pre></div></div>
+
+<p><strong>Understanding Virtual Memory</strong></p>
+
+<p>Before diving into how memory mapping works, it’s important to understand the concept of virtual memory—the foundation that makes memory mapping possible.</p>
+
+<p>Virtual memory is a way for your computer to make it look like you have more memory (RAM) than you actually do. It does this by using part of your disk (storage) to act as an extension of RAM. Every program “thinks” it has access to a large, continuous block of memory—but behind the scenes, the operating system (OS) is moving chunks of data between RAM and disk as needed.</p>
+
+<p><strong>How Memory Mapping Works: Step by Step</strong></p>
+
+<ol>
+  <li>
+    <p><strong>Mapping file to memory</strong>: The system call <code class="language-plaintext highlighter-rouge">mmap()</code> creates a link between a file on disk and an area in virtual memory. You can then access it like a normal array, even if the file is huge (e.g., 800GB).</p>
+  </li>
+  <li>
+    <p><strong>Page fault (on first access)</strong>: When your code accesses something like <code class="language-plaintext highlighter-rouge">dataset[i]</code>, the OS sees that the data isn’t in RAM yet. It triggers a <strong>page fault</strong>—a signal that tells the OS to fetch that data page from disk.</p>
+  </li>
+  <li>
+    <p><strong>Loading data into RAM</strong>: The OS loads the specific page (a small chunk, usually 4KB) from disk into physical RAM. Now <code class="language-plaintext highlighter-rouge">dataset[i]</code> can be read directly from fast memory.</p>
+  </li>
+  <li>
+    <p><strong>Caching nearby elements</strong>: The OS often loads neighboring pages too (since they’ll likely be accessed soon). So if you later access <code class="language-plaintext highlighter-rouge">dataset[i+1]</code>, it’s already in RAM—fast!</p>
+  </li>
+  <li>
+    <p><strong>Eviction when RAM is full</strong>: When RAM gets full, the OS automatically evicts less-used pages (writes them back to disk if modified). This keeps the system running smoothly without running out of memory.</p>
+  </li>
+</ol>
+
+<p><strong>Key insight</strong>: Memory mapping leverages the OS’s virtual memory system to handle datasets much larger than available RAM, loading only the data you need on-demand and caching intelligently based on access patterns.</p>
+
+<h4 id="implementation-1">Implementation</h4>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">get_batch</span><span class="p">(</span>
+    <span class="n">dataset</span><span class="p">:</span> <span class="n">np</span><span class="p">.</span><span class="n">ndarray</span><span class="p">,</span>  <span class="c1"># Can be memory-mapped!
+</span>    <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">context_length</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">device</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s">"cpu"</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">]:</span>
+    <span class="s">"""
+    Sample a batch of sequences from dataset.
+
+    Supports both regular arrays and memory-mapped arrays transparently.
+    Memory-mapped arrays use the Unix mmap system call to map files to virtual
+    memory, allowing you to "pretend" you have the entire dataset in memory
+    while only loading accessed portions on-demand.
+
+    Args:
+        dataset: Token array (regular or memory-mapped)
+        batch_size: Number of sequences to sample
+        context_length: Length of each sequence
+        device: Device to place tensors on
+
+    Returns:
+        x: Input sequences [batch_size, context_length]
+        y: Target sequences [batch_size, context_length] (shifted by 1)
+    """</span>
+    <span class="c1"># Sample random start positions
+</span>    <span class="n">max_start</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span> <span class="o">-</span> <span class="n">context_length</span> <span class="o">-</span> <span class="mi">1</span>
+    <span class="n">start_indices</span> <span class="o">=</span> <span class="n">np</span><span class="p">.</span><span class="n">random</span><span class="p">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_start</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">batch_size</span><span class="p">)</span>
+
+    <span class="c1"># Extract sequences (this triggers page faults for memory-mapped arrays)
+</span>    <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="p">.</span><span class="n">stack</span><span class="p">([</span><span class="n">dataset</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span> <span class="o">+</span> <span class="n">context_length</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">start_indices</span><span class="p">])</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="p">.</span><span class="n">stack</span><span class="p">([</span><span class="n">dataset</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">:</span><span class="n">i</span> <span class="o">+</span> <span class="n">context_length</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">start_indices</span><span class="p">])</span>
+
+    <span class="c1"># Convert to PyTorch tensors
+</span>    <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">x</span><span class="p">).</span><span class="nb">long</span><span class="p">().</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">y</span><span class="p">).</span><span class="nb">long</span><span class="p">().</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span>
+
+
+<span class="k">def</span> <span class="nf">load_dataset</span><span class="p">(</span><span class="n">data_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">vocab_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="p">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="s">"""
+    Load dataset using memory-mapped mode for memory efficiency.
+
+    Args:
+        data_path: Path to .npy file containing tokenized data
+        vocab_size: Expected vocabulary size for validation
+
+    Returns:
+        Memory-mapped numpy array
+    """</span>
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Loading dataset from </span><span class="si">{</span><span class="n">data_path</span><span class="si">}</span><span class="s">..."</span><span class="p">)</span>
+
+    <span class="c1"># Load with memory mapping for large datasets
+</span>    <span class="n">dataset</span> <span class="o">=</span> <span class="n">np</span><span class="p">.</span><span class="n">load</span><span class="p">(</span><span class="n">data_path</span><span class="p">,</span> <span class="n">mmap_mode</span><span class="o">=</span><span class="s">"r"</span><span class="p">)</span>
+
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"  Loaded </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span><span class="si">:</span><span class="p">,</span><span class="si">}</span><span class="s"> tokens"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"  Data type: </span><span class="si">{</span><span class="n">dataset</span><span class="p">.</span><span class="n">dtype</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"  Memory-mapped: </span><span class="si">{</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">dataset</span><span class="p">,</span> <span class="n">np</span><span class="p">.</span><span class="n">memmap</span><span class="p">)</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+    <span class="c1"># Verify data integrity
+</span>    <span class="n">max_token</span> <span class="o">=</span> <span class="n">dataset</span><span class="p">.</span><span class="nb">max</span><span class="p">()</span>
+    <span class="n">min_token</span> <span class="o">=</span> <span class="n">dataset</span><span class="p">.</span><span class="nb">min</span><span class="p">()</span>
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"  Token range: [</span><span class="si">{</span><span class="n">min_token</span><span class="si">}</span><span class="s">, </span><span class="si">{</span><span class="n">max_token</span><span class="si">}</span><span class="s">]"</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">max_token</span> <span class="o">&gt;=</span> <span class="n">vocab_size</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="nb">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s">"Data contains token </span><span class="si">{</span><span class="n">max_token</span><span class="si">}</span><span class="s"> &gt;= vocab_size </span><span class="si">{</span><span class="n">vocab_size</span><span class="si">}</span><span class="s">. "</span>
+            <span class="sa">f</span><span class="s">"Data may be corrupted or vocab_size is incorrect."</span>
+        <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">min_token</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="nb">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s">"Data contains negative token </span><span class="si">{</span><span class="n">min_token</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"  ✓ Data integrity verified"</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">dataset</span>
+</code></pre></div></div>
+
+<h4 id="important-considerations">Important Considerations</h4>
+
+<p><strong>1. Data type matching:</strong></p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Ensure dtype matches your vocabulary size
+</span><span class="n">dataset</span> <span class="o">=</span> <span class="n">np</span><span class="p">.</span><span class="n">memmap</span><span class="p">(</span><span class="s">'tokens.dat'</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s">'int32'</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s">'r'</span><span class="p">)</span>  <span class="c1"># For vocab &lt; 2^31
+# or
+</span><span class="n">dataset</span> <span class="o">=</span> <span class="n">np</span><span class="p">.</span><span class="n">memmap</span><span class="p">(</span><span class="s">'tokens.dat'</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s">'int64'</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s">'r'</span><span class="p">)</span>  <span class="c1"># For safety
+</span></code></pre></div></div>
+
+<p><strong>2. Data integrity:</strong>
+Always verify that token values are within valid range:</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">assert</span> <span class="n">dataset</span><span class="p">.</span><span class="nb">max</span><span class="p">()</span> <span class="o">&lt;</span> <span class="n">vocab_size</span><span class="p">,</span> <span class="s">"Invalid token values!"</span>
+<span class="k">assert</span> <span class="n">dataset</span><span class="p">.</span><span class="nb">min</span><span class="p">()</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">,</span> <span class="s">"Negative token values!"</span>
+</code></pre></div></div>
+
+<p><strong>3. Performance tips:</strong></p>
+<ul>
+  <li>Access data sequentially when possible (better cache locality)</li>
+  <li>Use larger batch sizes to amortize page fault overhead</li>
+  <li>Store data on fast SSD rather than HDD</li>
+</ul>
+
+<hr />
+
+<h3 id="checkpointing">Checkpoint Management</h3>
+
+<p>Training large models can take days or weeks. Checkpoint management is crucial for:</p>
+<ul>
+  <li>Resuming after crashes or preemption</li>
+  <li>Evaluating models at different training stages</li>
+  <li>Storing model configurations for reproducibility</li>
+</ul>
+
+<h4 id="what-to-save">What to Save</h4>
+
+<p>A complete checkpoint includes:</p>
+<ol>
+  <li><strong>Model state</strong>: All parameter values</li>
+  <li><strong>Optimizer state</strong>: Momentum buffers, learning rate, etc.</li>
+  <li><strong>Iteration count</strong>: For resuming at exact position</li>
+  <li><strong>Model configuration</strong>: For reconstructing architecture</li>
+</ol>
+
+<p>Many implementations forget #4, making it hard to load models for inference later.</p>
+
+<p><strong>Why Model Configuration Matters</strong></p>
+
+<p>Think of it this way:</p>
+<ul>
+  <li><strong>Model configuration</strong> = The model’s recipe (layer sizes, dropout rates, architecture choices)</li>
+  <li><strong>Model state</strong> = The model’s learned ingredients (weights and biases)</li>
+</ul>
+
+<p>Without the configuration, you wouldn’t know how to rebuild the same model structure later.</p>
+
+<p><strong>Example: A Simple Neural Network</strong></p>
+
+<p>Let’s say you built this model in PyTorch:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="n">nn</span>
+
+<span class="k">class</span> <span class="nc">MyModel</span><span class="p">(</span><span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_size</span><span class="o">=</span><span class="mi">784</span><span class="p">,</span> <span class="n">hidden_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">output_size</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">dropout</span><span class="o">=</span><span class="mf">0.2</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">fc1</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">input_size</span><span class="p">,</span> <span class="n">hidden_size</span><span class="p">)</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">relu</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">ReLU</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">dropout</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">Dropout</span><span class="p">(</span><span class="n">dropout</span><span class="p">)</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">fc2</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">hidden_size</span><span class="p">,</span> <span class="n">output_size</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p>When you train it, you’ll want to save not only the weights, but also the model configuration:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">"input_size"</span><span class="p">:</span> <span class="mi">784</span><span class="p">,</span>
+    <span class="s">"hidden_size"</span><span class="p">:</span> <span class="mi">256</span><span class="p">,</span>
+    <span class="s">"output_size"</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+    <span class="s">"dropout"</span><span class="p">:</span> <span class="mf">0.2</span>
+<span class="p">}</span>
+
+<span class="n">checkpoint</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">"model_state"</span><span class="p">:</span> <span class="n">model</span><span class="p">.</span><span class="n">state_dict</span><span class="p">(),</span>
+    <span class="s">"optimizer_state"</span><span class="p">:</span> <span class="n">optimizer</span><span class="p">.</span><span class="n">state_dict</span><span class="p">(),</span>
+    <span class="s">"iteration"</span><span class="p">:</span> <span class="n">step</span><span class="p">,</span>
+    <span class="s">"config"</span><span class="p">:</span> <span class="n">config</span>
+<span class="p">}</span>
+<span class="n">torch</span><span class="p">.</span><span class="n">save</span><span class="p">(</span><span class="n">checkpoint</span><span class="p">,</span> <span class="s">"checkpoint.pth"</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Later (for inference or resume training):</strong></p>
+
+<p>You can rebuild the model exactly the same way:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">checkpoint</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">load</span><span class="p">(</span><span class="s">"checkpoint.pth"</span><span class="p">)</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">checkpoint</span><span class="p">[</span><span class="s">"config"</span><span class="p">]</span>
+
+<span class="c1"># Rebuild model using saved configuration
+</span><span class="n">model</span> <span class="o">=</span> <span class="n">MyModel</span><span class="p">(</span><span class="o">**</span><span class="n">config</span><span class="p">)</span>
+<span class="n">model</span><span class="p">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">checkpoint</span><span class="p">[</span><span class="s">"model_state"</span><span class="p">])</span>
+</code></pre></div></div>
+
+<p>This same principle applies to Transformer language models, where the configuration includes <code class="language-plaintext highlighter-rouge">vocab_size</code>, <code class="language-plaintext highlighter-rouge">d_model</code>, <code class="language-plaintext highlighter-rouge">num_layers</code>, <code class="language-plaintext highlighter-rouge">num_heads</code>, <code class="language-plaintext highlighter-rouge">d_ff</code>, <code class="language-plaintext highlighter-rouge">context_length</code>, etc.</p>
+
+<h4 id="implementation-2">Implementation</h4>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">save_checkpoint</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">optimizer</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">optim</span><span class="p">.</span><span class="n">Optimizer</span><span class="p">,</span>
+    <span class="n">iteration</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">out</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">model_config</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="s">"""
+    Save complete training state to checkpoint file.
+
+    Args:
+        model: Model to save
+        optimizer: Optimizer to save
+        iteration: Current training iteration
+        out: Output path for checkpoint
+        model_config: Optional model architecture configuration
+    """</span>
+    <span class="n">checkpoint</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s">'model_state_dict'</span><span class="p">:</span> <span class="n">model</span><span class="p">.</span><span class="n">state_dict</span><span class="p">(),</span>
+        <span class="s">'optimizer_state_dict'</span><span class="p">:</span> <span class="n">optimizer</span><span class="p">.</span><span class="n">state_dict</span><span class="p">(),</span>
+        <span class="s">'iteration'</span><span class="p">:</span> <span class="n">iteration</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="c1"># Save model config for easy loading during inference
+</span>    <span class="k">if</span> <span class="n">model_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">checkpoint</span><span class="p">[</span><span class="s">'model_config'</span><span class="p">]</span> <span class="o">=</span> <span class="n">model_config</span>
+
+    <span class="n">torch</span><span class="p">.</span><span class="n">save</span><span class="p">(</span><span class="n">checkpoint</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">load_checkpoint</span><span class="p">(</span>
+    <span class="n">src</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">optimizer</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">optim</span><span class="p">.</span><span class="n">Optimizer</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="s">"""
+    Load training state from checkpoint file.
+
+    Args:
+        src: Path to checkpoint file
+        model: Model to load state into
+        optimizer: Optimizer to load state into
+
+    Returns:
+        Iteration number from checkpoint
+    """</span>
+    <span class="n">checkpoint</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">load</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="s">'cpu'</span><span class="p">)</span>
+
+    <span class="n">model</span><span class="p">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">checkpoint</span><span class="p">[</span><span class="s">'model_state_dict'</span><span class="p">])</span>
+    <span class="n">optimizer</span><span class="p">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">checkpoint</span><span class="p">[</span><span class="s">'optimizer_state_dict'</span><span class="p">])</span>
+
+    <span class="k">return</span> <span class="n">checkpoint</span><span class="p">[</span><span class="s">'iteration'</span><span class="p">]</span>
+</code></pre></div></div>
+
+<h4 id="checkpoint-strategy">Checkpoint Strategy</h4>
+
+<p><strong>During training:</strong></p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Save periodically during training
+</span><span class="k">if</span> <span class="n">iter_num</span> <span class="o">%</span> <span class="n">checkpoint_interval</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">iter_num</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="n">checkpoint_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s">"checkpoints/checkpoint_iter_</span><span class="si">{</span><span class="n">iter_num</span><span class="si">}</span><span class="s">.pt"</span>
+    <span class="n">save_checkpoint</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">iter_num</span><span class="p">,</span> <span class="n">checkpoint_path</span><span class="p">,</span> <span class="n">model_config</span><span class="p">)</span>
+
+<span class="c1"># Save final checkpoint with both iteration number and "final" name
+</span><span class="n">final_checkpoint_iter</span> <span class="o">=</span> <span class="sa">f</span><span class="s">"checkpoints/checkpoint_iter_</span><span class="si">{</span><span class="n">max_iters</span><span class="si">}</span><span class="s">.pt"</span>
+<span class="n">final_checkpoint</span> <span class="o">=</span> <span class="s">"checkpoints/checkpoint_final.pt"</span>
+<span class="n">save_checkpoint</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">max_iters</span><span class="p">,</span> <span class="n">final_checkpoint_iter</span><span class="p">,</span> <span class="n">model_config</span><span class="p">)</span>
+<span class="n">save_checkpoint</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">max_iters</span><span class="p">,</span> <span class="n">final_checkpoint</span><span class="p">,</span> <span class="n">model_config</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Resuming from checkpoint:</strong></p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">if</span> <span class="n">resume_from</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="n">start_iter</span> <span class="o">=</span> <span class="n">load_checkpoint</span><span class="p">(</span><span class="n">resume_from</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Resumed from iteration </span><span class="si">{</span><span class="n">start_iter</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">start_iter</span> <span class="o">=</span> <span class="mi">0</span>
+
+<span class="k">for</span> <span class="n">iter_num</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">start_iter</span><span class="p">,</span> <span class="n">max_iters</span><span class="p">):</span>
+    <span class="c1"># Training continues from where it left off
+</span>    <span class="p">...</span>
+</code></pre></div></div>
+
+<p><strong>For inference (loading model configuration):</strong></p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">checkpoint</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">load</span><span class="p">(</span><span class="s">"checkpoint.pt"</span><span class="p">)</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">checkpoint</span><span class="p">[</span><span class="s">'model_config'</span><span class="p">]</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">TransformerLM</span><span class="p">(</span>
+    <span class="n">vocab_size</span><span class="o">=</span><span class="n">config</span><span class="p">[</span><span class="s">'vocab_size'</span><span class="p">],</span>
+    <span class="n">d_model</span><span class="o">=</span><span class="n">config</span><span class="p">[</span><span class="s">'d_model'</span><span class="p">],</span>
+    <span class="n">num_layers</span><span class="o">=</span><span class="n">config</span><span class="p">[</span><span class="s">'num_layers'</span><span class="p">],</span>
+    <span class="n">num_heads</span><span class="o">=</span><span class="n">config</span><span class="p">[</span><span class="s">'num_heads'</span><span class="p">],</span>
+    <span class="n">d_ff</span><span class="o">=</span><span class="n">config</span><span class="p">[</span><span class="s">'d_ff'</span><span class="p">],</span>
+    <span class="n">context_length</span><span class="o">=</span><span class="n">config</span><span class="p">[</span><span class="s">'context_length'</span><span class="p">],</span>
+<span class="p">)</span>
+<span class="n">model</span><span class="p">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">checkpoint</span><span class="p">[</span><span class="s">'model_state_dict'</span><span class="p">])</span>
+</code></pre></div></div>
+
+<hr />
+
+<h3 id="decoding">Decoding Strategies: From Model to Text</h3>
+
+<p>After training, your model can predict the next word given the previous ones. But you need a method to:</p>
+<ol>
+  <li>Turn those predictions into probabilities</li>
+  <li>Pick the next word/token from that probability distribution</li>
+</ol>
+
+<p>That process is called <strong>decoding</strong>. The decoding strategy significantly impacts generation quality—it’s the difference between coherent text and random gibberish.</p>
+
+<h4 id="step-1-softmax--turning-logits-into-probabilities">Step 1: Softmax — Turning Logits into Probabilities</h4>
+
+<p>The model outputs a vector of <strong>logits</strong>—raw scores for every possible token in the vocabulary. We turn these into probabilities using the <strong>softmax</strong> formula:</p>
+
+\[P(x_{t+1} = i \mid x_{1..t}) = \frac{e^{v_i}}{\sum_{j} e^{v_j}}\]
+
+<p>Where:</p>
+<ul>
+  <li>$v_i$ is the model’s score (logit) for token $i$</li>
+  <li>The numerator $e^{v_i}$ makes higher scores more likely</li>
+  <li>The denominator $\sum_{j} e^{v_j}$ normalizes everything so probabilities sum to 1</li>
+</ul>
+
+<p>This gives us a probability distribution over all words in the vocabulary.</p>
+
+<h4 id="step-2-decoding--picking-the-next-token">Step 2: Decoding — Picking the Next Token</h4>
+
+<p>Now that we have probabilities, we need to choose one token to continue the text. We can:</p>
+
+<ul>
+  <li><strong>Pick the highest-probability token</strong> (greedy decoding) → Safe but repetitive</li>
+  <li><strong>Randomly sample from the probabilities</strong> → Makes text more creative</li>
+  <li><strong>Use other tricks to balance randomness and coherence</strong> → The strategies below</li>
+</ul>
+
+<p>Let’s explore two powerful techniques for controlling this balance.</p>
+
+<h4 id="temperature-scaling">Temperature Scaling</h4>
+
+<p><strong>Problem:</strong> Raw softmax outputs can be too peaked (always choosing the most likely token) or too flat (generating random nonsense).</p>
+
+<p><strong>Solution:</strong> Temperature scaling modifies the softmax distribution:</p>
+
+\[\text{softmax}(v, \tau)_i = \frac{\exp(v_i/\tau)}{\sum_{j} \exp(v_j/\tau)}\]
+
+<p><strong>Effects:</strong></p>
+<ul>
+  <li>$\tau &lt; 1$: makes the distribution sharper (model becomes more confident, deterministic, greedy)</li>
+  <li>$\tau = 1$: Standard softmax (model’s original distribution)</li>
+  <li>$\tau &gt; 1$: makes the distribution flatter (model becomes more random, creative, diverse)</li>
+</ul>
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">softmax_with_temperature</span><span class="p">(</span>
+    <span class="n">logits</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">temperature</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="s">"""
+    Apply softmax with temperature scaling.
+
+    Args:
+        logits: Model output logits
+        temperature: Temperature parameter τ
+        dim: Dimension to apply softmax
+
+    Returns:
+        Temperature-scaled probability distribution
+    """</span>
+    <span class="k">if</span> <span class="n">temperature</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="nb">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s">"Temperature must be positive, got </span><span class="si">{</span><span class="n">temperature</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+    <span class="c1"># Scale logits by temperature
+</span>    <span class="n">scaled_logits</span> <span class="o">=</span> <span class="n">logits</span> <span class="o">/</span> <span class="n">temperature</span>
+
+    <span class="c1"># Apply softmax (numerically stable)
+</span>    <span class="n">probs</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">nn</span><span class="p">.</span><span class="n">functional</span><span class="p">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scaled_logits</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">probs</span>
+</code></pre></div></div>
+
+<p><strong>Usage:</strong></p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">logits</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">apply_softmax</span><span class="o">=</span><span class="bp">False</span><span class="p">)[:,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:]</span>  <span class="c1"># Get next-token logits
+</span>
+<span class="c1"># Deterministic (greedy)
+</span><span class="n">probs</span> <span class="o">=</span> <span class="n">softmax_with_temperature</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span>
+
+<span class="c1"># Balanced
+</span><span class="n">probs</span> <span class="o">=</span> <span class="n">softmax_with_temperature</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mf">0.8</span><span class="p">)</span>
+
+<span class="c1"># Creative
+</span><span class="n">probs</span> <span class="o">=</span> <span class="n">softmax_with_temperature</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mf">1.5</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Concrete Example:</strong></p>
+
+<p>Let’s say the model predicts the next word with these raw logits and probabilities:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Token</th>
+      <th>Raw Logit</th>
+      <th>$\tau=1.0$ (standard)</th>
+      <th>$\tau=0.5$ (sharper)</th>
+      <th>$\tau=2.0$ (flatter)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>“cat”</td>
+      <td>2.5</td>
+      <td>0.60</td>
+      <td>0.94</td>
+      <td>0.52</td>
+    </tr>
+    <tr>
+      <td>“dog”</td>
+      <td>1.0</td>
+      <td>0.25</td>
+      <td>0.05</td>
+      <td>0.25</td>
+    </tr>
+    <tr>
+      <td>“banana”</td>
+      <td>0.2</td>
+      <td>0.10</td>
+      <td>0.01</td>
+      <td>0.16</td>
+    </tr>
+    <tr>
+      <td>“spaceship”</td>
+      <td>-1.5</td>
+      <td>0.05</td>
+      <td>0.00</td>
+      <td>0.07</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Observations:</strong></p>
+
+<ul>
+  <li>
+    <p><strong>With $\tau = 0.5$</strong> (sharper): “cat” becomes dominant (0.94), nearly eliminating other options. The model is very confident and predictable.</p>
+  </li>
+  <li>
+    <p><strong>With $\tau = 1.0$</strong> (standard): Uses the model’s original learned distribution. Balanced between confidence and diversity.</p>
+  </li>
+  <li>
+    <p><strong>With $\tau = 2.0$</strong> (flatter): Probabilities become more uniform. “dog” maintains its probability, “banana” nearly doubles (0.10 → 0.16), and even “spaceship” becomes viable (0.05 → 0.07). The model is more creative and exploratory.</p>
+  </li>
+</ul>
+
+<h4 id="top-p-nucleus-sampling">Top-p (Nucleus) Sampling</h4>
+
+<p><strong>Problem:</strong> Even with temperature scaling, the model might assign non-zero probability to thousands of tokens, many of which are nonsensical in context.</p>
+
+<p><strong>Solution:</strong> Top-p sampling (Holtzman et al., 2020) truncates the distribution to the smallest set of tokens whose cumulative probability exceeds threshold p.</p>
+
+<p><strong>Algorithm:</strong></p>
+
+<p>Define the nucleus $V(p)$ as the smallest set such that:</p>
+
+\[\sum_{i \in V(p)} P(i) \geq p\]
+
+<p>Then the filtered probability distribution is:</p>
+
+\[P_{\text{filtered}}(i) = \begin{cases}
+\frac{P(i)}{\sum_{j \in V(p)} P(j)} &amp; \text{if } i \in V(p) \\
+0 &amp; \text{otherwise}
+\end{cases}\]
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">top_p_sampling</span><span class="p">(</span><span class="n">probs</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="s">"""
+    Apply top-p (nucleus) sampling to probability distribution.
+
+    Args:
+        probs: Probability distribution [batch_size, vocab_size]
+        p: Cumulative probability threshold (typical: 0.9, 0.95)
+
+    Returns:
+        Filtered and renormalized probability distribution
+    """</span>
+    <span class="c1"># Sort probabilities in descending order
+</span>    <span class="n">sorted_probs</span><span class="p">,</span> <span class="n">sorted_indices</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">sort</span><span class="p">(</span><span class="n">probs</span><span class="p">,</span> <span class="n">descending</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="c1"># Compute cumulative probabilities
+</span>    <span class="n">cumulative_probs</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">sorted_probs</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="c1"># Find cutoff: keep tokens until cumulative prob &gt;= p
+</span>    <span class="n">mask</span> <span class="o">=</span> <span class="n">cumulative_probs</span> <span class="o">&lt;=</span> <span class="n">p</span>
+
+    <span class="c1"># Always keep at least the top token
+</span>    <span class="n">mask</span><span class="p">[...,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="bp">True</span>
+
+    <span class="c1"># Zero out probabilities not in nucleus
+</span>    <span class="n">filtered_sorted_probs</span> <span class="o">=</span> <span class="n">sorted_probs</span> <span class="o">*</span> <span class="n">mask</span><span class="p">.</span><span class="nb">float</span><span class="p">()</span>
+
+    <span class="c1"># Scatter back to original positions
+</span>    <span class="n">filtered_probs</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">probs</span><span class="p">)</span>
+    <span class="n">filtered_probs</span><span class="p">.</span><span class="n">scatter_</span><span class="p">(</span><span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">sorted_indices</span><span class="p">,</span> <span class="n">src</span><span class="o">=</span><span class="n">filtered_sorted_probs</span><span class="p">)</span>
+
+    <span class="c1"># Renormalize
+</span>    <span class="n">filtered_probs</span> <span class="o">=</span> <span class="n">filtered_probs</span> <span class="o">/</span> <span class="n">filtered_probs</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">filtered_probs</span>
+</code></pre></div></div>
+
+<p><strong>Example:</strong></p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Original distribution
+</span><span class="n">probs</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.05</span><span class="p">,</span> <span class="mf">0.05</span><span class="p">])</span>
+
+<span class="c1"># p=0.8: Keep top 2 tokens (0.5 + 0.3 = 0.8)
+</span><span class="n">filtered</span> <span class="o">=</span> <span class="n">top_p_sampling</span><span class="p">(</span><span class="n">probs</span><span class="p">,</span> <span class="n">p</span><span class="o">=</span><span class="mf">0.8</span><span class="p">)</span>
+<span class="c1"># Result: [0.625, 0.375, 0, 0, 0]
+</span></code></pre></div></div>
+
+<p><strong>Applying to our earlier example:</strong></p>
+
+<p>With our “cat”, “dog”, “banana”, “spaceship” example, if we use <strong>$p = 0.9$</strong>:</p>
+
+<ol>
+  <li>Sort by probability: [“cat” (0.60), “dog” (0.25), “banana” (0.10), “spaceship” (0.05)]</li>
+  <li>Cumulative sum: 0.60, 0.85, 0.95, 1.00</li>
+  <li>Keep tokens until cumulative ≥ 0.9: Keep {“cat”, “dog”, “banana”}</li>
+  <li>Remove “spaceship” (too low probability)</li>
+  <li>Renormalize and sample from the remaining three tokens</li>
+</ol>
+
+<p><strong>Result:</strong> The model only samples from {“cat”, “dog”, “banana”}, avoiding the extremely unlikely “spaceship”.</p>
+
+<h4 id="summary-putting-it-all-together">Summary: Putting It All Together</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Step</th>
+      <th>Purpose</th>
+      <th>Key Parameter</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Softmax</strong></td>
+      <td>Turns model logits into probabilities</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td><strong>Temperature</strong></td>
+      <td>Controls confidence vs. creativity</td>
+      <td>$\tau$ (typical: 0.7-1.5)</td>
+    </tr>
+    <tr>
+      <td><strong>Top-p Sampling</strong></td>
+      <td>Limits randomness to most probable tokens</td>
+      <td>$p$ (typical: 0.9-0.95)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Recommended combinations:</strong></p>
+<ul>
+  <li><strong>Factual tasks</strong>: $\tau = 0.1$ (nearly greedy)</li>
+  <li><strong>Balanced generation</strong>: $\tau = 0.8$, $p = 0.9$</li>
+  <li><strong>Creative writing</strong>: $\tau = 1.2$, $p = 0.95$</li>
+</ul>
+
+<h4 id="autoregressive-decoding">Autoregressive Decoding</h4>
+
+<p>Putting it together for text generation:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">decode</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">prompt_tokens</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">max_new_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span><span class="p">,</span>
+    <span class="n">temperature</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">top_p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="n">eos_token_id</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="n">device</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s">"cpu"</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="s">"""
+    Generate text autoregressively from a prompt.
+
+    Args:
+        model: Trained TransformerLM
+        prompt_tokens: Initial prompt [batch_size, seq_len]
+        max_new_tokens: Maximum tokens to generate
+        temperature: Sampling temperature
+        top_p: Nucleus sampling threshold (None to disable)
+        eos_token_id: End-of-sequence token for early stopping
+        device: Device to run on
+
+    Returns:
+        Generated sequence [batch_size, seq_len + num_generated]
+    """</span>
+    <span class="n">model</span><span class="p">.</span><span class="nb">eval</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">prompt_tokens</span><span class="p">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">prompt_tokens</span> <span class="o">=</span> <span class="n">prompt_tokens</span><span class="p">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+    <span class="n">generated</span> <span class="o">=</span> <span class="n">prompt_tokens</span><span class="p">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+    <span class="k">with</span> <span class="n">torch</span><span class="p">.</span><span class="n">no_grad</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_new_tokens</span><span class="p">):</span>
+            <span class="c1"># Get logits for next token
+</span>            <span class="n">logits</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">generated</span><span class="p">,</span> <span class="n">apply_softmax</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+            <span class="n">next_token_logits</span> <span class="o">=</span> <span class="n">logits</span><span class="p">[:,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:]</span>
+
+            <span class="c1"># Apply temperature scaling
+</span>            <span class="n">next_token_probs</span> <span class="o">=</span> <span class="n">softmax_with_temperature</span><span class="p">(</span>
+                <span class="n">next_token_logits</span><span class="p">,</span>
+                <span class="n">temperature</span><span class="o">=</span><span class="n">temperature</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Apply top-p filtering if requested
+</span>            <span class="k">if</span> <span class="n">top_p</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">next_token_probs</span> <span class="o">=</span> <span class="n">top_p_sampling</span><span class="p">(</span><span class="n">next_token_probs</span><span class="p">,</span> <span class="n">p</span><span class="o">=</span><span class="n">top_p</span><span class="p">)</span>
+
+            <span class="c1"># Sample next token
+</span>            <span class="n">next_token</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">multinomial</span><span class="p">(</span><span class="n">next_token_probs</span><span class="p">,</span> <span class="n">num_samples</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+            <span class="c1"># Append to sequence
+</span>            <span class="n">generated</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">cat</span><span class="p">([</span><span class="n">generated</span><span class="p">,</span> <span class="n">next_token</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+            <span class="c1"># Check for EOS
+</span>            <span class="k">if</span> <span class="n">eos_token_id</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="p">(</span><span class="n">next_token</span> <span class="o">==</span> <span class="n">eos_token_id</span><span class="p">).</span><span class="nb">all</span><span class="p">():</span>
+                <span class="k">break</span>
+
+    <span class="k">return</span> <span class="n">generated</span>
+</code></pre></div></div>
+
+<hr />
+
+<h3 id="training-script">Putting It All Together: The Training Script</h3>
+
+<p>Now we assemble all components into a production training script. The key is making everything configurable via command-line arguments.</p>
+
+<h4 id="command-line-interface">Command-Line Interface</h4>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">parse_args</span><span class="p">():</span>
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="p">.</span><span class="n">ArgumentParser</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s">"Train a Transformer language model"</span><span class="p">)</span>
+
+    <span class="c1"># Data
+</span>    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--train_data"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--val_data"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--vocab_size"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+    <span class="c1"># Model architecture
+</span>    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--d_model"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">768</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--num_layers"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">12</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--num_heads"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">12</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--d_ff"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">3072</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--context_length"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">512</span><span class="p">)</span>
+
+    <span class="c1"># Training
+</span>    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--batch_size"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--max_iters"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">100000</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--gradient_accumulation_steps"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="c1"># Optimizer
+</span>    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--lr"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--min_lr"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--weight_decay"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--grad_clip"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+
+    <span class="c1"># Learning rate schedule
+</span>    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--warmup_iters"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">2000</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--lr_decay_iters"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">100000</span><span class="p">)</span>
+
+    <span class="c1"># Logging and checkpointing
+</span>    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--eval_interval"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--log_interval"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--checkpoint_interval"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">5000</span><span class="p">)</span>
+    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--checkpoint_dir"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="s">"checkpoints"</span><span class="p">)</span>
+
+    <span class="c1"># Resume
+</span>    <span class="n">parser</span><span class="p">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">"--resume_from"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">parser</span><span class="p">.</span><span class="n">parse_args</span><span class="p">()</span>
+</code></pre></div></div>
+
+<h4 id="understanding-key-training-parameters">Understanding Key Training Parameters</h4>
+
+<p>Before diving into the training loop, let’s clarify two important hyperparameters that control how training progresses:</p>
+
+<p><strong>max_iters (Maximum Iterations)</strong></p>
+
+<p>The total number of training steps (iterations) to run.</p>
+
+<p><strong>One iteration</strong> = one forward pass + one backward pass + one optimizer step</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">for</span> <span class="n">iter_num</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_iters</span><span class="p">):</span>  <span class="c1"># e.g., 100,000 steps
+</span>    <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">get_batch</span><span class="p">(...)</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+    <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+</code></pre></div></div>
+
+<p><strong>Example:</strong></p>
+<ul>
+  <li>If <code class="language-plaintext highlighter-rouge">max_iters = 100,000</code> and <code class="language-plaintext highlighter-rouge">batch_size = 32</code>:</li>
+  <li>Model will train for 100,000 steps</li>
+  <li>Each step processes 32 examples</li>
+  <li>Total examples seen = 100,000 × 32 = 3,200,000 (with repetition if dataset is smaller)</li>
+</ul>
+
+<p><strong>gradient_accumulation_steps (Gradient Accumulation)</strong></p>
+
+<p>The number of mini-batches to accumulate gradients over before updating weights.</p>
+
+<p><strong>Why use it?</strong> To simulate larger batch sizes when GPU memory is limited.</p>
+
+<p><strong>Without gradient accumulation</strong> (standard training):</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Effective batch size = 32
+</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">get_batch</span><span class="p">(</span><span class="n">batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+<span class="n">loss</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>      <span class="c1"># Compute gradients
+</span><span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>     <span class="c1"># Update weights immediately
+</span></code></pre></div></div>
+
+<p><strong>With gradient accumulation</strong> (e.g., <code class="language-plaintext highlighter-rouge">gradient_accumulation_steps = 4</code>):</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Effective batch size = 32 × 4 = 128
+</span><span class="n">total_loss</span> <span class="o">=</span> <span class="mf">0.0</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">):</span>  <span class="c1"># Accumulate over 4 mini-batches
+</span>    <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">get_batch</span><span class="p">(</span><span class="n">batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">loss</span> <span class="o">/</span> <span class="mi">4</span>  <span class="c1"># Scale loss to average over accumulation
+</span>    <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>  <span class="c1"># Accumulate gradients (don't update yet!)
+</span>    <span class="n">total_loss</span> <span class="o">+=</span> <span class="n">loss</span><span class="p">.</span><span class="n">item</span><span class="p">()</span>
+
+<span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>     <span class="c1"># Now update with accumulated gradients
+</span><span class="n">optimizer</span><span class="p">.</span><span class="n">zero_grad</span><span class="p">()</span>
+</code></pre></div></div>
+
+<p><strong>Key benefits:</strong></p>
+<ol>
+  <li><strong>Simulate larger batches</strong>: Want batch_size=128 but only have memory for 32? Use <code class="language-plaintext highlighter-rouge">gradient_accumulation_steps=4</code></li>
+  <li><strong>Effective batch size</strong> = <code class="language-plaintext highlighter-rouge">batch_size × gradient_accumulation_steps</code></li>
+  <li><strong>Smoother gradients</strong>: Larger effective batches lead to more stable training</li>
+</ol>
+
+<p><strong>Practical example:</strong></p>
+<ul>
+  <li>Goal: Train with batch_size=128 for better gradient estimates</li>
+  <li>Constraint: GPU only has memory for batch_size=32</li>
+  <li>Solution: Set <code class="language-plaintext highlighter-rouge">batch_size=32</code> and <code class="language-plaintext highlighter-rouge">gradient_accumulation_steps=4</code></li>
+  <li>Result: Effective batch size = 32 × 4 = 128 ✓</li>
+</ul>
+
+<h4 id="main-training-loop">Main Training Loop</h4>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">parse_args</span><span class="p">()</span>
+
+    <span class="c1"># Create checkpoint directory
+</span>    <span class="n">os</span><span class="p">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">args</span><span class="p">.</span><span class="n">checkpoint_dir</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+    <span class="c1"># Load datasets with memory mapping
+</span>    <span class="n">train_data</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="n">args</span><span class="p">.</span><span class="n">train_data</span><span class="p">,</span> <span class="n">args</span><span class="p">.</span><span class="n">vocab_size</span><span class="p">)</span>
+    <span class="n">val_data</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="n">args</span><span class="p">.</span><span class="n">val_data</span><span class="p">,</span> <span class="n">args</span><span class="p">.</span><span class="n">vocab_size</span><span class="p">)</span>
+
+    <span class="c1"># Initialize model
+</span>    <span class="n">model</span> <span class="o">=</span> <span class="n">TransformerLM</span><span class="p">(</span>
+        <span class="n">vocab_size</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">vocab_size</span><span class="p">,</span>
+        <span class="n">context_length</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">context_length</span><span class="p">,</span>
+        <span class="n">d_model</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">d_model</span><span class="p">,</span>
+        <span class="n">num_layers</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">num_layers</span><span class="p">,</span>
+        <span class="n">num_heads</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">num_heads</span><span class="p">,</span>
+        <span class="n">d_ff</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">d_ff</span><span class="p">,</span>
+    <span class="p">).</span><span class="n">to</span><span class="p">(</span><span class="n">args</span><span class="p">.</span><span class="n">device</span><span class="p">)</span>
+
+    <span class="c1"># Store model configuration for checkpoints
+</span>    <span class="n">model_config</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s">'vocab_size'</span><span class="p">:</span> <span class="n">args</span><span class="p">.</span><span class="n">vocab_size</span><span class="p">,</span>
+        <span class="s">'d_model'</span><span class="p">:</span> <span class="n">args</span><span class="p">.</span><span class="n">d_model</span><span class="p">,</span>
+        <span class="s">'num_layers'</span><span class="p">:</span> <span class="n">args</span><span class="p">.</span><span class="n">num_layers</span><span class="p">,</span>
+        <span class="s">'num_heads'</span><span class="p">:</span> <span class="n">args</span><span class="p">.</span><span class="n">num_heads</span><span class="p">,</span>
+        <span class="s">'d_ff'</span><span class="p">:</span> <span class="n">args</span><span class="p">.</span><span class="n">d_ff</span><span class="p">,</span>
+        <span class="s">'context_length'</span><span class="p">:</span> <span class="n">args</span><span class="p">.</span><span class="n">context_length</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="c1"># Initialize optimizer
+</span>    <span class="n">optimizer</span> <span class="o">=</span> <span class="n">AdamW</span><span class="p">(</span>
+        <span class="n">model</span><span class="p">.</span><span class="n">parameters</span><span class="p">(),</span>
+        <span class="n">lr</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">lr</span><span class="p">,</span>
+        <span class="n">betas</span><span class="o">=</span><span class="p">(</span><span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.95</span><span class="p">),</span>
+        <span class="n">weight_decay</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">weight_decay</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Resume from checkpoint if specified
+</span>    <span class="n">start_iter</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="n">args</span><span class="p">.</span><span class="n">resume_from</span><span class="p">:</span>
+        <span class="n">start_iter</span> <span class="o">=</span> <span class="n">load_checkpoint</span><span class="p">(</span><span class="n">args</span><span class="p">.</span><span class="n">resume_from</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Resumed from iteration </span><span class="si">{</span><span class="n">start_iter</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+    <span class="c1"># Training loop
+</span>    <span class="n">model</span><span class="p">.</span><span class="n">train</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">iter_num</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">start_iter</span><span class="p">,</span> <span class="n">args</span><span class="p">.</span><span class="n">max_iters</span><span class="p">):</span>
+        <span class="c1"># Get learning rate for this iteration
+</span>        <span class="n">lr</span> <span class="o">=</span> <span class="n">get_lr_cosine_schedule</span><span class="p">(</span>
+            <span class="n">iter_num</span><span class="p">,</span>
+            <span class="n">max_learning_rate</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">lr</span><span class="p">,</span>
+            <span class="n">min_learning_rate</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">min_lr</span><span class="p">,</span>
+            <span class="n">warmup_iters</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">warmup_iters</span><span class="p">,</span>
+            <span class="n">cosine_cycle_iters</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">lr_decay_iters</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Update learning rate in optimizer
+</span>        <span class="k">for</span> <span class="n">param_group</span> <span class="ow">in</span> <span class="n">optimizer</span><span class="p">.</span><span class="n">param_groups</span><span class="p">:</span>
+            <span class="n">param_group</span><span class="p">[</span><span class="s">'lr'</span><span class="p">]</span> <span class="o">=</span> <span class="n">lr</span>
+
+        <span class="c1"># Training step with gradient accumulation
+</span>        <span class="n">total_loss</span> <span class="o">=</span> <span class="mf">0.0</span>
+        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">args</span><span class="p">.</span><span class="n">gradient_accumulation_steps</span><span class="p">):</span>
+            <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">get_batch</span><span class="p">(</span><span class="n">train_data</span><span class="p">,</span> <span class="n">args</span><span class="p">.</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">args</span><span class="p">.</span><span class="n">context_length</span><span class="p">,</span> <span class="n">args</span><span class="p">.</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">logits</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">apply_softmax</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+            <span class="n">loss</span> <span class="o">=</span> <span class="n">cross_entropy</span><span class="p">(</span><span class="n">logits</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">logits</span><span class="p">.</span><span class="n">size</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)),</span> <span class="n">y</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+            <span class="n">loss</span> <span class="o">=</span> <span class="n">loss</span> <span class="o">/</span> <span class="n">args</span><span class="p">.</span><span class="n">gradient_accumulation_steps</span>
+            <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+            <span class="n">total_loss</span> <span class="o">+=</span> <span class="n">loss</span><span class="p">.</span><span class="n">item</span><span class="p">()</span>
+
+        <span class="c1"># Gradient clipping
+</span>        <span class="k">if</span> <span class="n">args</span><span class="p">.</span><span class="n">grad_clip</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">torch</span><span class="p">.</span><span class="n">nn</span><span class="p">.</span><span class="n">utils</span><span class="p">.</span><span class="n">clip_grad_norm_</span><span class="p">(</span><span class="n">model</span><span class="p">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">args</span><span class="p">.</span><span class="n">grad_clip</span><span class="p">)</span>
+
+        <span class="c1"># Optimizer step
+</span>        <span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+        <span class="n">optimizer</span><span class="p">.</span><span class="n">zero_grad</span><span class="p">()</span>
+
+        <span class="c1"># Logging
+</span>        <span class="k">if</span> <span class="n">iter_num</span> <span class="o">%</span> <span class="n">args</span><span class="p">.</span><span class="n">log_interval</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"[</span><span class="si">{</span><span class="n">iter_num</span><span class="si">}</span><span class="s">/</span><span class="si">{</span><span class="n">args</span><span class="p">.</span><span class="n">max_iters</span><span class="si">}</span><span class="s">] loss: </span><span class="si">{</span><span class="n">total_loss</span><span class="si">:</span><span class="p">.</span><span class="mi">4</span><span class="n">f</span><span class="si">}</span><span class="s"> | lr: </span><span class="si">{</span><span class="n">lr</span><span class="si">:</span><span class="p">.</span><span class="mi">2</span><span class="n">e</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+        <span class="c1"># Evaluation
+</span>        <span class="k">if</span> <span class="n">iter_num</span> <span class="o">%</span> <span class="n">args</span><span class="p">.</span><span class="n">eval_interval</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">val_loss</span> <span class="o">=</span> <span class="n">evaluate</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">val_data</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+            <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"[</span><span class="si">{</span><span class="n">iter_num</span><span class="si">}</span><span class="s">] val_loss: </span><span class="si">{</span><span class="n">val_loss</span><span class="si">:</span><span class="p">.</span><span class="mi">4</span><span class="n">f</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+        <span class="c1"># Save checkpoint
+</span>        <span class="k">if</span> <span class="n">iter_num</span> <span class="o">%</span> <span class="n">args</span><span class="p">.</span><span class="n">checkpoint_interval</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">iter_num</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">checkpoint_path</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="n">path</span><span class="p">.</span><span class="n">join</span><span class="p">(</span><span class="n">args</span><span class="p">.</span><span class="n">checkpoint_dir</span><span class="p">,</span> <span class="sa">f</span><span class="s">"checkpoint_iter_</span><span class="si">{</span><span class="n">iter_num</span><span class="si">}</span><span class="s">.pt"</span><span class="p">)</span>
+            <span class="n">save_checkpoint</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">iter_num</span><span class="p">,</span> <span class="n">checkpoint_path</span><span class="p">,</span> <span class="n">model_config</span><span class="p">)</span>
+
+    <span class="c1"># Save final checkpoint
+</span>    <span class="n">final_checkpoint</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="n">path</span><span class="p">.</span><span class="n">join</span><span class="p">(</span><span class="n">args</span><span class="p">.</span><span class="n">checkpoint_dir</span><span class="p">,</span> <span class="s">"checkpoint_final.pt"</span><span class="p">)</span>
+    <span class="n">save_checkpoint</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">args</span><span class="p">.</span><span class="n">max_iters</span><span class="p">,</span> <span class="n">final_checkpoint</span><span class="p">,</span> <span class="n">model_config</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h4 id="usage">Usage</h4>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Train from scratch</span>
+python <span class="nt">-m</span> cs336_basics.train <span class="se">\</span>
+    <span class="nt">--train_data</span> data/train.npy <span class="se">\</span>
+    <span class="nt">--val_data</span> data/val.npy <span class="se">\</span>
+    <span class="nt">--vocab_size</span> 50257 <span class="se">\</span>
+    <span class="nt">--d_model</span> 768 <span class="se">\</span>
+    <span class="nt">--num_layers</span> 12 <span class="se">\</span>
+    <span class="nt">--num_heads</span> 12 <span class="se">\</span>
+    <span class="nt">--d_ff</span> 3072 <span class="se">\</span>
+    <span class="nt">--batch_size</span> 32 <span class="se">\</span>
+    <span class="nt">--max_iters</span> 100000 <span class="se">\</span>
+    <span class="nt">--lr</span> 1e-3 <span class="se">\</span>
+    <span class="nt">--warmup_iters</span> 2000
+
+<span class="c"># Resume from checkpoint</span>
+python <span class="nt">-m</span> cs336_basics.train <span class="se">\</span>
+    <span class="nt">--train_data</span> data/train.npy <span class="se">\</span>
+    <span class="nt">--val_data</span> data/val.npy <span class="se">\</span>
+    <span class="nt">--vocab_size</span> 50257 <span class="se">\</span>
+    <span class="nt">--resume_from</span> checkpoints/checkpoint_iter_50000.pt
+</code></pre></div></div>
+
+<hr />
+
+<h3 id="testing">Testing and Validation</h3>
+
+<p>Production systems require comprehensive testing. Here’s how we can validate our training pipeline to ensure correctness before launching expensive, multi-day training runs.</p>
+
+<h4 id="unit-tests-for-components">Unit Tests for Components</h4>
+
+<p>Each component should have its own unit tests to verify correctness in isolation.</p>
+
+<p><strong>Test AdamW Optimizer:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">test_adamw</span><span class="p">():</span>
+    <span class="s">"""Test AdamW matches reference implementation."""</span>
+    <span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="n">nn</span>
+
+    <span class="c1"># Create simple model
+</span>    <span class="n">model</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+    <span class="n">optimizer</span> <span class="o">=</span> <span class="n">AdamW</span><span class="p">(</span><span class="n">model</span><span class="p">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span> <span class="n">weight_decay</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+
+    <span class="c1"># Create dummy data
+</span>    <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+
+    <span class="c1"># Training step
+</span>    <span class="n">loss</span> <span class="o">=</span> <span class="p">((</span><span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">-</span> <span class="n">y</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">).</span><span class="n">mean</span><span class="p">()</span>
+    <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+
+    <span class="c1"># Verify weights were updated
+</span>    <span class="k">assert</span> <span class="n">loss</span><span class="p">.</span><span class="n">item</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span>  <span class="c1"># Loss should be non-zero
+</span>    <span class="c1"># Compare against PyTorch's implementation for exact match
+</span></code></pre></div></div>
+
+<p><strong>Test Learning Rate Schedule:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">test_learning_rate_schedule</span><span class="p">():</span>
+    <span class="s">"""Test learning rate schedule matches specification."""</span>
+    <span class="n">max_lr</span> <span class="o">=</span> <span class="mf">1.0</span>
+    <span class="n">min_lr</span> <span class="o">=</span> <span class="mf">0.1</span>
+    <span class="n">warmup_iters</span> <span class="o">=</span> <span class="mi">100</span>
+    <span class="n">cosine_cycle_iters</span> <span class="o">=</span> <span class="mi">1000</span>
+
+    <span class="c1"># Test warmup phase
+</span>    <span class="n">lr_start</span> <span class="o">=</span> <span class="n">get_lr_cosine_schedule</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_lr</span><span class="p">,</span> <span class="n">min_lr</span><span class="p">,</span> <span class="n">warmup_iters</span><span class="p">,</span> <span class="n">cosine_cycle_iters</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">lr_start</span> <span class="o">==</span> <span class="mf">0.0</span><span class="p">,</span> <span class="s">"LR should start at 0"</span>
+
+    <span class="n">lr_mid_warmup</span> <span class="o">=</span> <span class="n">get_lr_cosine_schedule</span><span class="p">(</span><span class="mi">50</span><span class="p">,</span> <span class="n">max_lr</span><span class="p">,</span> <span class="n">min_lr</span><span class="p">,</span> <span class="n">warmup_iters</span><span class="p">,</span> <span class="n">cosine_cycle_iters</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="nb">abs</span><span class="p">(</span><span class="n">lr_mid_warmup</span> <span class="o">-</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">max_lr</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">1e-6</span><span class="p">,</span> <span class="s">"LR should be halfway at warmup midpoint"</span>
+
+    <span class="n">lr_end_warmup</span> <span class="o">=</span> <span class="n">get_lr_cosine_schedule</span><span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="n">max_lr</span><span class="p">,</span> <span class="n">min_lr</span><span class="p">,</span> <span class="n">warmup_iters</span><span class="p">,</span> <span class="n">cosine_cycle_iters</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="nb">abs</span><span class="p">(</span><span class="n">lr_end_warmup</span> <span class="o">-</span> <span class="n">max_lr</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">1e-6</span><span class="p">,</span> <span class="s">"LR should be max at end of warmup"</span>
+
+    <span class="c1"># Test cosine phase
+</span>    <span class="n">lr_mid_cosine</span> <span class="o">=</span> <span class="n">get_lr_cosine_schedule</span><span class="p">(</span><span class="mi">550</span><span class="p">,</span> <span class="n">max_lr</span><span class="p">,</span> <span class="n">min_lr</span><span class="p">,</span> <span class="n">warmup_iters</span><span class="p">,</span> <span class="n">cosine_cycle_iters</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">min_lr</span> <span class="o">&lt;</span> <span class="n">lr_mid_cosine</span> <span class="o">&lt;</span> <span class="n">max_lr</span><span class="p">,</span> <span class="s">"LR should be decaying in cosine phase"</span>
+
+    <span class="n">lr_end_cosine</span> <span class="o">=</span> <span class="n">get_lr_cosine_schedule</span><span class="p">(</span><span class="mi">1000</span><span class="p">,</span> <span class="n">max_lr</span><span class="p">,</span> <span class="n">min_lr</span><span class="p">,</span> <span class="n">warmup_iters</span><span class="p">,</span> <span class="n">cosine_cycle_iters</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="nb">abs</span><span class="p">(</span><span class="n">lr_end_cosine</span> <span class="o">-</span> <span class="n">min_lr</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">1e-6</span><span class="p">,</span> <span class="s">"LR should be min at end of cosine"</span>
+
+    <span class="c1"># Test constant phase
+</span>    <span class="n">lr_after</span> <span class="o">=</span> <span class="n">get_lr_cosine_schedule</span><span class="p">(</span><span class="mi">1500</span><span class="p">,</span> <span class="n">max_lr</span><span class="p">,</span> <span class="n">min_lr</span><span class="p">,</span> <span class="n">warmup_iters</span><span class="p">,</span> <span class="n">cosine_cycle_iters</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">lr_after</span> <span class="o">==</span> <span class="n">min_lr</span><span class="p">,</span> <span class="s">"LR should remain at min after cosine phase"</span>
+</code></pre></div></div>
+
+<p><strong>Test Top-p Sampling:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">test_top_p_sampling</span><span class="p">():</span>
+    <span class="s">"""Test top-p sampling filters correctly."""</span>
+    <span class="kn">import</span> <span class="nn">torch</span>
+
+    <span class="n">probs</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.05</span><span class="p">,</span> <span class="mf">0.05</span><span class="p">]])</span>
+    <span class="n">filtered</span> <span class="o">=</span> <span class="n">top_p_sampling</span><span class="p">(</span><span class="n">probs</span><span class="p">,</span> <span class="n">p</span><span class="o">=</span><span class="mf">0.8</span><span class="p">)</span>
+
+    <span class="c1"># Should keep only top 2 tokens (0.5 + 0.3 = 0.8)
+</span>    <span class="k">assert</span> <span class="p">(</span><span class="n">filtered</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="p">:</span><span class="mi">2</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">).</span><span class="nb">all</span><span class="p">(),</span> <span class="s">"Top 2 tokens should have non-zero probability"</span>
+    <span class="k">assert</span> <span class="p">(</span><span class="n">filtered</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">:]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">).</span><span class="nb">all</span><span class="p">(),</span> <span class="s">"Remaining tokens should be filtered out"</span>
+
+    <span class="c1"># Should be renormalized
+</span>    <span class="k">assert</span> <span class="n">torch</span><span class="p">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">filtered</span><span class="p">.</span><span class="nb">sum</span><span class="p">(),</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)),</span> <span class="s">"Probabilities should sum to 1"</span>
+
+    <span class="c1"># Check renormalization is correct
+</span>    <span class="n">expected</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">0.625</span><span class="p">,</span> <span class="mf">0.375</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">]])</span>
+    <span class="k">assert</span> <span class="n">torch</span><span class="p">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">filtered</span><span class="p">,</span> <span class="n">expected</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">),</span> <span class="s">"Renormalization should be correct"</span>
+</code></pre></div></div>
+
+<p><strong>Test Temperature Scaling:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">test_temperature_scaling</span><span class="p">():</span>
+    <span class="s">"""Test temperature scaling affects distribution correctly."""</span>
+    <span class="kn">import</span> <span class="nn">torch</span>
+
+    <span class="n">logits</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">2.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">]])</span>
+
+    <span class="c1"># Standard softmax
+</span>    <span class="n">probs_normal</span> <span class="o">=</span> <span class="n">softmax_with_temperature</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+
+    <span class="c1"># Low temperature (sharper)
+</span>    <span class="n">probs_sharp</span> <span class="o">=</span> <span class="n">softmax_with_temperature</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mf">0.5</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">probs_sharp</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">probs_normal</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="s">"Low temp should increase max probability"</span>
+
+    <span class="c1"># High temperature (flatter)
+</span>    <span class="n">probs_flat</span> <span class="o">=</span> <span class="n">softmax_with_temperature</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mf">2.0</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">probs_flat</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">probs_normal</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="s">"High temp should decrease max probability"</span>
+</code></pre></div></div>
+
+<h4 id="integration-test">Integration Test</h4>
+
+<p>Test the entire training pipeline end-to-end with a small synthetic dataset.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">test_training_integration</span><span class="p">():</span>
+    <span class="s">"""End-to-end test of training pipeline."""</span>
+    <span class="kn">import</span> <span class="nn">tempfile</span>
+    <span class="kn">import</span> <span class="nn">subprocess</span>
+    <span class="kn">import</span> <span class="nn">os</span>
+    <span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="n">np</span>
+
+    <span class="c1"># Create small synthetic dataset
+</span>    <span class="n">vocab_size</span> <span class="o">=</span> <span class="mi">1000</span>
+    <span class="n">train_data</span> <span class="o">=</span> <span class="n">np</span><span class="p">.</span><span class="n">random</span><span class="p">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">vocab_size</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="p">.</span><span class="n">int64</span><span class="p">)</span>
+    <span class="n">val_data</span> <span class="o">=</span> <span class="n">np</span><span class="p">.</span><span class="n">random</span><span class="p">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">vocab_size</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="p">.</span><span class="n">int64</span><span class="p">)</span>
+
+    <span class="c1"># Save to temporary files
+</span>    <span class="k">with</span> <span class="n">tempfile</span><span class="p">.</span><span class="n">TemporaryDirectory</span><span class="p">()</span> <span class="k">as</span> <span class="n">tmpdir</span><span class="p">:</span>
+        <span class="n">train_path</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="n">path</span><span class="p">.</span><span class="n">join</span><span class="p">(</span><span class="n">tmpdir</span><span class="p">,</span> <span class="s">"train.npy"</span><span class="p">)</span>
+        <span class="n">val_path</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="n">path</span><span class="p">.</span><span class="n">join</span><span class="p">(</span><span class="n">tmpdir</span><span class="p">,</span> <span class="s">"val.npy"</span><span class="p">)</span>
+        <span class="n">checkpoint_dir</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="n">path</span><span class="p">.</span><span class="n">join</span><span class="p">(</span><span class="n">tmpdir</span><span class="p">,</span> <span class="s">"checkpoints"</span><span class="p">)</span>
+
+        <span class="n">np</span><span class="p">.</span><span class="n">save</span><span class="p">(</span><span class="n">train_path</span><span class="p">,</span> <span class="n">train_data</span><span class="p">)</span>
+        <span class="n">np</span><span class="p">.</span><span class="n">save</span><span class="p">(</span><span class="n">val_path</span><span class="p">,</span> <span class="n">val_data</span><span class="p">)</span>
+        <span class="n">os</span><span class="p">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">checkpoint_dir</span><span class="p">)</span>
+
+        <span class="c1"># Run training for 10 iterations
+</span>        <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="p">.</span><span class="n">run</span><span class="p">([</span>
+            <span class="s">"python"</span><span class="p">,</span> <span class="s">"-m"</span><span class="p">,</span> <span class="s">"cs336_basics.train"</span><span class="p">,</span>
+            <span class="s">"--train_data"</span><span class="p">,</span> <span class="n">train_path</span><span class="p">,</span>
+            <span class="s">"--val_data"</span><span class="p">,</span> <span class="n">val_path</span><span class="p">,</span>
+            <span class="s">"--vocab_size"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">vocab_size</span><span class="p">),</span>
+            <span class="s">"--d_model"</span><span class="p">,</span> <span class="s">"128"</span><span class="p">,</span>
+            <span class="s">"--num_layers"</span><span class="p">,</span> <span class="s">"2"</span><span class="p">,</span>
+            <span class="s">"--num_heads"</span><span class="p">,</span> <span class="s">"4"</span><span class="p">,</span>
+            <span class="s">"--d_ff"</span><span class="p">,</span> <span class="s">"512"</span><span class="p">,</span>
+            <span class="s">"--max_iters"</span><span class="p">,</span> <span class="s">"10"</span><span class="p">,</span>
+            <span class="s">"--checkpoint_interval"</span><span class="p">,</span> <span class="s">"10"</span><span class="p">,</span>
+            <span class="s">"--checkpoint_dir"</span><span class="p">,</span> <span class="n">checkpoint_dir</span><span class="p">,</span>
+        <span class="p">],</span> <span class="n">check</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">capture_output</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+        <span class="c1"># Verify checkpoint was created
+</span>        <span class="n">checkpoint_path</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="n">path</span><span class="p">.</span><span class="n">join</span><span class="p">(</span><span class="n">checkpoint_dir</span><span class="p">,</span> <span class="s">"checkpoint_final.pt"</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">os</span><span class="p">.</span><span class="n">path</span><span class="p">.</span><span class="n">exists</span><span class="p">(</span><span class="n">checkpoint_path</span><span class="p">),</span> <span class="s">"Final checkpoint should be created"</span>
+
+        <span class="c1"># Test checkpoint loading
+</span>        <span class="n">checkpoint</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">load</span><span class="p">(</span><span class="n">checkpoint_path</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="s">"model_state_dict"</span> <span class="ow">in</span> <span class="n">checkpoint</span>
+        <span class="k">assert</span> <span class="s">"optimizer_state_dict"</span> <span class="ow">in</span> <span class="n">checkpoint</span>
+        <span class="k">assert</span> <span class="s">"iteration"</span> <span class="ow">in</span> <span class="n">checkpoint</span>
+        <span class="k">assert</span> <span class="n">checkpoint</span><span class="p">[</span><span class="s">"iteration"</span><span class="p">]</span> <span class="o">==</span> <span class="mi">10</span>
+
+        <span class="k">print</span><span class="p">(</span><span class="s">"✓ Training ran successfully and created checkpoint"</span><span class="p">)</span>
+
+        <span class="c1"># Test resumption from checkpoint
+</span>        <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="p">.</span><span class="n">run</span><span class="p">([</span>
+            <span class="s">"python"</span><span class="p">,</span> <span class="s">"-m"</span><span class="p">,</span> <span class="s">"cs336_basics.train"</span><span class="p">,</span>
+            <span class="s">"--train_data"</span><span class="p">,</span> <span class="n">train_path</span><span class="p">,</span>
+            <span class="s">"--val_data"</span><span class="p">,</span> <span class="n">val_path</span><span class="p">,</span>
+            <span class="s">"--vocab_size"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">vocab_size</span><span class="p">),</span>
+            <span class="s">"--d_model"</span><span class="p">,</span> <span class="s">"128"</span><span class="p">,</span>
+            <span class="s">"--num_layers"</span><span class="p">,</span> <span class="s">"2"</span><span class="p">,</span>
+            <span class="s">"--max_iters"</span><span class="p">,</span> <span class="s">"15"</span><span class="p">,</span>
+            <span class="s">"--checkpoint_dir"</span><span class="p">,</span> <span class="n">checkpoint_dir</span><span class="p">,</span>
+            <span class="s">"--resume_from"</span><span class="p">,</span> <span class="n">checkpoint_path</span><span class="p">,</span>
+        <span class="p">],</span> <span class="n">check</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">capture_output</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+        <span class="c1"># Verify training continued from iteration 10
+</span>        <span class="k">assert</span> <span class="s">"Resumed from iteration 10"</span> <span class="ow">in</span> <span class="n">result</span><span class="p">.</span><span class="n">stdout</span>
+
+        <span class="k">print</span><span class="p">(</span><span class="s">"✓ Training resumed successfully from checkpoint"</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h4 id="pre-training-validation-checklist">Pre-Training Validation Checklist</h4>
+
+<p>Before launching a long training run, verify:</p>
+
+<ol>
+  <li><strong>Loss decreases on small data</strong>: Train for 100 iterations on a tiny dataset and verify loss goes down</li>
+  <li><strong>Checkpoints save/load correctly</strong>: Save and load a checkpoint, verify iteration count and loss match</li>
+  <li><strong>Learning rate schedule looks correct</strong>: Plot the LR over iterations and verify the curve matches expectations</li>
+  <li><strong>Memory usage is reasonable</strong>: Monitor GPU memory and ensure it doesn’t exceed available capacity</li>
+  <li><strong>Data loading works</strong>: Verify data batches have correct shape and token values are in valid range</li>
+  <li><strong>Gradient norms are stable</strong>: Log gradient norms during warmup, verify they decrease and don’t explode</li>
+</ol>
+
+<p><strong>Quick validation script:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Quick 100-iteration validation run
+</span><span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">cs336_basics</span><span class="p">.</span><span class="n">train</span> \
+    <span class="o">--</span><span class="n">train_data</span> <span class="n">data</span><span class="o">/</span><span class="n">train</span><span class="p">.</span><span class="n">npy</span> \
+    <span class="o">--</span><span class="n">val_data</span> <span class="n">data</span><span class="o">/</span><span class="n">val</span><span class="p">.</span><span class="n">npy</span> \
+    <span class="o">--</span><span class="n">vocab_size</span> <span class="mi">50257</span> \
+    <span class="o">--</span><span class="n">max_iters</span> <span class="mi">100</span> \
+    <span class="o">--</span><span class="n">log_interval</span> <span class="mi">10</span> \
+    <span class="o">--</span><span class="n">checkpoint_interval</span> <span class="mi">50</span>
+
+<span class="c1"># Expected output:
+# [0/100] loss: 10.8234 | lr: 0.00e+00    (high initial loss)
+# [10/100] loss: 9.2156 | lr: 5.00e-05   (loss decreasing)
+# [50/100] loss: 7.8901 | lr: 2.50e-04   (loss continuing to decrease)
+# [100/100] loss: 6.5432 | lr: 5.00e-04  (loss still decreasing)
+</span></code></pre></div></div>
+
+<p>If loss doesn’t decrease in 100 iterations, something is wrong—debug before launching a long run!</p>
+
+<hr />
+
+<h3 id="takeaways">Key Takeaways</h3>
+
+<p>Building a production training pipeline requires attention to many details beyond the core model architecture. Here are the essential lessons:</p>
+
+<h4 id="1-correctness-over-convenience">1. <strong>Correctness Over Convenience</strong></h4>
+<p>Follow paper specifications exactly, especially for:</p>
+<ul>
+  <li>Optimizer algorithms (AdamW’s decoupled weight decay)</li>
+  <li>Learning rate schedules (strict inequalities matter)</li>
+  <li>Bias correction formulas</li>
+</ul>
+
+<p>Small deviations can cause subtle training instabilities that only appear after days of training.</p>
+
+<h4 id="2-memory-efficiency-is-critical">2. <strong>Memory Efficiency Is Critical</strong></h4>
+<p>For large-scale training:</p>
+<ul>
+  <li>Use memory-mapped arrays for datasets larger than RAM</li>
+  <li>Monitor peak memory usage during training</li>
+  <li>Consider gradient checkpointing for very large models</li>
+</ul>
+
+<h4 id="3-checkpoint-everything">3. <strong>Checkpoint Everything</strong></h4>
+<p>A complete checkpoint includes:</p>
+<ul>
+  <li>Model parameters</li>
+  <li>Optimizer state (momentum buffers!)</li>
+  <li>Iteration count</li>
+  <li>Model configuration</li>
+  <li>Random seeds (for reproducibility)</li>
+</ul>
+
+<p>Don’t learn this lesson the hard way after losing a week of training.</p>
+
+<h4 id="4-make-everything-configurable">4. <strong>Make Everything Configurable</strong></h4>
+<p>Use command-line arguments for all hyperparameters:</p>
+<ul>
+  <li>Enables systematic hyperparameter sweeps</li>
+  <li>Makes it easy to resume with different settings</li>
+  <li>Documents what settings were used</li>
+</ul>
+
+<h4 id="5-test-before-long-training-runs">5. <strong>Test Before Long Training Runs</strong></h4>
+<ul>
+  <li>Run integration tests on small synthetic data</li>
+  <li>Train for 100 iterations and verify:
+    <ul>
+      <li>Loss decreases</li>
+      <li>Checkpoints save/load correctly</li>
+      <li>Learning rate schedule looks correct</li>
+      <li>Memory usage is reasonable</li>
+    </ul>
+  </li>
+</ul>
+
+<p>A 10-minute test can save days of wasted compute.</p>
+
+<h4 id="6-generation-quality-depends-on-decoding">6. <strong>Generation Quality Depends on Decoding</strong></h4>
+<p>Even a well-trained model can produce poor text with bad decoding settings:</p>
+<ul>
+  <li>Start with <code class="language-plaintext highlighter-rouge">temperature=0.8, top_p=0.9</code></li>
+  <li>Adjust based on task (lower temperature for factual, higher for creative)</li>
+  <li>Always use some form of sampling (greedy decoding produces repetitive text)</li>
+</ul>
+
+<h4 id="7-monitor-training-actively">7. <strong>Monitor Training Actively</strong></h4>
+<p>Log frequently and watch for:</p>
+<ul>
+  <li>Loss spikes (may indicate learning rate too high)</li>
+  <li>Loss plateaus (may need more data or capacity)</li>
+  <li>Gradient norms (should decrease during warmup)</li>
+  <li>Generation samples (qualitative assessment)</li>
+</ul>
+
+<h4 id="8-production-code-is-different">8. <strong>Production Code Is Different</strong></h4>
+<p>Research code can get away with:</p>
+<ul>
+  <li>Hardcoded hyperparameters</li>
+  <li>No checkpointing</li>
+  <li>Single-file scripts</li>
+</ul>
+
+<p>Production code needs:</p>
+<ul>
+  <li>Configuration management</li>
+  <li>Robust error handling</li>
+  <li>Comprehensive logging</li>
+  <li>Restart/resume capability</li>
+</ul>
+
+<p>This note covered the engineering necessary to turn research ideas into a working system. The components we built—AdamW optimizer, cosine schedule, memory-mapped data loading, checkpointing, and decoding strategies—form the foundation of modern LLM training pipelines. These same patterns appear in systems like GPT-3, LLaMA, and other large language models.</p>
+
+<p>The next step is scaling: distributed training across multiple GPUs, larger datasets, and bigger models. But the fundamentals remain the same: correct implementations of proven algorithms, careful attention to numerical stability, and robust engineering practices.</p>
+
+  </div><a class="u-url" href="/cs336/2025/11/02/cs336-building-a-complete-training-loop.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col">
+        <p class="feed-subscribe">
+          <a href="http://localhost:4000/feed.xml">
+            <svg class="svg-icon orange">
+              <use xlink:href="/assets/minima-social-icons.svg#rss"></use>
+            </svg><span>Subscribe</span>
+          </a>
+        </p>
+      </div>
+      <div class="footer-col">
+        <p>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</p>
+      </div>
+    </div>
+
+    <div class="social-links"><ul class="social-media-list"></ul>
+</div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>
