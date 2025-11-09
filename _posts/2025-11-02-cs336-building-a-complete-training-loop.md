@@ -1045,12 +1045,6 @@ optimizer.zero_grad()
 2. **Effective batch size** = `batch_size × gradient_accumulation_steps`
 3. **Smoother gradients**: Larger effective batches lead to more stable training
 
-**Practical example:**
-- Goal: Train with batch_size=128 for better gradient estimates
-- Constraint: GPU only has memory for batch_size=32
-- Solution: Set `batch_size=32` and `gradient_accumulation_steps=4`
-- Result: Effective batch size = 32 × 4 = 128 ✓
-
 #### Main Training Loop
 
 ```python
