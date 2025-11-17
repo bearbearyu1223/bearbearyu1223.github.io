@@ -1306,9 +1306,8 @@ The three configurations demonstrate clear scaling relationships:
 | Test | 4.1M | 1.8M | 3.15 | 23.4 |
 | TinyStories | 17M | 627M | 1.61 | 5.0 |
 
-**Key Finding**: Each 4× increase in model size together with larger dataset yields ~50% loss reduction and ~80% perplexity improvement.
+**Key Finding**: Each 4× increase in model size together with larger dataset yields ~50% loss reduction and ~80% perplexity improvement. This is **consistent with neural scaling laws** from Kaplan et al. (2020), providing empirical validation on the TinyStories dataset.
 
-This is **consistent with neural scaling laws** from Kaplan et al. (2020), providing empirical validation on the TinyStories dataset.
 ---
 
 ### Production Considerations {#production-considerations}
