@@ -1222,14 +1222,6 @@ Always verify that token values are within valid range:</p>
   <li><strong>Smoother gradients</strong>: Larger effective batches lead to more stable training</li>
 </ol>
 
-<p><strong>Practical example:</strong></p>
-<ul>
-  <li>Goal: Train with batch_size=128 for better gradient estimates</li>
-  <li>Constraint: GPU only has memory for batch_size=32</li>
-  <li>Solution: Set <code class="language-plaintext highlighter-rouge">batch_size=32</code> and <code class="language-plaintext highlighter-rouge">gradient_accumulation_steps=4</code></li>
-  <li>Result: Effective batch size = 32 × 4 = 128 ✓</li>
-</ul>
-
 <h4 id="main-training-loop">Main Training Loop</h4>
 
 <div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>

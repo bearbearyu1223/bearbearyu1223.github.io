@@ -1,5 +1,1950 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-11-02T21:27:47-08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
-</subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [10]</title><link href="http://localhost:4000/cs336/2025/11/02/cs336-building-a-complete-training-loop.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [10]" /><published>2025-11-02T00:00:00-07:00</published><updated>2025-11-02T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/11/02/cs336-building-a-complete-training-loop</id><content type="html" xml:base="http://localhost:4000/cs336/2025/11/02/cs336-building-a-complete-training-loop.html"><![CDATA[<h2 id="building-a-complete-training-loop">Building a Complete Training Loop</h2>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-11-16T17:08:14-08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [11]</title><link href="http://localhost:4000/cs336/2025/11/16/cs336-the-complete-experiment-for-tinystories-transformer.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [11]" /><published>2025-11-16T00:00:00-08:00</published><updated>2025-11-16T00:00:00-08:00</updated><id>http://localhost:4000/cs336/2025/11/16/cs336-the-complete-experiment-for-tinystories-transformer</id><content type="html" xml:base="http://localhost:4000/cs336/2025/11/16/cs336-the-complete-experiment-for-tinystories-transformer.html"><![CDATA[<h2 id="end-to-end-transformer-training-on-tinystories">End-to-End Transformer Training on TinyStories</h2>
+<p>This note walks through the complete, end-to-end process of building a Transformer language model from scratch and training it on the TinyStories dataset. It covers every major component—from byte-pair encoding tokenization and multi-head attention with rotary embeddings to training-loop design and advanced text-generation strategies.</p>
+
+<p>The goal is to provide a clear, practical reference for completing Assignment 1 of CS336, which is often the most time-consuming and technically challenging assignment in the course. It also serves as a summary and recap of Module 1, based on my previous ten CS336 notes:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Title</th>
+      <th>Date Created</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><a href="https://bearbearyu1223.github.io/cs336/2025/07/20/cs336-note-get-started.html">Getting Started with CS336</a></td>
+      <td>July 20, 2025</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><a href="https://bearbearyu1223.github.io/cs336/2025/07/22/cs336-note-simple-bpe.html">A Simple Byte-Pair Encoding Implementation</a></td>
+      <td>July 22, 2025</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><a href="https://bearbearyu1223.github.io/cs336/2025/07/26/cs336-note-train-bpe-tinystories.html">Training BPE on TinyStories</a></td>
+      <td>July 26, 2025</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><a href="https://bearbearyu1223.github.io/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind.html">Understanding GPT-2’s Regex Pretokenizer</a></td>
+      <td>Aug 10, 2025</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td><a href="https://bearbearyu1223.github.io/cs336/2025/09/13/cs336-build-a-transformer-language-model.html">Building a Transformer Language Model</a></td>
+      <td>Sep 13, 2025</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td><a href="https://bearbearyu1223.github.io/cs336/2025/09/17/cs336-transformer-architecture-overview.html">Transformer Architecture Overview</a></td>
+      <td>Sep 17, 2025</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td><a href="https://bearbearyu1223.github.io/cs336/2025/09/28/cs336-understand-computation-cost-of-transformer-model.html">Understanding the Computational Cost of Transformers</a></td>
+      <td>Sep 28, 2025</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td><a href="https://bearbearyu1223.github.io/cs336/2025/10/05/cs336-training-a-transformer-lm-part-1.html">Training a Transformer LM — Part 1</a></td>
+      <td>Oct 5, 2025</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td><a href="https://bearbearyu1223.github.io/cs336/2025/10/19/cs336-implement-softmax-log_softmax-cross_entropy.html">Implementing Softmax, Log-Softmax, and Cross-Entropy</a></td>
+      <td>Oct 19, 2025</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td><a href="https://bearbearyu1223.github.io/cs336/2025/11/02/cs336-building-a-complete-training-loop.html">Building a Complete Training Loop</a></td>
+      <td>Nov 2, 2025</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The full implementation is shared on GitHub:</p>
+
+<p><a href="https://github.com/bearbearyu1223/tinystories-transformer"><svg height="16" width="16" viewBox="0 0 16 16" style="display: inline-block; vertical-align: text-bottom;"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg> github.com/bearbearyu1223/tinystories-transformer</a></p>
+
+<p>All training experiments in this note were run on a Apple MacBook Pro (<strong>M4 Chip</strong>) with <strong>24 GB</strong> of unified memory, a <strong>10-core GPU</strong>, and <strong>Metal 3</strong> support. The full training run required for the assignment took approximately <strong>7 hours</strong> to complete.</p>
+
+<h3 id="table-of-contents">Table of Contents</h3>
+<ol>
+  <li><a href="#introduction">Introduction: Building the System to enable Model Training Experiments</a></li>
+  <li><a href="#bpe-tokenization">BPE Tokenization: Efficient Subword Encoding</a></li>
+  <li><a href="#transformer-architecture">Transformer Architecture: RoPE, RMSNorm, and SwiGLU</a></li>
+  <li><a href="#training-configurations">Three-Tiered Training Configuration</a></li>
+  <li><a href="#training-pipeline">The Training Pipeline: Memory-Efficient and Robust</a></li>
+  <li><a href="#text-generation">Text Generation: Temperature, Top-k, and Top-p Sampling</a></li>
+  <li><a href="#training-analysis">Training Analysis: Scaling Laws in Action</a></li>
+  <li><a href="#production-considerations">Production Considerations</a></li>
+  <li><a href="#takeaways">Key Takeaways</a></li>
+</ol>
+
+<hr />
+
+<h3 id="introduction">Introduction: Building the System to enable Model Training Experiments</h3>
+
+<p>Training a language model involves much more than implementing a Transformer and calling <code class="language-plaintext highlighter-rouge">loss.backward()</code>. A production system requires careful orchestration of tokenization, architecture design, training dynamics, checkpoint management, and generation strategies—each with its own subtleties and potential pitfalls.</p>
+
+<p><strong>What we built:</strong></p>
+<ul>
+  <li>A complete BPE tokenizer with parallel training on multi-core systems</li>
+  <li>A Transformer LM with modern architectural choices (RoPE, RMSNorm, SwiGLU)</li>
+  <li>Three training configurations: quicktest (&lt; 1 min), development/test (~20 min), production (~7 hours)</li>
+  <li>Multiple text generation strategies with temperature and nucleus sampling</li>
+  <li>Comprehensive training analysis with visualization tools</li>
+  <li>Memory-mapped data loading for datasets larger than RAM</li>
+</ul>
+
+<p><strong>The dataset:</strong> TinyStories (Eldan &amp; Li, 2023) contains short stories written by GPT-3.5 and GPT-4, designed to be simple enough for small models to learn coherent language generation while maintaining grammatical correctness and narrative structure.</p>
+
+<p><strong>Model scale:</strong></p>
+<ul>
+  <li>17M parameters (excluding the embedding layers)</li>
+  <li>10,000 BPE vocabulary</li>
+  <li>256-token context length</li>
+  <li>4 transformer layers with 16 attention heads</li>
+</ul>
+
+<p>This note will dive deep into each component, explaining not just the “what” but the “why” behind every design decision.</p>
+
+<hr />
+
+<h3 id="bpe-tokenization">BPE Tokenization: Efficient Subword Encoding</h3>
+
+<p>Before training a language model, we need to convert text into tokens. The choice of tokenization algorithm significantly impacts model performance, training efficiency, and out-of-vocabulary handling. See my previous notes in <a href="https://bearbearyu1223.github.io/cs336/2025/07/22/cs336-note-simple-bpe.html">A Simple Byte-Pair Encoding Implementation</a>, <a href="https://bearbearyu1223.github.io/cs336/2025/07/26/cs336-note-train-bpe-tinystories.html">Training BPE on TinyStories</a>, and <a href="https://bearbearyu1223.github.io/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind.html">Understanding GPT-2’s Regex Pretokenizer</a> as references.</p>
+
+<h4 id="why-bpe-over-character-or-word-level-tokenization">Why BPE Over Character or Word-Level Tokenization?</h4>
+
+<p><strong>Character-level tokenization:</strong></p>
+<ul>
+  <li>✓ Never encounters unknown tokens</li>
+  <li>✗ Very long sequences → expensive attention computation</li>
+  <li>✗ Makes it harder for the model to learn meaningful word-level structure</li>
+</ul>
+
+<p><strong>Word-level tokenization:</strong></p>
+<ul>
+  <li>✓ Tokens correspond to natural semantic units</li>
+  <li>✗ Vocabulary becomes extremely large (hundreds of thousands to millions of words)</li>
+  <li>✗ Performs poorly on rare words, typos, and morphological variations</li>
+</ul>
+
+<p><strong>Byte Pair Encoding (BPE):</strong></p>
+<ul>
+  <li>✓ Compact, manageable vocabulary (typically 10K–50K)</li>
+  <li>✓ Robust to rare words, misspellings, and out-of-vocabulary terms via subword fallback</li>
+  <li>✓ Produces reasonable sequence lengths</li>
+  <li>✓ Language-agnostic — works across diverse writing systems</li>
+</ul>
+
+<h4 id="the-bpe-algorithm">The BPE Algorithm</h4>
+
+<p>BPE iteratively merges the most frequent pair of tokens, starting from individual bytes.</p>
+
+<p><strong>Algorithm:</strong></p>
+
+<ol>
+  <li><strong>Initialize vocabulary</strong> with all bytes (256 base tokens)</li>
+  <li><strong>For</strong> each iteration $i = 1, 2, \ldots, N$:
+    <ul>
+      <li>Count all adjacent token pairs in the corpus</li>
+      <li>Find most frequent pair $(a, b)$</li>
+      <li>Create new token $c = ab$</li>
+      <li>Replace all occurrences of $(a, b)$ with $c$</li>
+      <li>Add $c$ to vocabulary</li>
+    </ul>
+  </li>
+</ol>
+
+<h4 id="parallel-bpe-training-scaling-to-large-corpora">Parallel BPE Training: Scaling to Large Corpora</h4>
+
+<p>Training BPE on multi-gigabyte datasets on a single core is prohibitively slow. Our implementation uses parallel processing with careful handling of chunk boundaries.</p>
+
+<p><strong>Key challenge:</strong> When splitting files across cores, we can’t split in the middle of a special token boundary (e.g., <code class="language-plaintext highlighter-rouge">&lt;|endoftext|&gt;</code>), or we’ll corrupt the data.</p>
+
+<p><strong>Solution:</strong> Find chunk boundaries aligned with special tokens:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">find_chunk_boundaries</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">num_processes</span><span class="p">,</span> <span class="n">special_token_bytes</span><span class="p">):</span>
+    <span class="s">"""
+    Find chunk boundaries in a file aligned with special tokens.
+
+    This ensures we never split a file in the middle of a special token,
+    which would corrupt the tokenization.
+    """</span>
+    <span class="n">f</span><span class="p">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">os</span><span class="p">.</span><span class="n">SEEK_END</span><span class="p">)</span>
+    <span class="n">file_size</span> <span class="o">=</span> <span class="n">f</span><span class="p">.</span><span class="n">tell</span><span class="p">()</span>
+    <span class="n">f</span><span class="p">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+    <span class="n">chunk_size</span> <span class="o">=</span> <span class="n">file_size</span> <span class="o">//</span> <span class="n">num_processes</span>
+    <span class="n">boundaries</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">num_processes</span><span class="p">):</span>
+        <span class="n">target_pos</span> <span class="o">=</span> <span class="n">i</span> <span class="o">*</span> <span class="n">chunk_size</span>
+        <span class="n">f</span><span class="p">.</span><span class="n">seek</span><span class="p">(</span><span class="n">target_pos</span><span class="p">)</span>
+
+        <span class="c1"># Read ahead to find next special token
+</span>        <span class="n">search_window</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">chunk_size</span><span class="p">,</span> <span class="n">file_size</span> <span class="o">-</span> <span class="n">target_pos</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">f</span><span class="p">.</span><span class="n">read</span><span class="p">(</span><span class="n">search_window</span><span class="p">)</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="n">data</span><span class="p">.</span><span class="n">find</span><span class="p">(</span><span class="n">special_token_bytes</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">idx</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+            <span class="n">boundary_pos</span> <span class="o">=</span> <span class="n">target_pos</span> <span class="o">+</span> <span class="n">idx</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">special_token_bytes</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">boundary_pos</span> <span class="o">=</span> <span class="n">target_pos</span>
+
+        <span class="n">boundaries</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">boundary_pos</span><span class="p">)</span>
+
+    <span class="n">boundaries</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">file_size</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">boundaries</span>
+</code></pre></div></div>
+
+<p><strong>Parallel training workflow:</strong></p>
+
+<ol>
+  <li><strong>Chunk the corpus</strong> at special token boundaries</li>
+  <li><strong>Process chunks in parallel</strong> using multiprocessing</li>
+  <li><strong>Aggregate pair counts</strong> from all workers</li>
+  <li><strong>Merge globally most frequent pair</strong></li>
+  <li><strong>Repeat</strong> until vocabulary size reached</li>
+</ol>
+
+<p><strong>Performance impact:</strong></p>
+<ul>
+  <li>Single-core: ~45 minutes for 2GB corpus</li>
+  <li>8-core parallelization: ~6 minutes for same corpus</li>
+  <li><strong>7.5× speedup</strong> with careful boundary alignment</li>
+</ul>
+
+<h4 id="practical-bpe-training">Practical BPE Training</h4>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">from</span> <span class="nn">cs336_basics.bpe</span> <span class="kn">import</span> <span class="n">train_bpe</span>
+
+<span class="c1"># Train tokenizer on TinyStories
+</span><span class="n">train_bpe</span><span class="p">(</span>
+    <span class="n">input_path</span><span class="o">=</span><span class="s">"data/TinyStoriesV2-GPT4-train.txt"</span><span class="p">,</span>
+    <span class="n">vocab_size</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span>
+    <span class="n">special_tokens</span><span class="o">=</span><span class="p">[</span><span class="s">"&lt;|endoftext|&gt;"</span><span class="p">],</span>
+    <span class="n">output_dir</span><span class="o">=</span><span class="s">"tokenizer"</span><span class="p">,</span>
+    <span class="n">num_processes</span><span class="o">=</span><span class="mi">8</span>  <span class="c1"># Can use all cores as needed
+</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p>This creates:</p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">tokenizer/</code>: <code class="language-plaintext highlighter-rouge">vocab.pkl</code> for Vocabulary mapping</li>
+  <li><code class="language-plaintext highlighter-rouge">tokenizer/</code>: <code class="language-plaintext highlighter-rouge">merges.pkl</code> for Merge rules</li>
+  <li>Cached tokenized arrays from input dataset for instant loading (e.g., <code class="language-plaintext highlighter-rouge">data_test/train_tokens.npy</code> and <code class="language-plaintext highlighter-rouge">data_test/val_tokens.npy</code>)</li>
+</ul>
+
+<hr />
+
+<h3 id="transformer-architecture">Transformer Architecture: RoPE, RMSNorm, and SwiGLU</h3>
+
+<p>Modern Transformers have evolved beyond the original “Attention is All You Need” architecture. Our implementation incorporates three key innovations from recent research: Rotary Position Embeddings (RoPE), RMS Normalization, and SwiGLU activation.</p>
+
+<h4 id="rotary-position-embeddings-rope">Rotary Position Embeddings (RoPE)</h4>
+
+<p><strong>The problem with absolute position embeddings:</strong></p>
+<ul>
+  <li>Standard learned embeddings don’t generalize to longer sequences than seen during training</li>
+  <li>No notion of relative distance between tokens</li>
+</ul>
+
+<p><strong>RoPE solution:</strong> Encode positional information by rotating query and key vectors in the complex plane.</p>
+
+<p><strong>Mathematical formulation:</strong></p>
+
+<p>For position $m$ and dimension pair $(2i, 2i+1)$, apply rotation matrix:</p>
+
+\[\begin{pmatrix} q_{2i}^{(m)} \\ q_{2i+1}^{(m)} \end{pmatrix} = \begin{pmatrix} \cos(m\theta_i) &amp; -\sin(m\theta_i) \\ \sin(m\theta_i) &amp; \cos(m\theta_i) \end{pmatrix} \begin{pmatrix} q_{2i} \\ q_{2i+1} \end{pmatrix}\]
+
+<p>Where $\theta_i = 10000^{-2i/d}$ (frequency decreases with dimension)</p>
+
+<p><strong>Key property:</strong> The dot product $q^{(m)} \cdot k^{(n)}$ depends only on relative position $m - n$:</p>
+
+\[\text{RoPE}(q_m, k_n, m, n) = \text{RoPE}(q_m, k_n, 0, n-m)\]
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">rotate_half</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">Float</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="s">"batch seq n_heads d_head"</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Float</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="s">"batch seq n_heads d_head"</span><span class="p">]:</span>
+    <span class="s">"""
+    Rotate the second half of the last dimension to the first half.
+    This implements the rotation: [x1, x2, x3, x4] → [-x3, -x4, x1, x2]
+    """</span>
+    <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span> <span class="o">=</span> <span class="n">x</span><span class="p">.</span><span class="n">chunk</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="p">.</span><span class="n">cat</span><span class="p">((</span><span class="o">-</span><span class="n">x2</span><span class="p">,</span> <span class="n">x1</span><span class="p">),</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">apply_rotary_pos_emb</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">Float</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="s">"batch seq n_heads d_head"</span><span class="p">],</span>
+    <span class="n">freqs_cos</span><span class="p">:</span> <span class="n">Float</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="s">"seq d_head"</span><span class="p">],</span>
+    <span class="n">freqs_sin</span><span class="p">:</span> <span class="n">Float</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="s">"seq d_head"</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Float</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="s">"batch seq n_heads d_head"</span><span class="p">]:</span>
+    <span class="s">"""
+    Apply rotary position embeddings to input tensor.
+
+    This implements: x_rotated = x * cos(mθ) + rotate_half(x) * sin(mθ)
+    """</span>
+    <span class="c1"># Expand frequency tensors to match input dimensions
+</span>    <span class="n">freqs_cos</span> <span class="o">=</span> <span class="n">freqs_cos</span><span class="p">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>  <span class="c1"># [1, seq, 1, d_head]
+</span>    <span class="n">freqs_sin</span> <span class="o">=</span> <span class="n">freqs_sin</span><span class="p">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+
+    <span class="c1"># Apply rotation
+</span>    <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">freqs_cos</span> <span class="o">+</span> <span class="n">rotate_half</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">*</span> <span class="n">freqs_sin</span>
+</code></pre></div></div>
+
+<p><strong>Why RoPE matters:</strong></p>
+<ul>
+  <li><strong>Better length generalization:</strong> Models trained on 512 tokens can inference on 2048+ tokens</li>
+  <li><strong>Relative position encoding:</strong> Attention naturally focuses on nearby tokens</li>
+  <li><strong>No learned parameters:</strong> Purely geometric transformation</li>
+</ul>
+
+<h4 id="rms-normalization-simpler-and-faster">RMS Normalization: Simpler and Faster</h4>
+
+<p><strong>LayerNorm (traditional):</strong></p>
+
+<p>$\text{LayerNorm}(x) = \gamma \cdot \frac{x - \mu}{\sigma} + \beta$</p>
+
+<p>Where $\mu$ and $\sigma$ are mean and standard deviation.</p>
+
+<p><strong>RMSNorm (modern):</strong></p>
+
+<p>$\text{RMSNorm}(x) = \gamma \cdot \frac{x}{\text{RMS}(x)} \quad \text{where} \quad \text{RMS}(x) = \sqrt{\frac{1}{d}\sum_{i=1}^d x_i^2}$</p>
+
+<p><strong>Key differences:</strong></p>
+<ul>
+  <li>✗ No mean centering (no $-\mu$ term)</li>
+  <li>✗ No bias term ($\beta$)</li>
+  <li>✓ 10-30% faster computation</li>
+  <li>✓ Equivalent performance in practice</li>
+</ul>
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">class</span> <span class="nc">RMSNorm</span><span class="p">(</span><span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="s">"""
+    RMS Normalization layer.
+
+    Normalizes by root mean square rather than standard deviation,
+    removing the mean centering step for efficiency.
+    """</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-5</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">eps</span> <span class="o">=</span> <span class="n">eps</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">ones</span><span class="p">(</span><span class="n">d_model</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">Float</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="s">"batch seq d_model"</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Float</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="s">"batch seq d_model"</span><span class="p">]:</span>
+        <span class="c1"># Compute RMS: sqrt(mean(x^2))
+</span>        <span class="n">rms</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">mean</span><span class="p">(</span><span class="n">x</span> <span class="o">**</span> <span class="mi">2</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span> <span class="o">+</span> <span class="bp">self</span><span class="p">.</span><span class="n">eps</span><span class="p">)</span>
+
+        <span class="c1"># Normalize and scale
+</span>        <span class="n">x_normed</span> <span class="o">=</span> <span class="n">x</span> <span class="o">/</span> <span class="n">rms</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="p">.</span><span class="n">weight</span> <span class="o">*</span> <span class="n">x_normed</span>
+</code></pre></div></div>
+
+<p><strong>Why RMSNorm matters:</strong></p>
+<ul>
+  <li>Adopted by LLaMA, GPT-NeoX, and other modern LLMs</li>
+  <li>Simpler backward pass (fewer terms to compute)</li>
+  <li>Lower memory bandwidth requirements</li>
+</ul>
+
+<h4 id="swiglu-gated-linear-units-with-swish">SwiGLU: Gated Linear Units with Swish</h4>
+
+<p><strong>Standard FFN (original Transformer):</strong></p>
+
+<p>$\text{FFN}(x) = W_2 \cdot \text{ReLU}(W_1 x)$</p>
+
+<p><strong>SwiGLU (modern):</strong></p>
+
+<p>$\text{SwiGLU}(x) = (W_1 x \otimes \text{Swish}(W_3 x)) W_2$</p>
+
+<p>Where:</p>
+<ul>
+  <li>$\text{Swish}(x) = x \cdot \sigma(x)$ (smooth, non-monotonic activation)</li>
+  <li>$\otimes$ is element-wise multiplication (gating mechanism)</li>
+</ul>
+
+<p><strong>Why gating works:</strong>
+The gating mechanism allows the network to control information flow:</p>
+<ul>
+  <li>$W_1 x$: Transformed features</li>
+  <li>$\text{Swish}(W_3 x)$: Gates that decide what to pass through</li>
+  <li>Element-wise product: Selective information routing</li>
+</ul>
+
+<p><strong>Implementation:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">class</span> <span class="nc">SwiGLU</span><span class="p">(</span><span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="s">"""
+    SwiGLU activation function: Swish-Gated Linear Unit.
+
+    Combines Swish activation with a gating mechanism for better
+    representational capacity than standard ReLU.
+    """</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">w1</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">w2</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_ff</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">w3</span> <span class="o">=</span> <span class="n">nn</span><span class="p">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">Float</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="s">"batch seq d_model"</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Float</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="s">"batch seq d_model"</span><span class="p">]:</span>
+        <span class="c1"># Swish activation: x * sigmoid(x)
+</span>        <span class="n">swish</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">w3</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">*</span> <span class="n">torch</span><span class="p">.</span><span class="n">sigmoid</span><span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">w3</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+
+        <span class="c1"># Gated linear unit
+</span>        <span class="n">gated</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">w1</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">*</span> <span class="n">swish</span>
+
+        <span class="c1"># Project back to d_model
+</span>        <span class="k">return</span> <span class="bp">self</span><span class="p">.</span><span class="n">w2</span><span class="p">(</span><span class="n">gated</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Why SwiGLU matters:</strong></p>
+<ul>
+  <li><strong>Better performance:</strong> PaLM paper shows 1-2% improvement over standard FFN</li>
+  <li><strong>Smooth gradients:</strong> Swish has non-zero gradients for negative inputs (unlike ReLU)</li>
+  <li><strong>Gating flexibility:</strong> Network learns what information to propagate</li>
+</ul>
+
+<h4 id="complete-transformer-block">Complete Transformer Block</h4>
+
+<p>Putting it all together:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">class</span> <span class="nc">TransformerBlock</span><span class="p">(</span><span class="n">nn</span><span class="p">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="s">"""
+    Single Transformer block with modern architectural choices:
+    - RoPE for positional encoding
+    - RMSNorm for normalization
+    - SwiGLU for feed-forward network
+    """</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">num_heads</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">context_length</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">().</span><span class="n">__init__</span><span class="p">()</span>
+
+        <span class="c1"># Pre-normalization (RMSNorm before attention)
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">norm1</span> <span class="o">=</span> <span class="n">RMSNorm</span><span class="p">(</span><span class="n">d_model</span><span class="p">)</span>
+
+        <span class="c1"># Multi-head attention with RoPE
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">attn</span> <span class="o">=</span> <span class="n">MultiHeadAttention</span><span class="p">(</span>
+            <span class="n">d_model</span><span class="o">=</span><span class="n">d_model</span><span class="p">,</span>
+            <span class="n">num_heads</span><span class="o">=</span><span class="n">num_heads</span><span class="p">,</span>
+            <span class="n">context_length</span><span class="o">=</span><span class="n">context_length</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Pre-normalization (RMSNorm before FFN)
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">norm2</span> <span class="o">=</span> <span class="n">RMSNorm</span><span class="p">(</span><span class="n">d_model</span><span class="p">)</span>
+
+        <span class="c1"># SwiGLU feed-forward network
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">ffn</span> <span class="o">=</span> <span class="n">SwiGLU</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">Float</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="s">"batch seq d_model"</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Float</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="s">"batch seq d_model"</span><span class="p">]:</span>
+        <span class="c1"># Attention block with residual connection
+</span>        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="bp">self</span><span class="p">.</span><span class="n">attn</span><span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">norm1</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+
+        <span class="c1"># FFN block with residual connection
+</span>        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="bp">self</span><span class="p">.</span><span class="n">ffn</span><span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">norm2</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+
+        <span class="k">return</span> <span class="n">x</span>
+</code></pre></div></div>
+
+<p><strong>Architectural choices summary:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Component</th>
+      <th>Traditional</th>
+      <th>Modern (Our Choice)</th>
+      <th>Benefit</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Position Encoding</td>
+      <td>Learned/Sinusoidal</td>
+      <td>RoPE</td>
+      <td>Length generalization</td>
+    </tr>
+    <tr>
+      <td>Normalization</td>
+      <td>LayerNorm</td>
+      <td>RMSNorm</td>
+      <td>10-30% faster</td>
+    </tr>
+    <tr>
+      <td>Activation</td>
+      <td>ReLU/GeLU</td>
+      <td>SwiGLU</td>
+      <td>1-2% better performance</td>
+    </tr>
+    <tr>
+      <td>Norm Placement</td>
+      <td>Post-norm</td>
+      <td>Pre-norm</td>
+      <td>Training stability</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr />
+
+<h3 id="training-configurations">Three-Tiered Training Configuration</h3>
+
+<p>One of the most practical aspects of this implementation is the <strong>three-tiered training configuration</strong>, designed to balance <strong>rapid iteration</strong> with <strong>final model quality</strong>. Instead of forcing every experiment to run a full multi-hour training job, the system provides lightweight modes for debugging, development, and production training.</p>
+
+<h4 id="the-problem-long-feedback-loops">The Problem: Long Feedback Loops</h4>
+
+<p>Training a realistic language model can take <strong>hours or even days</strong>, creating extremely slow feedback cycles:</p>
+
+<ul>
+  <li><strong>Full TinyStories training:</strong> ~7 hours on an M4 MacBook Pro</li>
+  <li>Make a small code change? → another 7 hours to validate</li>
+  <li>Debug a tensor shape issue? → another long wait</li>
+  <li>Experiment with a hyperparameter? → you see the pattern…</li>
+</ul>
+
+<p>This makes rapid model development <strong>painful and impractical</strong>. No one wants to wait half a day just to check whether a single attention-head change broke the model.</p>
+
+<h4 id="the-solution-graduated-configurations">The Solution: Graduated Configurations</h4>
+
+<p>The shared implementation in  <a href="https://github.com/bearbearyu1223/tinystories-transformer"><svg height="16" width="16" viewBox="0 0 16 16" style="display: inline-block; vertical-align: text-bottom;"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg> github.com/bearbearyu1223/tinystories-transformer</a> provides three configurations with increasing complexity:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Configuration</th>
+      <th>Iterations</th>
+      <th>Vocab Size</th>
+      <th>Dataset Size</th>
+      <th>Model Size</th>
+      <th>Time</th>
+      <th>Use Case</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong><a href="https://github.com/bearbearyu1223/tinystories-transformer/blob/main/config_quicktest.json">config_quicktest.json</a></strong></td>
+      <td>10</td>
+      <td>2,000</td>
+      <td>10K lines</td>
+      <td>0.94M</td>
+      <td>&lt; 1 min</td>
+      <td>Code validation, CI/CD</td>
+    </tr>
+    <tr>
+      <td><strong><a href="https://github.com/bearbearyu1223/tinystories-transformer/blob/main/config_test.json">config_test.json</a></strong></td>
+      <td>1,000</td>
+      <td>5,000</td>
+      <td>50K lines</td>
+      <td>4.1M</td>
+      <td>~20 min</td>
+      <td>Active fast development</td>
+    </tr>
+    <tr>
+      <td><strong><a href="https://github.com/bearbearyu1223/tinystories-transformer/blob/main/config_tinystories.json">config_tinystories.json</a></strong></td>
+      <td>20,000</td>
+      <td>10,000</td>
+      <td>15.6M lines</td>
+      <td>17M</td>
+      <td>~7 hours</td>
+      <td>Production training experiment</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="configuration-1-quicktest-sanity-check">Configuration 1: Quicktest (Sanity Check)</h4>
+
+<p><strong>Purpose:</strong> Ultra-fast validation that your code works at all.</p>
+
+<p><strong>config_quicktest.json:</strong></p>
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="nl">"data_dir"</span><span class="p">:</span><span class="w"> </span><span class="s2">"data_quicktest"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"train_file"</span><span class="p">:</span><span class="w"> </span><span class="s2">"TinyStoriesV2-GPT4-train-quicktest.txt"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"val_file"</span><span class="p">:</span><span class="w"> </span><span class="s2">"TinyStoriesV2-GPT4-valid-quicktest.txt"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"vocab_size"</span><span class="p">:</span><span class="w"> </span><span class="mi">2000</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"context_length"</span><span class="p">:</span><span class="w"> </span><span class="mi">64</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"d_model"</span><span class="p">:</span><span class="w"> </span><span class="mi">256</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"num_layers"</span><span class="p">:</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"num_heads"</span><span class="p">:</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"d_ff"</span><span class="p">:</span><span class="w"> </span><span class="mi">672</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"batch_size"</span><span class="p">:</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"max_iters"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"log_file"</span><span class="p">:</span><span class="w"> </span><span class="s2">"logs/quicktest_training.log"</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+<p><strong>What you will be able to get:</strong></p>
+<ul>
+  <li>Training runs in &lt; 1 minute</li>
+  <li>Verifies code correctness (no shape mismatches, no NaN losses)</li>
+  <li>Useful for CI/CD pipelines</li>
+  <li>Not useful for actual model quality</li>
+</ul>
+
+<p><strong>When to use:</strong></p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># After changing tensor operations</span>
+uv run train-transformer config_quicktest.json
+
+<span class="c"># In CI/CD pipeline</span>
+pytest <span class="o">&amp;&amp;</span> uv run train-transformer config_quicktest.json
+</code></pre></div></div>
+
+<h4 id="configuration-2-test-active-development">Configuration 2: Test (Active Development)</h4>
+
+<p><strong>Purpose:</strong> Production-like quality in development timeframes.</p>
+
+<p><strong>config_test.json:</strong></p>
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="nl">"data_dir"</span><span class="p">:</span><span class="w"> </span><span class="s2">"data_test"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"train_file"</span><span class="p">:</span><span class="w"> </span><span class="s2">"TinyStoriesV2-GPT4-train-test.txt"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"val_file"</span><span class="p">:</span><span class="w"> </span><span class="s2">"TinyStoriesV2-GPT4-valid-test.txt"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"vocab_size"</span><span class="p">:</span><span class="w"> </span><span class="mi">5000</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"context_length"</span><span class="p">:</span><span class="w"> </span><span class="mi">128</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"d_model"</span><span class="p">:</span><span class="w"> </span><span class="mi">512</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"num_layers"</span><span class="p">:</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"num_heads"</span><span class="p">:</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"d_ff"</span><span class="p">:</span><span class="w"> </span><span class="mi">1344</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"batch_size"</span><span class="p">:</span><span class="w"> </span><span class="mi">64</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"max_iters"</span><span class="p">:</span><span class="w"> </span><span class="mi">1000</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"log_file"</span><span class="p">:</span><span class="w"> </span><span class="s2">"logs/test_training.log"</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+<p><strong>What you will be able to get:</strong></p>
+<ul>
+  <li>Training loss: 8.58 → 3.11 (63.8% reduction)</li>
+  <li>Perplexity: 5,309 → 23.4 (99.6% reduction)</li>
+  <li>Model generates coherent (if simple) sentences</li>
+  <li><strong>Fast enough for hyperparameter tuning</strong></li>
+</ul>
+
+<p><strong>Training dynamics (test configuration):</strong></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Phase 1 (0-300 iters): Rapid initial learning
+  Loss: 8.6 → 3.7 (massive initial drop)
+
+Phase 2 (300-700 iters): Steady optimization
+  Loss: 3.7 → 3.2 (perplexity stabilizes)
+
+Phase 3 (700-1000 iters): Fine-tuning
+  Loss: 3.2 → 3.1 (diminishing returns)
+</code></pre></div></div>
+
+<p><strong>When to use:</strong></p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Testing new architecture changes</span>
+uv run train-transformer config_test.json
+
+<span class="c"># Hyperparameter sweep (different learning rates, etc.)</span>
+<span class="k">for </span>lr <span class="k">in </span>1e-4 3e-4 1e-3<span class="p">;</span> <span class="k">do
+  </span>uv run train-transformer config_test.json <span class="nt">--lr</span> <span class="nv">$lr</span>
+<span class="k">done</span>
+</code></pre></div></div>
+
+<h4 id="configuration-3-tinystories-production-training-experiments">Configuration 3: TinyStories (Production Training Experiments)</h4>
+
+<p><strong>Purpose:</strong> Best possible model quality, no compromises.</p>
+
+<p><strong>config_tinystories.json:</strong></p>
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="nl">"data_dir"</span><span class="p">:</span><span class="w"> </span><span class="s2">"data"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"train_file"</span><span class="p">:</span><span class="w"> </span><span class="s2">"TinyStoriesV2-GPT4-train.txt"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"val_file"</span><span class="p">:</span><span class="w"> </span><span class="s2">"TinyStoriesV2-GPT4-valid.txt"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"vocab_size"</span><span class="p">:</span><span class="w"> </span><span class="mi">10000</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"context_length"</span><span class="p">:</span><span class="w"> </span><span class="mi">256</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"d_model"</span><span class="p">:</span><span class="w"> </span><span class="mi">512</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"num_layers"</span><span class="p">:</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"num_heads"</span><span class="p">:</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"d_ff"</span><span class="p">:</span><span class="w"> </span><span class="mi">1344</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"batch_size"</span><span class="p">:</span><span class="w"> </span><span class="mi">128</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"max_iters"</span><span class="p">:</span><span class="w"> </span><span class="mi">20000</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"log_file"</span><span class="p">:</span><span class="w"> </span><span class="s2">"logs/tinystories_training.log"</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+<p><strong>What you will be able to get:</strong></p>
+<ul>
+  <li>Training loss: 9.25 → 1.61 (82.6% reduction)</li>
+  <li>Perplexity: ~10,500 → ~5.0 (99.95% reduction)</li>
+  <li>Model generates coherent multi-sentence stories</li>
+  <li>Production-quality checkpoint for deployment</li>
+</ul>
+
+<p><strong>Training dynamics (full configuration):</strong></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Warmup (0-1000): Learning rate warmup, rapid gains
+  Loss: 9.25 → 2.50
+
+Main training (1000-6000): Steady improvement
+  Loss: 2.50 → 1.61
+
+Long-term (6000-20000): Continued refinement
+  Perplexity continues improving, no signs of plateauing
+</code></pre></div></div>
+
+<p><strong>When to use:</strong></p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Final production model</span>
+uv run train-transformer config_tinystories.json
+
+<span class="c"># Overnight training run for best results, runs your training job in the background, keeps it alive after closing the terminal, and writes all output (stdout + stderr) to training.log</span>
+<span class="nb">nohup </span>uv run train-transformer config_tinystories.json <span class="o">&gt;</span> training.log 2&gt;&amp;1 &amp;
+</code></pre></div></div>
+
+<h4 id="the-power-of-graduated-configurations">The Power of Graduated Configurations</h4>
+
+<p>This three-tiered approach provides:</p>
+
+<ol>
+  <li><strong>Rapid iteration:</strong> Fix bugs in minutes, not hours</li>
+  <li><strong>Confident scaling:</strong> Test config validates production config will work</li>
+  <li><strong>Clear development workflow:</strong>
+    <ul>
+      <li>Write code → Test with quicktest</li>
+      <li>Validate quality → Run test config</li>
+      <li>Deploy → Use tinystories checkpoint</li>
+    </ul>
+  </li>
+</ol>
+
+<hr />
+
+<h3 id="training-pipeline">The Training Pipeline: Memory-Efficient and Robust</h3>
+
+<p>A production training pipeline must handle datasets larger than RAM, resume from crashes, and provide clear visibility into training progress.</p>
+
+<h4 id="memory-mapped-data-loading">Memory-Mapped Data Loading</h4>
+
+<p><strong>The challenge:</strong> TinyStories full dataset is 2.1GB tokenized. Loading into RAM:</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">dataset</span> <span class="o">=</span> <span class="n">np</span><span class="p">.</span><span class="n">load</span><span class="p">(</span><span class="s">'train_tokens.npy'</span><span class="p">)</span>  <span class="c1"># Loads entire 2.1GB into memory!
+</span></code></pre></div></div>
+
+<p>This works for small datasets but fails at scale.</p>
+
+<p><strong>The solution:</strong> Memory-mapped arrays using Unix <code class="language-plaintext highlighter-rouge">mmap</code> system call:
+A reference implementation to illustrate the idea</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">load_dataset</span><span class="p">(</span><span class="n">data_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">vocab_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="p">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="s">"""
+    Load dataset using memory-mapped mode for memory efficiency.
+
+    Memory mapping allows treating files as arrays without loading
+    into RAM. The OS loads only accessed pages on-demand.
+    """</span>
+    <span class="n">dataset</span> <span class="o">=</span> <span class="n">np</span><span class="p">.</span><span class="n">load</span><span class="p">(</span><span class="n">data_path</span><span class="p">,</span> <span class="n">mmap_mode</span><span class="o">=</span><span class="s">"r"</span><span class="p">)</span>
+
+    <span class="c1"># Verify data integrity
+</span>    <span class="n">max_token</span> <span class="o">=</span> <span class="n">dataset</span><span class="p">.</span><span class="nb">max</span><span class="p">()</span>
+    <span class="n">min_token</span> <span class="o">=</span> <span class="n">dataset</span><span class="p">.</span><span class="nb">min</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">max_token</span> <span class="o">&gt;=</span> <span class="n">vocab_size</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="nb">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s">"Invalid token </span><span class="si">{</span><span class="n">max_token</span><span class="si">}</span><span class="s"> &gt;= vocab_size </span><span class="si">{</span><span class="n">vocab_size</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">min_token</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="nb">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s">"Negative token </span><span class="si">{</span><span class="n">min_token</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">dataset</span>
+</code></pre></div></div>
+
+<p><strong>How memory mapping works:</strong></p>
+
+<ol>
+  <li><strong>Create virtual memory mapping:</strong> File appears as if loaded into RAM</li>
+  <li><strong>Page fault on access:</strong> When you read <code class="language-plaintext highlighter-rouge">dataset[1000000]</code>, OS loads just that 4KB page</li>
+  <li><strong>LRU caching:</strong> OS automatically keeps recently-accessed pages in RAM</li>
+  <li><strong>Eviction:</strong> When RAM is full, OS evicts least-recently-used pages</li>
+</ol>
+
+<p><strong>Performance:</strong></p>
+<ul>
+  <li>Memory usage: Constant (few MB) regardless of dataset size</li>
+  <li>Speed: Near-RAM speed for sequential access (OS prefetching)</li>
+  <li>Scales: Can handle TB-scale datasets on machines with GBs of RAM</li>
+</ul>
+
+<h4 id="timestamp-based-logging">Timestamp-Based Logging</h4>
+
+<p><strong>The problem:</strong> Running multiple experiments overwrites log files, losing history.</p>
+
+<p><strong>The solution:</strong> Timestamp-based log files:
+A reference implementation to illustrate the idea</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">_setup_logging</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">log_file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">log_level</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="s">"""Setup logging with timestamps to avoid overwriting previous runs."""</span>
+    <span class="k">if</span> <span class="n">log_file</span><span class="p">:</span>
+        <span class="n">log_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">log_file</span><span class="p">)</span>
+        <span class="n">log_path</span><span class="p">.</span><span class="n">parent</span><span class="p">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+        <span class="c1"># Add timestamp: e.g., logs/test_training_20251116_122750.log
+</span>        <span class="n">timestamp</span> <span class="o">=</span> <span class="n">datetime</span><span class="p">.</span><span class="n">now</span><span class="p">().</span><span class="n">strftime</span><span class="p">(</span><span class="s">'%Y%m%d_%H%M%S'</span><span class="p">)</span>
+        <span class="n">stem</span> <span class="o">=</span> <span class="n">log_path</span><span class="p">.</span><span class="n">stem</span>
+        <span class="n">suffix</span> <span class="o">=</span> <span class="n">log_path</span><span class="p">.</span><span class="n">suffix</span>
+        <span class="n">timestamped_filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s">"</span><span class="si">{</span><span class="n">stem</span><span class="si">}</span><span class="s">_</span><span class="si">{</span><span class="n">timestamp</span><span class="si">}{</span><span class="n">suffix</span><span class="si">}</span><span class="s">"</span>
+        <span class="n">timestamped_log_path</span> <span class="o">=</span> <span class="n">log_path</span><span class="p">.</span><span class="n">parent</span> <span class="o">/</span> <span class="n">timestamped_filename</span>
+
+        <span class="n">file_handler</span> <span class="o">=</span> <span class="n">logging</span><span class="p">.</span><span class="n">FileHandler</span><span class="p">(</span><span class="n">timestamped_log_path</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s">'w'</span><span class="p">)</span>
+        <span class="n">logger</span><span class="p">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">file_handler</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="p">.</span><span class="n">actual_log_file</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">timestamped_log_path</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Benefits:</strong></p>
+<ul>
+  <li>Never lose experimental results</li>
+  <li>Easy to compare multiple runs</li>
+  <li>Git-friendly (no log file conflicts)</li>
+</ul>
+
+<h4 id="robust-checkpoint-management">Robust Checkpoint Management</h4>
+
+<p><strong>What to save in checkpoints:</strong>
+A reference implementation to illustrate the idea</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">save_checkpoint</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">iteration</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">checkpoint_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="s">"""Save complete training state for resumption."""</span>
+    <span class="n">checkpoint</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="c1"># Model state
+</span>        <span class="s">'model_state_dict'</span><span class="p">:</span> <span class="bp">self</span><span class="p">.</span><span class="n">model</span><span class="p">.</span><span class="n">state_dict</span><span class="p">(),</span>
+
+        <span class="c1"># Optimizer state (critical for AdamW momentum!)
+</span>        <span class="s">'optimizer_state_dict'</span><span class="p">:</span> <span class="bp">self</span><span class="p">.</span><span class="n">optimizer</span><span class="p">.</span><span class="n">state_dict</span><span class="p">(),</span>
+
+        <span class="c1"># Training progress
+</span>        <span class="s">'iteration'</span><span class="p">:</span> <span class="n">iteration</span><span class="p">,</span>
+
+        <span class="c1"># Model architecture (for loading during inference)
+</span>        <span class="s">'config'</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s">'vocab_size'</span><span class="p">:</span> <span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">[</span><span class="s">'vocab_size'</span><span class="p">],</span>
+            <span class="s">'d_model'</span><span class="p">:</span> <span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">[</span><span class="s">'d_model'</span><span class="p">],</span>
+            <span class="s">'num_layers'</span><span class="p">:</span> <span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">[</span><span class="s">'num_layers'</span><span class="p">],</span>
+            <span class="s">'num_heads'</span><span class="p">:</span> <span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">[</span><span class="s">'num_heads'</span><span class="p">],</span>
+            <span class="s">'d_ff'</span><span class="p">:</span> <span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">[</span><span class="s">'d_ff'</span><span class="p">],</span>
+            <span class="s">'context_length'</span><span class="p">:</span> <span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">[</span><span class="s">'context_length'</span><span class="p">],</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="n">torch</span><span class="p">.</span><span class="n">save</span><span class="p">(</span><span class="n">checkpoint</span><span class="p">,</span> <span class="n">checkpoint_path</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Why optimizer state matters:</strong></p>
+
+<p>AdamW maintains two momentum buffers (first and second moments) for each parameter. Without these:</p>
+<ul>
+  <li>Learning restarts from scratch</li>
+  <li>Previous gradient history lost</li>
+  <li>Convergence slows dramatically</li>
+</ul>
+
+<p><strong>Loading for inference:</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">checkpoint</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">load</span><span class="p">(</span><span class="s">"checkpoint_final.pt"</span><span class="p">)</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">checkpoint</span><span class="p">[</span><span class="s">'config'</span><span class="p">]</span>
+
+<span class="c1"># Rebuild model from saved architecture
+</span><span class="n">model</span> <span class="o">=</span> <span class="n">TransformerLM</span><span class="p">(</span><span class="o">**</span><span class="n">config</span><span class="p">)</span>
+<span class="n">model</span><span class="p">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">checkpoint</span><span class="p">[</span><span class="s">'model_state_dict'</span><span class="p">])</span>
+<span class="n">model</span><span class="p">.</span><span class="nb">eval</span><span class="p">()</span>
+</code></pre></div></div>
+
+<h4 id="training-loop-structure">Training Loop Structure</h4>
+<p>A reference implementation to illustrate the idea</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">train</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="s">"""Main training loop with evaluation, checkpointing, and logging."""</span>
+    <span class="k">for</span> <span class="n">iteration</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">start_iter</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">max_iters</span><span class="p">):</span>
+        <span class="c1"># Dynamic learning rate scheduling
+</span>        <span class="n">lr</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">_get_lr</span><span class="p">(</span><span class="n">iteration</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">param_group</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">.</span><span class="n">optimizer</span><span class="p">.</span><span class="n">param_groups</span><span class="p">:</span>
+            <span class="n">param_group</span><span class="p">[</span><span class="s">'lr'</span><span class="p">]</span> <span class="o">=</span> <span class="n">lr</span>
+
+        <span class="c1"># Training step
+</span>        <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">_get_batch</span><span class="p">(</span><span class="s">'train'</span><span class="p">)</span>
+        <span class="n">logits</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">apply_softmax</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="n">loss</span> <span class="o">=</span> <span class="n">cross_entropy</span><span class="p">(</span><span class="n">logits</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">logits</span><span class="p">.</span><span class="n">size</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)),</span> <span class="n">y</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+        <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+
+        <span class="c1"># Gradient clipping for stability
+</span>        <span class="n">torch</span><span class="p">.</span><span class="n">nn</span><span class="p">.</span><span class="n">utils</span><span class="p">.</span><span class="n">clip_grad_norm_</span><span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">model</span><span class="p">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="mf">1.0</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="p">.</span><span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">optimizer</span><span class="p">.</span><span class="n">zero_grad</span><span class="p">()</span>
+
+        <span class="c1"># Periodic evaluation
+</span>        <span class="k">if</span> <span class="n">iteration</span> <span class="o">%</span> <span class="bp">self</span><span class="p">.</span><span class="n">eval_interval</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">train_loss</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">_estimate_loss</span><span class="p">(</span><span class="s">'train'</span><span class="p">)</span>
+            <span class="n">val_loss</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">_estimate_loss</span><span class="p">(</span><span class="s">'val'</span><span class="p">)</span>
+            <span class="n">perplexity</span> <span class="o">=</span> <span class="n">math</span><span class="p">.</span><span class="n">exp</span><span class="p">(</span><span class="n">val_loss</span><span class="p">)</span>
+
+            <span class="n">logger</span><span class="p">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s">"[Iteration </span><span class="si">{</span><span class="n">iteration</span><span class="si">}</span><span class="s">] Evaluating model..."</span><span class="p">)</span>
+            <span class="n">logger</span><span class="p">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s">"  Train loss: </span><span class="si">{</span><span class="n">train_loss</span><span class="si">:</span><span class="p">.</span><span class="mi">4</span><span class="n">f</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+            <span class="n">logger</span><span class="p">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s">"  Val loss:   </span><span class="si">{</span><span class="n">val_loss</span><span class="si">:</span><span class="p">.</span><span class="mi">4</span><span class="n">f</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+            <span class="n">logger</span><span class="p">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s">"  Perplexity: </span><span class="si">{</span><span class="n">perplexity</span><span class="si">:</span><span class="p">.</span><span class="mi">2</span><span class="n">f</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+        <span class="c1"># Periodic checkpointing
+</span>        <span class="k">if</span> <span class="n">iteration</span> <span class="o">%</span> <span class="bp">self</span><span class="p">.</span><span class="n">checkpoint_interval</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">iteration</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">checkpoint_path</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">checkpoint_dir</span> <span class="o">/</span> <span class="sa">f</span><span class="s">"checkpoint_iter_</span><span class="si">{</span><span class="n">iteration</span><span class="si">}</span><span class="s">.pt"</span>
+            <span class="bp">self</span><span class="p">.</span><span class="n">save_checkpoint</span><span class="p">(</span><span class="n">iteration</span><span class="p">,</span> <span class="n">checkpoint_path</span><span class="p">)</span>
+
+    <span class="c1"># Final checkpoint
+</span>    <span class="bp">self</span><span class="p">.</span><span class="n">save_checkpoint</span><span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">max_iters</span><span class="p">,</span> <span class="bp">self</span><span class="p">.</span><span class="n">checkpoint_dir</span> <span class="o">/</span> <span class="s">"checkpoint_final.pt"</span><span class="p">)</span>
+</code></pre></div></div>
+
+<hr />
+
+<h3 id="text-generation">Text Generation: Temperature, Top-k, and Top-p Sampling</h3>
+
+<p>After training, we need sophisticated decoding strategies to turn model predictions into coherent text. The generation strategy dramatically impacts output quality—it’s the difference between repetitive nonsense and creative storytelling.</p>
+
+<h4 id="the-generation-problem">The Generation Problem</h4>
+
+<p>At each step, the model outputs a probability distribution over 10,000 tokens. We need to:</p>
+<ol>
+  <li>Sample the next token from this distribution</li>
+  <li>Balance coherence (following likely continuations) with diversity (avoiding repetition)</li>
+  <li>Avoid both “too deterministic” (boring) and “too random” (nonsensical)</li>
+</ol>
+
+<h4 id="temperature-scaling-controlling-randomness">Temperature Scaling: Controlling Randomness</h4>
+
+<p><strong>The idea:</strong> Adjust the “sharpness” of the probability distribution before sampling.</p>
+
+<p><strong>Formula:</strong></p>
+
+<p>$P(x_{t+1} = i) = \frac{\exp(v_i / \tau)}{\sum_j \exp(v_j / \tau)}$</p>
+
+<p>Where:</p>
+<ul>
+  <li>$v_i$ = model’s logit for token $i$</li>
+  <li>$\tau$ = temperature parameter</li>
+</ul>
+
+<p><strong>Effects:</strong></p>
+<ul>
+  <li>$\tau \to 0$: Distribution becomes peaked (nearly greedy/deterministic)</li>
+  <li>$\tau = 1.0$: Standard softmax (model’s original distribution)</li>
+  <li>$\tau &gt; 1$: Distribution becomes flatter (more random/creative)</li>
+</ul>
+
+<p><strong>Concrete example:</strong></p>
+
+<p>Original logits: <code class="language-plaintext highlighter-rouge">[2.5, 1.0, 0.2, -1.5]</code> for tokens <code class="language-plaintext highlighter-rouge">["cat", "dog", "banana", "spaceship"]</code></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Temperature</th>
+      <th>P(cat)</th>
+      <th>P(dog)</th>
+      <th>P(banana)</th>
+      <th>P(spaceship)</th>
+      <th>Character</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>τ = 0.1</td>
+      <td>0.996</td>
+      <td>0.004</td>
+      <td>0.000</td>
+      <td>0.000</td>
+      <td>Deterministic</td>
+    </tr>
+    <tr>
+      <td>τ = 0.5</td>
+      <td>0.938</td>
+      <td>0.054</td>
+      <td>0.008</td>
+      <td>0.000</td>
+      <td>Confident</td>
+    </tr>
+    <tr>
+      <td>τ = 1.0</td>
+      <td>0.600</td>
+      <td>0.246</td>
+      <td>0.099</td>
+      <td>0.055</td>
+      <td>Balanced</td>
+    </tr>
+    <tr>
+      <td>τ = 1.5</td>
+      <td>0.473</td>
+      <td>0.264</td>
+      <td>0.157</td>
+      <td>0.106</td>
+      <td>Creative</td>
+    </tr>
+    <tr>
+      <td>τ = 2.0</td>
+      <td>0.398</td>
+      <td>0.274</td>
+      <td>0.190</td>
+      <td>0.138</td>
+      <td>Random</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="top-k-sampling-limiting-vocabulary">Top-k Sampling: Limiting Vocabulary</h4>
+
+<p><strong>The idea:</strong> Sample from only the k most likely tokens, ignoring the long tail.</p>
+
+<p><strong>Algorithm:</strong></p>
+<ol>
+  <li>Sort tokens by probability (descending)</li>
+  <li>Keep only top k tokens</li>
+  <li>Set all other probabilities to zero</li>
+  <li>Renormalize and sample</li>
+</ol>
+
+<p><strong>Example (k=3):</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Original: P = [0.60, 0.25, 0.10, 0.05]
+# Top-3:    P = [0.60, 0.25, 0.10, 0.00]
+# Renorm:   P = [0.632, 0.263, 0.105, 0.0]
+</span></code></pre></div></div>
+
+<p><strong>Problem with top-k:</strong> Fixed k doesn’t adapt to distribution shape. Sometimes top-3 captures 99% probability; sometimes it’s only 50%.</p>
+
+<h4 id="top-p-nucleus-sampling-adaptive-vocabulary">Top-p (Nucleus) Sampling: Adaptive Vocabulary</h4>
+
+<p><strong>The idea:</strong> Keep the smallest set of tokens whose cumulative probability exceeds p.</p>
+
+<p><strong>Algorithm:</strong></p>
+<ol>
+  <li>Sort tokens by probability (descending)</li>
+  <li>Compute cumulative probabilities</li>
+  <li>Find the <em>first</em> token where cumulative probability ≥ p</li>
+  <li>Keep all tokens up to and including that token</li>
+  <li>Renormalize and sample</li>
+</ol>
+
+<p><strong>Example (p=0.9):</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Probs:      [0.60, 0.25, 0.10, 0.05]
+# Cumulative: [0.60, 0.85, 0.95, 1.00]
+# Cutoff:                     ^
+# Keep first 3 tokens (0.95 ≥ 0.9)
+# Renormalized: [0.632, 0.263, 0.105, 0.0]
+</span></code></pre></div></div>
+<p><strong>Adaptive behavior:</strong></p>
+<ul>
+  <li>Peaked distribution (confident model): Few tokens kept</li>
+  <li>Flat distribution (uncertain model): Many tokens kept</li>
+</ul>
+
+<h4 id="complete-generation-pipeline">Complete Generation Pipeline</h4>
+<p>A reference implementation to illustrate the idea</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">class</span> <span class="nc">TextGenerator</span><span class="p">:</span>
+    <span class="s">"""Text generator using a trained Transformer language model.
+
+    Attributes:
+        model: Trained TransformerLM
+        tokenizer: BPE tokenizer
+        device: torch device (cuda/mps/cpu)
+        config: Model configuration from checkpoint
+    """</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">checkpoint_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">tokenizer_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s">"tokenizer"</span><span class="p">,</span>
+        <span class="n">device</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="p">):</span>
+        <span class="s">"""Initialize the text generator.
+
+        Args:
+            checkpoint_path: Path to model checkpoint (.pt file)
+            tokenizer_dir: Directory containing vocab.pkl and merges.pkl
+            device: Device to use ('cuda', 'mps', 'cpu', or None for auto-detect)
+        """</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">device</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">_get_device</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Using device: </span><span class="si">{</span><span class="bp">self</span><span class="p">.</span><span class="n">device</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+        <span class="c1"># Load checkpoint
+</span>        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Loading checkpoint from </span><span class="si">{</span><span class="n">checkpoint_path</span><span class="si">}</span><span class="s">..."</span><span class="p">)</span>
+        <span class="n">checkpoint</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">load</span><span class="p">(</span><span class="n">checkpoint_path</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="bp">self</span><span class="p">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">checkpoint</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="s">'config'</span><span class="p">,</span> <span class="p">{})</span>
+
+        <span class="c1"># Load tokenizer
+</span>        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Loading tokenizer from </span><span class="si">{</span><span class="n">tokenizer_dir</span><span class="si">}</span><span class="s">..."</span><span class="p">)</span>
+        <span class="n">vocab_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tokenizer_dir</span><span class="p">)</span> <span class="o">/</span> <span class="s">"vocab.pkl"</span>
+        <span class="n">merges_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tokenizer_dir</span><span class="p">)</span> <span class="o">/</span> <span class="s">"merges.pkl"</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">vocab_path</span><span class="p">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">merges_path</span><span class="p">.</span><span class="n">exists</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="nb">FileNotFoundError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s">"Tokenizer files not found in </span><span class="si">{</span><span class="n">tokenizer_dir</span><span class="si">}</span><span class="s">. "</span>
+                <span class="sa">f</span><span class="s">"Expected vocab.pkl and merges.pkl"</span>
+            <span class="p">)</span>
+
+        <span class="n">vocab</span><span class="p">,</span> <span class="n">merges</span> <span class="o">=</span> <span class="n">load_tokenizer</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">vocab_path</span><span class="p">),</span> <span class="nb">str</span><span class="p">(</span><span class="n">merges_path</span><span class="p">))</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">tokenizer</span> <span class="o">=</span> <span class="n">Tokenizer</span><span class="p">(</span><span class="n">vocab</span><span class="p">,</span> <span class="n">merges</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Loaded tokenizer with vocab size: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">vocab</span><span class="p">)</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+        <span class="c1"># Initialize model
+</span>        <span class="k">print</span><span class="p">(</span><span class="s">"Initializing model..."</span><span class="p">)</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">TransformerLM</span><span class="p">(</span>
+            <span class="n">vocab_size</span><span class="o">=</span><span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="s">'vocab_size'</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">vocab</span><span class="p">)),</span>
+            <span class="n">context_length</span><span class="o">=</span><span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="s">'context_length'</span><span class="p">,</span> <span class="mi">256</span><span class="p">),</span>
+            <span class="n">d_model</span><span class="o">=</span><span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="s">'d_model'</span><span class="p">,</span> <span class="mi">512</span><span class="p">),</span>
+            <span class="n">num_layers</span><span class="o">=</span><span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="s">'num_layers'</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+            <span class="n">num_heads</span><span class="o">=</span><span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="s">'num_heads'</span><span class="p">,</span> <span class="mi">16</span><span class="p">),</span>
+            <span class="n">d_ff</span><span class="o">=</span><span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="s">'d_ff'</span><span class="p">,</span> <span class="mi">1344</span><span class="p">),</span>
+            <span class="n">rope_theta</span><span class="o">=</span><span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="s">'rope_theta'</span><span class="p">,</span> <span class="mf">10000.0</span><span class="p">),</span>
+            <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="p">.</span><span class="n">device</span><span class="p">,</span>
+        <span class="p">).</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">device</span><span class="p">)</span>
+
+        <span class="c1"># Load model weights
+</span>        <span class="bp">self</span><span class="p">.</span><span class="n">model</span><span class="p">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">checkpoint</span><span class="p">[</span><span class="s">'model_state_dict'</span><span class="p">])</span>
+        <span class="bp">self</span><span class="p">.</span><span class="n">model</span><span class="p">.</span><span class="nb">eval</span><span class="p">()</span>
+
+        <span class="c1"># Print model info
+</span>        <span class="n">total_params</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="p">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">.</span><span class="n">model</span><span class="p">.</span><span class="n">parameters</span><span class="p">())</span>
+        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Model loaded successfully!"</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"  Total parameters: </span><span class="si">{</span><span class="n">total_params</span><span class="si">:</span><span class="p">,</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"  Context length: </span><span class="si">{</span><span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="s">'context_length'</span><span class="p">,</span> <span class="mi">256</span><span class="p">)</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"  Model dimension: </span><span class="si">{</span><span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="s">'d_model'</span><span class="p">,</span> <span class="mi">512</span><span class="p">)</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"  Layers: </span><span class="si">{</span><span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="s">'num_layers'</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_get_device</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="p">.</span><span class="n">device</span><span class="p">:</span>
+        <span class="s">"""Get the device for inference."""</span>
+        <span class="k">if</span> <span class="n">device</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">torch</span><span class="p">.</span><span class="n">device</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+        <span class="c1"># Auto-detect
+</span>        <span class="k">if</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">is_available</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">torch</span><span class="p">.</span><span class="n">device</span><span class="p">(</span><span class="s">'cuda'</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">backends</span><span class="p">,</span> <span class="s">'mps'</span><span class="p">)</span> <span class="ow">and</span> <span class="n">torch</span><span class="p">.</span><span class="n">backends</span><span class="p">.</span><span class="n">mps</span><span class="p">.</span><span class="n">is_available</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">torch</span><span class="p">.</span><span class="n">device</span><span class="p">(</span><span class="s">'mps'</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">torch</span><span class="p">.</span><span class="n">device</span><span class="p">(</span><span class="s">'cpu'</span><span class="p">)</span>
+
+    <span class="o">@</span><span class="n">torch</span><span class="p">.</span><span class="n">no_grad</span><span class="p">()</span>
+    <span class="k">def</span> <span class="nf">generate</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">max_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span>
+        <span class="n">temperature</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+        <span class="n">top_k</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+        <span class="n">top_p</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+        <span class="n">stop_token</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="s">"""Generate text from a prompt.
+
+        Args:
+            prompt: Input text to continue
+            max_tokens: Maximum number of tokens to generate
+            temperature: Sampling temperature (higher = more random)
+                        Use 1.0 for standard sampling, 0.0 for greedy
+            top_k: Keep only top k tokens with highest probability (None = no filtering)
+            top_p: Keep tokens with cumulative probability &gt;= top_p (None = no filtering)
+            stop_token: Stop generation if this token is generated
+
+        Returns:
+            Generated text (prompt + generated continuation)
+        """</span>
+        <span class="c1"># Encode prompt
+</span>        <span class="n">input_ids</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">tokenizer</span><span class="p">.</span><span class="n">encode</span><span class="p">(</span><span class="n">prompt</span><span class="p">)</span>
+        <span class="n">input_tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([</span><span class="n">input_ids</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="p">.</span><span class="nb">long</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="p">.</span><span class="n">device</span><span class="p">)</span>
+
+        <span class="c1"># Generate tokens
+</span>        <span class="n">generated_ids</span> <span class="o">=</span> <span class="n">input_ids</span><span class="p">.</span><span class="n">copy</span><span class="p">()</span>
+
+        <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_tokens</span><span class="p">):</span>
+            <span class="c1"># Get context window (last context_length tokens)
+</span>            <span class="n">context_length</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">config</span><span class="p">.</span><span class="n">get</span><span class="p">(</span><span class="s">'context_length'</span><span class="p">,</span> <span class="mi">256</span><span class="p">)</span>
+            <span class="n">context</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="p">[:,</span> <span class="o">-</span><span class="n">context_length</span><span class="p">:]</span>
+
+            <span class="c1"># Forward pass
+</span>            <span class="k">try</span><span class="p">:</span>
+                <span class="k">with</span> <span class="n">torch</span><span class="p">.</span><span class="n">no_grad</span><span class="p">():</span>
+                    <span class="n">logits</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">model</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">apply_softmax</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+            <span class="k">except</span> <span class="nb">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"</span><span class="se">\n</span><span class="s">Error in forward pass at step </span><span class="si">{</span><span class="n">step</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+                <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Context shape: </span><span class="si">{</span><span class="n">context</span><span class="p">.</span><span class="n">shape</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+                <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Context device: </span><span class="si">{</span><span class="n">context</span><span class="p">.</span><span class="n">device</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+                <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+                <span class="k">raise</span>
+
+            <span class="c1"># Handle different output shapes
+</span>            <span class="k">if</span> <span class="n">logits</span><span class="p">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="c1"># Model returned [batch_size, vocab_size] - already at last position
+</span>                <span class="n">next_token_logits</span> <span class="o">=</span> <span class="n">logits</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">elif</span> <span class="n">logits</span><span class="p">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+                <span class="c1"># Model returned [batch_size, seq_len, vocab_size]
+</span>                <span class="n">next_token_logits</span> <span class="o">=</span> <span class="n">logits</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="nb">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s">"Unexpected logits shape: </span><span class="si">{</span><span class="n">logits</span><span class="p">.</span><span class="n">shape</span><span class="si">}</span><span class="s">"</span><span class="p">)</span>
+
+            <span class="c1"># Apply temperature
+</span>            <span class="k">if</span> <span class="n">temperature</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">next_token_logits</span> <span class="o">=</span> <span class="n">next_token_logits</span> <span class="o">/</span> <span class="n">temperature</span>
+
+            <span class="c1"># Apply top-k filtering
+</span>            <span class="k">if</span> <span class="n">top_k</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="c1"># Get the k-th largest value
+</span>                <span class="n">top_k_values</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">topk</span><span class="p">(</span><span class="n">next_token_logits</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">top_k</span><span class="p">,</span> <span class="n">next_token_logits</span><span class="p">.</span><span class="n">size</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)))</span>
+                <span class="n">kth_value</span> <span class="o">=</span> <span class="n">top_k_values</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                <span class="c1"># Set all values below the k-th largest to -inf
+</span>                <span class="n">indices_to_remove</span> <span class="o">=</span> <span class="n">next_token_logits</span> <span class="o">&lt;</span> <span class="n">kth_value</span>
+                <span class="n">next_token_logits</span><span class="p">[</span><span class="n">indices_to_remove</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s">'-inf'</span><span class="p">)</span>
+
+            <span class="c1"># Apply top-p (nucleus) filtering
+</span>            <span class="k">if</span> <span class="n">top_p</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">sorted_logits</span><span class="p">,</span> <span class="n">sorted_indices</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">sort</span><span class="p">(</span><span class="n">next_token_logits</span><span class="p">,</span> <span class="n">descending</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+                <span class="n">cumulative_probs</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">F</span><span class="p">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">sorted_logits</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">),</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+
+                <span class="c1"># Remove tokens with cumulative probability above the threshold
+</span>                <span class="n">sorted_indices_to_remove</span> <span class="o">=</span> <span class="n">cumulative_probs</span> <span class="o">&gt;</span> <span class="n">top_p</span>
+                <span class="c1"># Keep at least one token
+</span>                <span class="n">sorted_indices_to_remove</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="bp">False</span>
+
+                <span class="c1"># Map back to original indices
+</span>                <span class="n">indices_to_remove</span> <span class="o">=</span> <span class="n">sorted_indices</span><span class="p">[</span><span class="n">sorted_indices_to_remove</span><span class="p">]</span>
+                <span class="n">next_token_logits</span><span class="p">[</span><span class="n">indices_to_remove</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s">'-inf'</span><span class="p">)</span>
+
+            <span class="c1"># Sample next token
+</span>            <span class="k">if</span> <span class="n">temperature</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="c1"># Greedy decoding
+</span>                <span class="n">next_token</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">next_token_logits</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+                <span class="n">next_token_id</span> <span class="o">=</span> <span class="n">next_token</span><span class="p">.</span><span class="n">item</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># Sample from distribution
+</span>                <span class="n">probs</span> <span class="o">=</span> <span class="n">F</span><span class="p">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">next_token_logits</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+                <span class="n">next_token</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">multinomial</span><span class="p">(</span><span class="n">probs</span><span class="p">,</span> <span class="n">num_samples</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+                <span class="n">next_token_id</span> <span class="o">=</span> <span class="n">next_token</span><span class="p">.</span><span class="n">item</span><span class="p">()</span>
+
+            <span class="c1"># Append to generated sequence
+</span>            <span class="n">generated_ids</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">next_token_id</span><span class="p">)</span>
+
+            <span class="c1"># Add new token to input tensor
+</span>            <span class="c1"># Create a 2D tensor of shape [1, 1] to concatenate
+</span>            <span class="n">new_token_tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">([[</span><span class="n">next_token_id</span><span class="p">]],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="p">.</span><span class="nb">long</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="p">.</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">input_tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">cat</span><span class="p">([</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">new_token_tensor</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+            <span class="c1"># Check for stop token
+</span>            <span class="k">if</span> <span class="n">stop_token</span><span class="p">:</span>
+                <span class="n">next_token_text</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">tokenizer</span><span class="p">.</span><span class="n">decode</span><span class="p">([</span><span class="n">next_token_id</span><span class="p">])</span>
+                <span class="k">if</span> <span class="n">stop_token</span> <span class="ow">in</span> <span class="n">next_token_text</span><span class="p">:</span>
+                    <span class="k">break</span>
+
+        <span class="c1"># Decode generated text
+</span>        <span class="n">generated_text</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">tokenizer</span><span class="p">.</span><span class="n">decode</span><span class="p">(</span><span class="n">generated_ids</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">generated_text</span>
+
+    <span class="k">def</span> <span class="nf">generate_multiple</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">num_samples</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
+        <span class="n">max_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span>
+        <span class="n">temperature</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+        <span class="n">top_k</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+        <span class="n">top_p</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+        <span class="s">"""Generate multiple samples from a prompt.
+
+        Args:
+            prompt: Input text to continue
+            num_samples: Number of samples to generate
+            max_tokens: Maximum tokens per sample
+            temperature: Sampling temperature
+            top_k: Top-k filtering
+            top_p: Top-p filtering
+
+        Returns:
+            List of generated texts
+        """</span>
+        <span class="n">samples</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_samples</span><span class="p">):</span>
+            <span class="k">print</span><span class="p">(</span><span class="sa">f</span><span class="s">"Generating sample </span><span class="si">{</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="si">}</span><span class="s">/</span><span class="si">{</span><span class="n">num_samples</span><span class="si">}</span><span class="s">..."</span><span class="p">)</span>
+            <span class="n">sample</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">generate</span><span class="p">(</span>
+                <span class="n">prompt</span><span class="o">=</span><span class="n">prompt</span><span class="p">,</span>
+                <span class="n">max_tokens</span><span class="o">=</span><span class="n">max_tokens</span><span class="p">,</span>
+                <span class="n">temperature</span><span class="o">=</span><span class="n">temperature</span><span class="p">,</span>
+                <span class="n">top_k</span><span class="o">=</span><span class="n">top_k</span><span class="p">,</span>
+                <span class="n">top_p</span><span class="o">=</span><span class="n">top_p</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">samples</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">sample</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">samples</span>
+</code></pre></div></div>
+
+<h4 id="recommended-settings-by-use-case">Recommended Settings by Use Case</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Task</th>
+      <th>Temperature</th>
+      <th>Top-k</th>
+      <th>Top-p</th>
+      <th>Rationale</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Factual QA</strong></td>
+      <td>0.1</td>
+      <td>10</td>
+      <td>None</td>
+      <td>Deterministic, high confidence</td>
+    </tr>
+    <tr>
+      <td><strong>Code completion</strong></td>
+      <td>0.2</td>
+      <td>20</td>
+      <td>0.9</td>
+      <td>Mostly deterministic, some creativity</td>
+    </tr>
+    <tr>
+      <td><strong>Story writing</strong></td>
+      <td>0.8</td>
+      <td>None</td>
+      <td>0.9</td>
+      <td>Balanced creativity and coherence</td>
+    </tr>
+    <tr>
+      <td><strong>Poetry</strong></td>
+      <td>1.2</td>
+      <td>None</td>
+      <td>0.95</td>
+      <td>High creativity, surprising word choices</td>
+    </tr>
+    <tr>
+      <td><strong>Brainstorming</strong></td>
+      <td>1.5</td>
+      <td>None</td>
+      <td>0.98</td>
+      <td>Maximum diversity</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Example usage:</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Deterministic completion</span>
+uv run generate-text <span class="se">\</span>
+  <span class="nt">--checkpoint</span> checkpoints/checkpoint_final.pt <span class="se">\</span>
+  <span class="nt">--prompt</span> <span class="s2">"Once upon a time"</span> <span class="se">\</span>
+  <span class="nt">--temperature</span> 0.1
+
+<span class="c"># Creative story generation</span>
+uv run generate-text <span class="se">\</span>
+  <span class="nt">--checkpoint</span> checkpoints/checkpoint_final.pt <span class="se">\</span>
+  <span class="nt">--prompt</span> <span class="s2">"Once upon a time"</span> <span class="se">\</span>
+  <span class="nt">--temperature</span> 0.8 <span class="se">\</span>
+  <span class="nt">--top-p</span> 0.9 <span class="se">\</span>
+  <span class="nt">--max-tokens</span> 200
+</code></pre></div></div>
+
+<hr />
+
+<h3 id="training-analysis">Training Analysis: Scaling Laws in Action</h3>
+
+<p>One of the most valuable aspects of this implementation is the comprehensive training analysis, which reveals how model scale, dataset size, and training time affect final performance.</p>
+
+<h4 id="overview-three-configurations-tested">Overview: Three Configurations Tested</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Configuration</th>
+      <th>Iterations</th>
+      <th>Vocab Size</th>
+      <th>Dataset Size</th>
+      <th>Context Length</th>
+      <th>Model Size</th>
+      <th>Training Time</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong><a href="https://github.com/bearbearyu1223/tinystories-transformer/blob/main/config_quicktest.json">config_quicktest.json</a></strong></td>
+      <td>10</td>
+      <td>2,000</td>
+      <td>400K tokens</td>
+      <td>64</td>
+      <td>~0.94M params</td>
+      <td>~0.6s</td>
+    </tr>
+    <tr>
+      <td><strong><a href="https://github.com/bearbearyu1223/tinystories-transformer/blob/main/config_test.json">config_test.json</a></strong></td>
+      <td>1,000</td>
+      <td>5,000</td>
+      <td>1.8M tokens</td>
+      <td>128</td>
+      <td>~4.1M params</td>
+      <td>~2.5min</td>
+    </tr>
+    <tr>
+      <td><strong><a href="https://github.com/bearbearyu1223/tinystories-transformer/blob/main/config_tinystories.json">config_tinystories.json</a></strong></td>
+      <td>20,000</td>
+      <td>10,000</td>
+      <td>Full dataset</td>
+      <td>256</td>
+      <td>~17M params</td>
+      <td>~7 hours</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="training-progress-comparison">Training Progress Comparison</h4>
+
+<p>The training comparison chart reveals three distinct learning curves with fundamentally different characteristics:</p>
+
+<p><img src="/assets/picture/2025-11-16-cs336-the-complete-experiment-for-tinystories-transformer/training_comparison.png" alt="training comparison" width="80%" /></p>
+
+<p><strong>Chart Explain:</strong></p>
+<ul>
+  <li><strong>Top Left</strong>: Training loss across all configurations (each config has its own color)</li>
+  <li><strong>Top Right</strong>: Validation loss across all configurations (each config has its own color)</li>
+  <li><strong>Bottom Left</strong>: Perplexity over time (log y-scale) with final values annotated</li>
+  <li><strong>Bottom Right</strong>: Final loss comparison bar chart showing train/val side-by-side</li>
+</ul>
+
+<h4 id="configuration-1-quicktest-sanity-check-1">Configuration 1: Quicktest (Sanity Check)</h4>
+
+<p><strong>Purpose:</strong> Ultra-fast sanity check for code validation</p>
+
+<p><img src="/assets/picture/2025-11-16-cs336-the-complete-experiment-for-tinystories-transformer/quicktest_training_progress.png" alt="quick test progress" width="80%" /></p>
+
+<p><strong>Configuration Details:</strong></p>
+<ul>
+  <li>Iterations: 10 (&lt; 1 minute on M4 MacBook Pro)</li>
+  <li>Dataset: 400,242 training tokens, 39,316 validation tokens</li>
+  <li>Model: 938,624 parameters (~3.58 MB)</li>
+  <li>Vocabulary: 2,000 BPE tokens</li>
+</ul>
+
+<p><strong>Training Metrics:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Metric</th>
+      <th>Initial</th>
+      <th>Final</th>
+      <th>Change</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Training Loss</td>
+      <td>7.66</td>
+      <td>7.55</td>
+      <td>-0.11 (-1.4%)</td>
+    </tr>
+    <tr>
+      <td>Validation Loss</td>
+      <td>7.65</td>
+      <td>7.55</td>
+      <td>-0.10 (-1.3%)</td>
+    </tr>
+    <tr>
+      <td>Perplexity</td>
+      <td>2108.18</td>
+      <td>1891.42</td>
+      <td>-216.76 (-10.3%)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Strengths:</strong></p>
+<ul>
+  <li>✓ Extremely fast turnaround for development iteration</li>
+  <li>✓ Stable training with no divergence</li>
+  <li>✓ Minimal overfitting (train/val losses nearly identical)</li>
+</ul>
+
+<p><strong>Limitations:</strong></p>
+<ul>
+  <li>Limited learning in just 10 iterations</li>
+  <li>Small vocabulary restricts expressiveness</li>
+  <li>Useful primarily for code validation, not actual model quality</li>
+</ul>
+
+<p><strong>Use Cases:</strong></p>
+<ul>
+  <li>Code debugging and testing</li>
+  <li>CI/CD pipeline validation</li>
+  <li>Quick sanity checks before longer training runs</li>
+</ul>
+
+<h4 id="configuration-2-test-active-development-1">Configuration 2: Test (Active Development)</h4>
+
+<p><strong>Purpose:</strong> Development and feature validation</p>
+
+<p><img src="/assets/picture/2025-11-16-cs336-the-complete-experiment-for-tinystories-transformer/test_training_progress.png" alt="test progress" width="80%" /></p>
+
+<p><strong>Configuration Details:</strong></p>
+<ul>
+  <li>Iterations: 1,000 (~20 minutes on M4 MacBook Pro)</li>
+  <li>Dataset: 1,812,095 training tokens, 179,622 validation tokens</li>
+  <li>Model: 4,117,760 parameters (~15.71 MB)</li>
+  <li>Vocabulary: 5,000 BPE tokens</li>
+</ul>
+
+<p><strong>Training Metrics:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Metric</th>
+      <th>Initial</th>
+      <th>Iter 500</th>
+      <th>Final</th>
+      <th>Total Change</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Training Loss</td>
+      <td>8.58</td>
+      <td>3.33</td>
+      <td>3.11</td>
+      <td>-5.47 (-63.8%)</td>
+    </tr>
+    <tr>
+      <td>Validation Loss</td>
+      <td>8.58</td>
+      <td>3.36</td>
+      <td>3.15</td>
+      <td>-5.43 (-63.3%)</td>
+    </tr>
+    <tr>
+      <td>Perplexity</td>
+      <td>5308.63</td>
+      <td>28.88</td>
+      <td>23.41</td>
+      <td>-5285.22 (-99.6%)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Strengths:</strong></p>
+<ul>
+  <li>✓ Significant loss reduction (&gt;60%) in reasonable time</li>
+  <li>✓ Excellent train/val agreement (minimal overfitting)</li>
+  <li>✓ Perplexity drops to practical levels</li>
+  <li>✓ Fast enough for iterative development</li>
+</ul>
+
+<p><strong>Training Dynamics:</strong></p>
+<ul>
+  <li><strong>Phase 1 (0-300)</strong>: Rapid initial learning, loss drops from 8.6 to ~3.7</li>
+  <li><strong>Phase 2 (300-700)</strong>: Steady optimization, perplexity stabilizes</li>
+  <li><strong>Phase 3 (700-1000)</strong>: Fine-tuning, diminishing returns</li>
+</ul>
+
+<p><strong>Performance:</strong></p>
+<ul>
+  <li>Throughput: ~22,000-39,000 tokens/second</li>
+  <li>Memory efficient: 15.71 MB model size</li>
+  <li>No gradient explosion or training instability</li>
+</ul>
+
+<p><strong>Use Cases:</strong></p>
+<ul>
+  <li>Feature development and testing</li>
+  <li>Hyperparameter tuning experiments</li>
+  <li>Ablation studies</li>
+  <li>Pre-production validation</li>
+</ul>
+
+<h4 id="configuration-3-train-on-full-tinystories-dataset-production-training-experiments">Configuration 3: Train on Full TinyStories Dataset (Production Training Experiments)</h4>
+
+<p><strong>Purpose:</strong> Full production training for best model quality</p>
+
+<p><img src="/assets/picture/2025-11-16-cs336-the-complete-experiment-for-tinystories-transformer/tinystories_training_progress.png" alt="full training progress" width="80%" /></p>
+
+<p><strong>Configuration Details:</strong></p>
+<ul>
+  <li>Iterations: 20,000 (~7 hours on M4 MacBook Pro)</li>
+  <li>Dataset: Full TinyStories corpus (2.1GB training, 21MB validation)</li>
+  <li>Model: ~17M parameters</li>
+  <li>Vocabulary: 10,000 BPE tokens</li>
+</ul>
+
+<p><strong>Training Metrics (First 6000 iterations shown):</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Metric</th>
+      <th>Initial</th>
+      <th>Iter 1000</th>
+      <th>Iter 3000</th>
+      <th>Iter 6000</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Training Loss</td>
+      <td>9.25</td>
+      <td>2.50</td>
+      <td>1.82</td>
+      <td>1.61</td>
+    </tr>
+    <tr>
+      <td>Validation Loss</td>
+      <td>9.25</td>
+      <td>2.50</td>
+      <td>1.81</td>
+      <td>1.61</td>
+    </tr>
+    <tr>
+      <td>Perplexity</td>
+      <td>~10,500</td>
+      <td>~12.2</td>
+      <td>~6.2</td>
+      <td>~5.0</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Strengths:</strong></p>
+<ul>
+  <li>✓ Massive loss reduction (&gt;85% by iteration 6000)</li>
+  <li>✓ Perfect train/val alignment (no overfitting)</li>
+  <li>✓ Continued improvement through 20K iterations</li>
+  <li>✓ Production-quality perplexity values</li>
+</ul>
+
+<p><strong>Training Dynamics:</strong></p>
+<ul>
+  <li><strong>Warmup (0-1000)</strong>: Learning rate warmup, rapid initial gains</li>
+  <li><strong>Main Training (1000-6000+)</strong>: Steady, consistent improvement</li>
+  <li><strong>Learning Rate Schedule</strong>: Cosine decay maintains stability</li>
+</ul>
+
+<p><strong>Long-Term Learning:</strong>
+The model shows no signs of plateauing even at 6000 iterations, suggesting:</p>
+<ul>
+  <li>More capacity to learn from the dataset</li>
+  <li>Effective regularization preventing overfitting</li>
+  <li>Well-tuned learning rate schedule</li>
+</ul>
+
+<p><strong>Performance:</strong></p>
+<ul>
+  <li>Throughput: ~3,400-8,500 tokens/second (varies with evaluation)</li>
+  <li>Stable memory usage throughout training</li>
+  <li>Checkpoints saved every 2000 iterations for resumability</li>
+</ul>
+
+<p><strong>Use Cases:</strong></p>
+<ul>
+  <li>Production deployment</li>
+  <li>Final model evaluation</li>
+  <li>Publishing and sharing</li>
+  <li>Research baselines</li>
+</ul>
+
+<h4 id="cross-configuration-insights">Cross-Configuration Insights</h4>
+
+<p>The three configurations demonstrate clear scaling relationships:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Config</th>
+      <th>Params</th>
+      <th>Dataset</th>
+      <th>Final Loss</th>
+      <th>Perplexity</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Quicktest</td>
+      <td>0.94M</td>
+      <td>400K</td>
+      <td>7.55</td>
+      <td>1891</td>
+    </tr>
+    <tr>
+      <td>Test</td>
+      <td>4.1M</td>
+      <td>1.8M</td>
+      <td>3.15</td>
+      <td>23.4</td>
+    </tr>
+    <tr>
+      <td>TinyStories</td>
+      <td>17M</td>
+      <td>627M</td>
+      <td>1.61</td>
+      <td>5.0</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Key Finding</strong>: Each 4× increase in model size together with larger dataset yields ~50% loss reduction and ~80% perplexity improvement.</p>
+
+<h2 id="this-is-consistent-with-neural-scaling-laws-from-kaplan-et-al-2020-providing-empirical-validation-on-the-tinystories-dataset">This is <strong>consistent with neural scaling laws</strong> from Kaplan et al. (2020), providing empirical validation on the TinyStories dataset.</h2>
+
+<h3 id="production-considerations">Production Considerations</h3>
+
+<p>The complete implementation, including all design considerations and production-ready features described in this blog post, is available as an open-source project on GitHub:</p>
+
+<p><strong>Repository:</strong> <a href="https://github.com/bearbearyu1223/tinystories-transformer">github.com/bearbearyu1223/tinystories-transformer</a></p>
+
+<p><strong>License:</strong> MIT (free for commercial and research use)</p>
+
+<p>This repository provides a comprehensive, production-ready Transformer implementation with the following characteristics:</p>
+
+<h4 id="repository-structure-and-design-philosophy">Repository Structure and Design Philosophy</h4>
+
+<p>The codebase is organized to separate concerns and enable rapid iteration:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>tinystories-transformer/
+├── cs336_basics/              # Core implementation modules
+│   ├── transformer_lm.py      # Main Transformer language model
+│   ├── multihead_attention.py # Attention with RoPE
+│   ├── bpe.py                 # Parallel BPE tokenizer training
+│   ├── rmsnorm.py             # RMS normalization
+│   └── swiglu.py              # SwiGLU activation
+├── train_transformer.py       # Training script with full pipeline
+├── generate_text.py           # Text generation with sampling strategies
+├── setup_data.py              # Automated dataset download/setup
+├── visualize_training.py      # Training visualization generator
+├── config_quicktest.json      # Ultra-fast validation config
+├── config_test.json           # Development config
+└── config_tinystories.json    # Production training config
+</code></pre></div></div>
+
+<p><strong>Design principles:</strong></p>
+<ul>
+  <li><strong>Modularity:</strong> Each component (attention, normalization, activation) is a separate, testable module</li>
+  <li><strong>Configurability:</strong> All hyperparameters exposed via JSON configs</li>
+  <li><strong>Automation:</strong> One-command setup for datasets, training, generation, visualization</li>
+  <li><strong>Documentation:</strong> Comprehensive guides (README, TRAINING_ANALYSIS, GENERATION_GUIDE)</li>
+</ul>
+
+<h4 id="key-implementation-features">Key Implementation Features</h4>
+
+<p><strong>1. Automated Dataset Setup</strong></p>
+
+<p>The repository includes <code class="language-plaintext highlighter-rouge">setup_data.py</code> to eliminate manual data preparation:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Single command downloads and prepares all datasets</span>
+uv run setup-data
+</code></pre></div></div>
+
+<p>This automatically:</p>
+<ul>
+  <li>Downloads 2.1GB TinyStories dataset from HuggingFace</li>
+  <li>Creates three data directories (full, quicktest, test)</li>
+  <li>Validates data integrity</li>
+  <li>Provides progress reporting</li>
+</ul>
+
+<p><strong>2. Three-Tiered Configuration System</strong></p>
+
+<p>Production-tested configurations for different use cases:</p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">config_quicktest.json</code>: &lt; 1 minute validation</li>
+  <li><code class="language-plaintext highlighter-rouge">config_test.json</code>: ~20 minute development</li>
+  <li><code class="language-plaintext highlighter-rouge">config_tinystories.json</code>: ~7 hour production training</li>
+</ul>
+
+<p>Each configuration is battle-tested with documented training curves and performance characteristics (see TRAINING_ANALYSIS.md in the repository).</p>
+
+<p><strong>3. Modern Dependency Management</strong></p>
+
+<p>Uses <code class="language-plaintext highlighter-rouge">uv</code> for fast, reproducible Python environments:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Install dependencies and CLI commands</span>
+uv <span class="nb">sync</span>
+
+<span class="c"># All commands immediately available</span>
+uv run train-transformer config_test.json
+uv run generate-text <span class="nt">--checkpoint</span> checkpoints/checkpoint_final.pt
+uv run visualize-training
+</code></pre></div></div>
+
+<h4 id="getting-started-with-the-repository">Getting Started with the Repository</h4>
+
+<p><strong>Quick Start (5 minutes):</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># 1. Clone repository</span>
+git clone https://github.com/bearbearyu1223/tinystories-transformer.git
+<span class="nb">cd </span>tinystories-transformer
+
+<span class="c"># 2. Set up environment</span>
+uv venv <span class="o">&amp;&amp;</span> uv <span class="nb">sync</span>
+
+<span class="c"># 3. Download datasets</span>
+uv run setup-data
+
+<span class="c"># 4. Run quick validation (&lt; 1 min)</span>
+uv run train-transformer config_quicktest.json
+
+<span class="c"># 5. Generate text</span>
+uv run generate-text <span class="se">\</span>
+  <span class="nt">--checkpoint</span> checkpoints_quicktest/checkpoint_final.pt <span class="se">\</span>
+  <span class="nt">--prompt</span> <span class="s2">"Once upon a time"</span>
+</code></pre></div></div>
+
+<p><strong>Development Workflow:</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># 1. Develop features with test config (20 min)</span>
+uv run train-transformer config_test.json
+
+<span class="c"># 2. Visualize training progress</span>
+uv run visualize-training
+
+<span class="c"># 3. Test generation quality</span>
+uv run generate-text <span class="se">\</span>
+  <span class="nt">--checkpoint</span> checkpoints_test/checkpoint_final.pt <span class="se">\</span>
+  <span class="nt">--prompt</span> <span class="s2">"Once upon a time"</span> <span class="se">\</span>
+  <span class="nt">--temperature</span> 0.8 <span class="se">\</span>
+  <span class="nt">--top-p</span> 0.9 <span class="se">\</span>
+  <span class="nt">--max-tokens</span> 200
+
+<span class="c"># 4. When satisfied, run production training (7 hours)</span>
+uv run train-transformer config_tinystories.json
+</code></pre></div></div>
+<p><strong>Explore the full implementation:</strong> <a href="https://github.com/bearbearyu1223/tinystories-transformer">github.com/bearbearyu1223/tinystories-transformer</a></p>
+
+<hr />
+
+<h3 id="takeaways">Key Takeaways</h3>
+
+<p>Building a production language model from scratch reveals lessons that go beyond any single paper or tutorial. Here are the essential insights:</p>
+
+<h4 id="1-modern-architecture-matters">1. <strong>Modern Architecture Matters</strong></h4>
+
+<p>The original Transformer (2017) has evolved significantly:</p>
+<ul>
+  <li><strong>RoPE</strong> replaces learned position embeddings → Better length generalization</li>
+  <li><strong>RMSNorm</strong> replaces LayerNorm → 10-30% faster, same performance</li>
+  <li><strong>SwiGLU</strong> replaces ReLU → 1-2% better results</li>
+</ul>
+
+<p>These aren’t just incremental improvements—they’re now standard in production systems (LLaMA, GPT-NeoX, PaLM).</p>
+
+<h4 id="2-tokenization-is-critical">2. <strong>Tokenization Is Critical</strong></h4>
+
+<p>BPE with 10K vocabulary is a sweet spot:</p>
+<ul>
+  <li>Large enough to capture common words as single tokens</li>
+  <li>Small enough for fast softmax and embedding lookup</li>
+  <li>Good out-of-vocabulary handling via subwords</li>
+</ul>
+
+<p><strong>Anti-pattern:</strong> Using character-level (too long sequences) or word-level (too many OOV).</p>
+
+<h4 id="3-graduated-configurations-enable-rapid-iteration">3. <strong>Graduated Configurations Enable Rapid Iteration</strong></h4>
+
+<p>The three-tiered config system saves weeks of development time:</p>
+<ul>
+  <li><strong>Quicktest:</strong> Validate correctness in seconds</li>
+  <li><strong>Test:</strong> Tune hyperparameters in minutes</li>
+  <li><strong>Production:</strong> Train final model overnight</li>
+</ul>
+
+<h4 id="4-memory-mapping-scales-to-arbitrary-dataset-sizes">4. <strong>Memory Mapping Scales to Arbitrary Dataset Sizes</strong></h4>
+
+<p>Memory-mapped arrays let you train on TB-scale datasets with GB-scale RAM:</p>
+<ul>
+  <li>Constant memory usage regardless of dataset size</li>
+  <li>OS handles caching automatically</li>
+  <li>Near-RAM performance for sequential access</li>
+</ul>
+
+<p><strong>Critical for:</strong> Training on Common Crawl, Books, Wikipedia combined (600GB+).</p>
+
+<h4 id="5-generation-strategy-matters-as-much-as-architecture">5. <strong>Generation Strategy Matters As Much As Architecture</strong></h4>
+
+<p>Even a perfectly trained model produces garbage with bad decoding:</p>
+<ul>
+  <li><strong>Temperature</strong> controls creativity vs. coherence</li>
+  <li><strong>Top-p</strong> prevents sampling from the long tail</li>
+  <li><strong>Different tasks need different settings</strong></li>
+</ul>
+
+<p><strong>Recommended baseline:</strong> <code class="language-plaintext highlighter-rouge">temperature=0.8, top_p=0.9</code></p>
+
+<h4 id="6-comprehensive-logging-reveals-training-dynamics">6. <strong>Comprehensive Logging Reveals Training Dynamics</strong></h4>
+
+<p>Timestamp-based logging with periodic evaluation shows:</p>
+<ul>
+  <li>When learning plateaus (time to stop)</li>
+  <li>When overfitting starts (train/val divergence)</li>
+  <li>Whether learning rate schedule is appropriate</li>
+</ul>
+
+<p><strong>Anti-pattern:</strong> Training blindly to max_iters without monitoring metrics.</p>
+
+<h4 id="7-checkpoints-must-include-everything">7. <strong>Checkpoints Must Include Everything</strong></h4>
+
+<p>A complete checkpoint includes:</p>
+<ul>
+  <li>Model parameters (obviously)</li>
+  <li><strong>Optimizer state</strong> (momentum buffers—critical for resumption)</li>
+  <li><strong>Iteration count</strong> (for exact resumption)</li>
+  <li><strong>Model config</strong> (for loading during inference)</li>
+</ul>
+
+<p><strong>Learned the hard way:</strong> Losing optimizer state means restarting training from scratch.</p>
+
+<h4 id="8-validation-before-long-runs">8. <strong>Validation Before Long Runs</strong></h4>
+
+<p>Always run a 100-iteration validation before launching multi-day training:</p>
+<ul>
+  <li>Verify loss decreases</li>
+  <li>Check GPU memory usage</li>
+  <li>Validate data loading</li>
+  <li>Test checkpoint save/load</li>
+</ul>
+
+<p><strong>10 minutes of validation can save days of wasted compute.</strong></p>
+
+<h4 id="9-scaling-laws-are-predictive">9. <strong>Scaling Laws Are Predictive</strong></h4>
+
+<p>Our results confirm neural scaling laws:</p>
+<ul>
+  <li>4× model size together with larger dataset → ~50% loss reduction</li>
+</ul>
+
+<h4 id="10-production-code-needs-different-discipline">10. <strong>Production Code Needs Different Discipline</strong></h4>
+
+<p>Research code gets away with:</p>
+<ul>
+  <li>Hardcoded hyperparameters</li>
+  <li>No error handling</li>
+  <li>Single-file scripts</li>
+</ul>
+
+<p>Production code requires:</p>
+<ul>
+  <li>Configuration management (JSON configs)</li>
+  <li>Robust error handling (data validation)</li>
+  <li>Automated setup (setup_data.py)</li>
+  <li>Comprehensive documentation</li>
+  <li>Reproducibility (locked dependencies)</li>
+</ul>
+
+<hr />
+
+<h2 id="conclusion">Conclusion</h2>
+
+<p>This note demonstrates that building production language models from scratch is achievable with the right architecture, training infrastructure, and engineering discipline. The complete system—from BPE tokenization to text generation—shows how modern research ideas (RoPE, RMSNorm, SwiGLU) translate into working code, and how practical engineering (graduated configs, memory mapping, robust checkpointing) makes the difference between a research prototype and a production system.</p>
+
+<p><strong>Next steps for readers:</strong></p>
+
+<ol>
+  <li><strong>Experiment with architecture:</strong> Try different layer counts, head counts, d_ff ratios</li>
+  <li><strong>Tune generation:</strong> Find optimal temperature/top-p for your use case</li>
+  <li><strong>Scale up:</strong> Apply these patterns to larger models (100M+ parameters)</li>
+  <li><strong>Add features:</strong> Implement gradient checkpointing, distributed training, flash attention</li>
+</ol>
+
+<p>The patterns shown here—BPE tokenization, modern Transformer components, graduated training configs, memory-efficient data loading, sophisticated decoding—form the foundation of systems like GPT-3, LLaMA, and PaLM. Understanding these fundamentals is the first step toward building your own large-scale language models.</p>
+
+<hr />
+
+<p><em>Implementation details, training logs, and visualizations available in the repository. Questions and contributions welcome!</em></p>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="cs336" /><summary type="html"><![CDATA[End-to-End Transformer Training on TinyStories This note walks through the complete, end-to-end process of building a Transformer language model from scratch and training it on the TinyStories dataset. It covers every major component—from byte-pair encoding tokenization and multi-head attention with rotary embeddings to training-loop design and advanced text-generation strategies.]]></summary></entry><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [10]</title><link href="http://localhost:4000/cs336/2025/11/02/cs336-building-a-complete-training-loop.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [10]" /><published>2025-11-02T00:00:00-07:00</published><updated>2025-11-02T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/11/02/cs336-building-a-complete-training-loop</id><content type="html" xml:base="http://localhost:4000/cs336/2025/11/02/cs336-building-a-complete-training-loop.html"><![CDATA[<h2 id="building-a-complete-training-loop">Building a Complete Training Loop</h2>
 
 <p>This note documents the journey of assembling all the core components such as optimizer, learning rate scheduling, data loading, checkpointing, and decoding - into a complete training pipeline for Transformer language models. We’ll explore how each piece fits together, the design decisions behind them, and the practical considerations that make the difference between research code and production systems.</p>
 
@@ -1150,14 +3095,6 @@ Always verify that token values are within valid range:</p>
   <li><strong>Effective batch size</strong> = <code class="language-plaintext highlighter-rouge">batch_size × gradient_accumulation_steps</code></li>
   <li><strong>Smoother gradients</strong>: Larger effective batches lead to more stable training</li>
 </ol>
-
-<p><strong>Practical example:</strong></p>
-<ul>
-  <li>Goal: Train with batch_size=128 for better gradient estimates</li>
-  <li>Constraint: GPU only has memory for batch_size=32</li>
-  <li>Solution: Set <code class="language-plaintext highlighter-rouge">batch_size=32</code> and <code class="language-plaintext highlighter-rouge">gradient_accumulation_steps=4</code></li>
-  <li>Result: Effective batch size = 32 × 4 = 128 ✓</li>
-</ul>
 
 <h4 id="main-training-loop">Main Training Loop</h4>
 
@@ -8121,90 +10058,4 @@ Load with: vocab, merges = load_tokenizer('tinystories_vocab.pkl', 'tinystories_
     Token ID 262: 'n e'
 </code></pre></div></div>
 
-<p>This implementation demonstrates how BPE learns to represent text efficiently by identifying and merging frequently occurring character patterns, creating a vocabulary that balances between the simplicity of byte-level tokenization and the efficiency of word-level tokenization.</p>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="cs336" /><summary type="html"><![CDATA[Byte Pair Encoding (BPE) Tokenizer in a Nutshell Key Terms]]></summary></entry><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [1]</title><link href="http://localhost:4000/cs336/2025/07/20/cs336-note-get-started.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [1]" /><published>2025-07-20T00:00:00-07:00</published><updated>2025-07-20T00:00:00-07:00</updated><id>http://localhost:4000/cs336/2025/07/20/cs336-note-get-started</id><content type="html" xml:base="http://localhost:4000/cs336/2025/07/20/cs336-note-get-started.html"><![CDATA[<h2 id="introduction">Introduction</h2>
-
-<p>It’s been a while since my last blog post about my generative AI learning journey (January 1, 2024). My day job has demanded significant time and energy, but I don’t want that to derail my passion and curiosity for deep-diving into this field.</p>
-
-<p>This week, I had a realization: instead of endlessly reflecting, thinking, or planning, it’s time to act. Even with just one hour of focused study after work each day, I can make meaningful progress by year-end.</p>
-
-<p>I’ve decided to tackle Stanford’s <a href="https://stanford-cs336.github.io/spring2025/"><strong>CS336: Language Modeling from Scratch</strong></a> at my own pace. I’m grateful that Stanford makes their <a href="https://www.youtube.com/watch?v=SQ3fZ1sAqXI&amp;list=PLoROMvodv4rOY23Y0BoGoBGgQ1zmU_MT_&amp;ab_channel=StanfordOnline"><strong>Lecture Videos</strong></a>, <a href="https://github.com/stanford-cs336"><strong>Lecture Notes &amp; Assignments</strong></a> freely available online—a perfect fit for someone like me who can’t commit to fixed class schedules but still craves structured learning.</p>
-
-<p>To give back to the community, I’ll document and share my learning notes as I progress. I’m curious to see how much I can accomplish by dedicating just an hour a day (or ~10 hours per week) through the end of the year. Can I complete all the lectures and assignments? I know I’ll move slowly, but I’m excited to test my consistency and see what’s possible.</p>
-
-<p>This first post covers <strong>setting up the local development environment</strong>—a small but necessary step to begin engaging with the lecture materials.</p>
-
-<h2 id="setting-up-the-local-dev-environment">Setting Up the Local Dev Environment</h2>
-
-<h3 id="prerequisites">Prerequisites</h3>
-
-<p>Make sure you have Git, Python 3.11, and Node.js installed on your system. You’ll also need <a href="https://github.com/astral-sh/uv"><code class="language-plaintext highlighter-rouge">uv</code></a>, a fast Python package manager.</p>
-
-<h3 id="step-1-clone-the-cs336-repository">Step 1: Clone the CS336 Repository</h3>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git clone https://github.com/stanford-cs336/spring2025-lectures
-<span class="nb">cd </span>spring2025-lectures
-</code></pre></div></div>
-
-<h3 id="step-2-set-up-python-virtual-environment-with-uv">Step 2: Set Up Python Virtual Environment with UV</h3>
-
-<p>Install <code class="language-plaintext highlighter-rouge">uv</code> (if not already installed):</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-LsSf</span> https://astral.sh/uv/install.sh | sh
-</code></pre></div></div>
-
-<p>Create a virtual environment using Python 3.11:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv venv <span class="nt">--python</span><span class="o">=</span>3.11
-</code></pre></div></div>
-
-<p>Activate the environment:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># macOS/Linux</span>
-<span class="nb">source</span> .venv/bin/activate
-</code></pre></div></div>
-
-<h3 id="step-3-install-python-dependencies">Step 3: Install Python Dependencies</h3>
-
-<blockquote>
-  <p>💡 Note: I’m using a MacBook Pro (M4). The <code class="language-plaintext highlighter-rouge">triton</code> package doesn’t support Apple Silicon, so I excluded it during the initial setup.<br />
-More info: <a href="https://github.com/triton-lang/triton">Triton GitHub</a></p>
-</blockquote>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">grep</span> <span class="nt">-v</span> <span class="s2">"triton"</span> requirements.txt <span class="o">&gt;</span> requirements_no_triton.txt
-uv pip <span class="nb">install</span> <span class="nt">-r</span> requirements_no_triton.txt
-</code></pre></div></div>
-
-<h3 id="step-4-generate-executable-lecture-content">Step 4: Generate Executable Lecture Content</h3>
-
-<p>Compile a lecture:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python execute.py <span class="nt">-m</span> lecture_01
-</code></pre></div></div>
-
-<p>This will generate a trace file at:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>var/traces/lecture_01.json
-</code></pre></div></div>
-
-<h3 id="step-5-build-the-local-react-web-app-to-view-lectures">Step 5: Build the Local React Web App to View Lectures</h3>
-
-<p>Install Node.js if needed:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>brew <span class="nb">install </span>node
-</code></pre></div></div>
-
-<p>Then build and serve the trace viewer:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">cd </span>trace-viewer
-npm <span class="nb">install
-</span>npm run dev
-</code></pre></div></div>
-
-<p>Open the viewer in your browser:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>http://localhost:&lt;PORT&gt;?trace=var/traces/lecture_01.json
-</code></pre></div></div>
-
-<p>It should be something like <img src="/assets/picture/2025_07_20_cs336_note_get_started/cs336_lecture_view.png" alt="this" />.</p>
-
-<p>Then enjoy going through the lecture notes!</p>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="cs336" /><summary type="html"><![CDATA[Introduction]]></summary></entry></feed>
+<p>This implementation demonstrates how BPE learns to represent text efficiently by identifying and merging frequently occurring character patterns, creating a vocabulary that balances between the simplicity of byte-level tokenization and the efficiency of word-level tokenization.</p>]]></content><author><name>[&quot;Han Yu&quot;]</name></author><category term="cs336" /><summary type="html"><![CDATA[Byte Pair Encoding (BPE) Tokenizer in a Nutshell Key Terms]]></summary></entry></feed>
