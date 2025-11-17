@@ -1536,14 +1536,12 @@ Production code requires:
 
 This note demonstrates that building production language models from scratch is achievable with the right architecture, training infrastructure, and engineering discipline. The complete system—from BPE tokenization to text generation—shows how modern research ideas (RoPE, RMSNorm, SwiGLU) translate into working code, and how practical engineering (graduated configs, memory mapping, robust checkpointing) makes the difference between a research prototype and a production system.
 
-**Next steps for readers:**
+**Next steps to Explore**
 
 1. **Experiment with architecture:** Try different layer counts, head counts, d_ff ratios
-2. **Tune generation:** Find optimal temperature/top-p for your use case
+2. **Tune generation:** Find optimal temperature/top-p for different use case
 3. **Scale up:** Apply these patterns to larger models (100M+ parameters)
 4. **Add features:** Implement gradient checkpointing, distributed training, flash attention
-
-The patterns shown here—BPE tokenization, modern Transformer components, graduated training configs, memory-efficient data loading, sophisticated decoding—form the foundation of systems like GPT-3, LLaMA, and PaLM. Understanding these fundamentals is the first step toward building your own large-scale language models.
 
 ---
 
