@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <link rel="shortcut icon" type="image/png" href="/assets/favicon.png">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>Study Notes: Stanford CS336 Language Modeling from Scratch [12] | 🍒 Han’s Generative AI Quest</title>
+<meta name="generator" content="Jekyll v4.3.2" />
+<meta property="og:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [12]" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="From MacBook to Cloud: A Practical Guide to Developing and Scaling LLM Training Code" />
+<meta property="og:description" content="From MacBook to Cloud: A Practical Guide to Developing and Scaling LLM Training Code" />
+<link rel="canonical" href="http://localhost:4000/cs336/2026/01/11/cs336-local-to-cloud-training.html" />
+<meta property="og:url" content="http://localhost:4000/cs336/2026/01/11/cs336-local-to-cloud-training.html" />
+<meta property="og:site_name" content="🍒 Han’s Generative AI Quest" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2026-01-11T00:00:00-08:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [12]" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2026-01-11T00:00:00-08:00","datePublished":"2026-01-11T00:00:00-08:00","description":"From MacBook to Cloud: A Practical Guide to Developing and Scaling LLM Training Code","headline":"Study Notes: Stanford CS336 Language Modeling from Scratch [12]","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/cs336/2026/01/11/cs336-local-to-cloud-training.html"},"url":"http://localhost:4000/cs336/2026/01/11/cs336-local-to-cloud-training.html"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/css/style.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="🍒 Han&apos;s Generative AI Quest" />
+
+<!-- MathJax Configuration -->
+<script>
+  MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']],
+      processEscapes: true,
+      processEnvironments: true
+    },
+    options: {
+      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+    }
+  };
+</script>
+
+<script type="text/javascript" id="MathJax-script" async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+</script>
+</head>
+<body><header class="site-header">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">🍒 Han&#39;s Generative AI Quest</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/about/">About</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Study Notes: Stanford CS336 Language Modeling from Scratch [12]</h1>
+    <p class="post-meta"><time class="dt-published" datetime="2026-01-11T00:00:00-08:00" itemprop="datePublished">
+        Jan 11, 2026
+      </time>• 
+          <span itemprop="author" itemscope itemtype="http://schema.org/Person">
+            <span class="p-author h-card" itemprop="name">Han Yu</span></span></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <h2 id="from-macbook-to-cloud-a-practical-guide-to-developing-and-scaling-llm-training-code">From MacBook to Cloud: A Practical Guide to Developing and Scaling LLM Training Code</h2>
+
+<p>When developing machine learning training pipelines, there’s often a disconnect between local development environments and production-scale cloud infrastructure. You might prototype on your laptop (say, a MacBook with Apple Silicon), only to discover that your code breaks on CUDA GPUs, or that patterns that worked locally don’t scale in the cloud.</p>
+
+<p>In this note, I’ll share my workflow for developing Supervised Fine-Tuning (SFT) code on a MacBook with Apple Silicon, testing it locally, then seamlessly deploying to <img src="https://colab.research.google.com/img/colab_favicon_256px.png" height="20" style="vertical-align: middle;" /> <a href="https://colab.research.google.com/">Google Colab</a> or multi-GPU cloud instances like <img src="https://lambdalabs.com/favicon.ico" height="20" style="vertical-align: middle;" /> <a href="https://lambdalabs.com/">Lambda Labs</a>.</p>
+
+<p><em>This workflow was developed while implementing SFT for Qwen2.5-Math-1.5B on the MATH dataset (for CS336 Assignment 5), but the principles apply broadly to any PyTorch-based training pipeline development.</em></p>
+
+<h3 id="table-of-contents">Table of Contents</h3>
+<ul>
+  <li><a href="#from-macbook-to-cloud-a-practical-guide-to-developing-and-scaling-llm-training-code">From MacBook to Cloud: A Practical Guide to Developing and Scaling LLM Training Code</a>
+    <ul>
+      <li><a href="#table-of-contents">Table of Contents</a></li>
+      <li><a href="#the-challenge-bridging-local-and-cloud-development">The Challenge: Bridging Local and Cloud Development</a></li>
+      <li><a href="#part-1-setting-up-local-development-environment"><strong>Part 1: Setting Up Local Development Environment</strong></a>
+        <ul>
+          <li><a href="#why-apple-silicon-for-ml-development"><strong>Why Apple Silicon for ML Development?</strong></a></li>
+          <li><a href="#project-structure-and-package-management"><strong>Project Structure and Package Management</strong></a></li>
+        </ul>
+      </li>
+      <li><a href="#part-2-writing-device-agnostic-training-code"><strong>Part 2: Writing Device-Agnostic Training Code</strong></a>
+        <ul>
+          <li><a href="#handling-device-detection"><strong>Handling Device Detection</strong></a></li>
+          <li><a href="#numerical-precision-considerations"><strong>Numerical Precision Considerations</strong></a></li>
+          <li><a href="#gradient-accumulation-for-memory-efficiency"><strong>Gradient Accumulation for Memory Efficiency</strong></a></li>
+        </ul>
+      </li>
+      <li><a href="#part-3-local-testing-and-validation">Part 3: Local Testing and Validation</a>
+        <ul>
+          <li><a href="#quick-sanity-checks">Quick Sanity Checks</a></li>
+          <li><a href="#inference-engine-local-vs-cloud">Inference Engine: Local vs Cloud</a></li>
+          <li><a href="#verifying-gradient-accumulation"><strong>Verifying Gradient Accumulation</strong></a></li>
+        </ul>
+      </li>
+      <li><a href="#part-4-packaging-for-cloud-deployment"><strong>Part 4: Packaging for Cloud Deployment</strong></a>
+        <ul>
+          <li><a href="#repository-structure"><strong>Repository Structure</strong></a></li>
+          <li><a href="#dependency-management-with-uv"><strong>Dependency Management with uv</strong></a></li>
+        </ul>
+      </li>
+      <li><a href="#part-5-deploying-to-google-colab"><strong>Part 5: Deploying to Google Colab</strong></a>
+        <ul>
+          <li><a href="#single-gpu-training-on-google-colab"><strong>Single GPU Training on Google Colab</strong></a></li>
+          <li><a href="#colab-specific-considerations">Colab-Specific Considerations</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-6-scaling-to-multi-gpu-with-accelerate"><strong>Part 6: Scaling to Multi-GPU with Accelerate</strong></a>
+        <ul>
+          <li><a href="#why-huggingface-accelerate"><strong>Why HuggingFace Accelerate</strong></a></li>
+          <li><a href="#code-changes-for-multi-gpu-support"><strong>Code Changes for Multi-GPU Support</strong></a></li>
+          <li><a href="#lambda-labs-deployment"><strong>Lambda Labs Deployment</strong></a></li>
+        </ul>
+      </li>
+      <li><a href="#part-7-practical-recommendations-and-lessons-learned"><strong>Part 7: Practical Recommendations and Lessons Learned</strong></a>
+        <ul>
+          <li><a href="#development-workflow-summary"><strong>Development Workflow Summary</strong></a></li>
+          <li><a href="#common-pitfalls-and-solutions"><strong>Common Pitfalls and Solutions</strong></a></li>
+          <li><a href="#performance-comparison"><strong>Performance Comparison</strong></a></li>
+        </ul>
+      </li>
+      <li><a href="#conclusion">Conclusion</a></li>
+    </ul>
+  </li>
+</ul>
+
+<h3 id="the-challenge-bridging-local-and-cloud-development">The Challenge: Bridging Local and Cloud Development</h3>
+
+<p>My typical ML development workflow faces a fundamental tension—I use a MacBook Pro with M4 chips for personal side projects, which creates some tradeoffs:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Environment</th>
+      <th>Pros</th>
+      <th>Cons</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Local (MacBook)</strong></td>
+      <td>Fast iteration, no cost, familiar tools</td>
+      <td>Limited memory, slower training, no CUDA (many GPU acceleration frameworks only support CUDA)</td>
+    </tr>
+    <tr>
+      <td><strong>Cloud (Colab/Lambda)</strong></td>
+      <td>Powerful GPUs, scalable, CUDA support</td>
+      <td>Setup overhead, costs money, less interactive</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The ideal workflow would let me:</p>
+<ol>
+  <li><strong>Develop locally</strong> with fast feedback loops</li>
+  <li><strong>Test easily</strong> before committing cloud resources</li>
+  <li><strong>Deploy seamlessly</strong> without rewriting code</li>
+  <li><strong>Scale horizontally</strong> when more compute is available</li>
+</ol>
+
+<p>This note presents a battle-tested approach to achieving all four.</p>
+
+<h3 id="part-1-setting-up-local-development-environment"><strong>Part 1: Setting Up Local Development Environment</strong></h3>
+
+<h4 id="why-apple-silicon-for-ml-development"><strong>Why Apple Silicon for ML Development?</strong></h4>
+
+<p>Beyond personal preference (I’ve been an Apple product fan since grad school), Apple Silicon Macs offer a genuinely compelling development environment:</p>
+
+<ul>
+  <li><strong>Unified Memory Architecture</strong>: 16–64GB RAM shared between CPU and GPU</li>
+  <li><strong>Metal Performance Shaders (MPS)</strong>: PyTorch backend for GPU acceleration</li>
+  <li><strong>Power Efficiency</strong>: Extended battery life for portable development</li>
+  <li><strong>Native ARM</strong>: Fast Python and native tool execution</li>
+</ul>
+
+<p>However, there are important limitations:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>CUDA (NVIDIA)</th>
+      <th>MPS (Apple Silicon)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Float16 Training</td>
+      <td>Stable with gradient scaling</td>
+      <td>Often causes NaN losses</td>
+    </tr>
+    <tr>
+      <td>BFloat16</td>
+      <td>Full support (Ampere+)</td>
+      <td>Not supported</td>
+    </tr>
+    <tr>
+      <td>Multi-GPU</td>
+      <td>NCCL, NVLink</td>
+      <td>Single GPU only</td>
+    </tr>
+    <tr>
+      <td>Flash Attention</td>
+      <td>Available</td>
+      <td>Not available</td>
+    </tr>
+    <tr>
+      <td>Memory</td>
+      <td>Dedicated VRAM</td>
+      <td>Shared system RAM</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Key Insight</strong>: MPS ( Metal Performance Shaders—Apple’s GPU-accelerated compute framework for macOS and iOS) is excellent for development and testing but usually requires float32 precision for numerical stability. I need plan for this difference when writing device-agnostic code.</p>
+
+<h4 id="project-structure-and-package-management"><strong>Project Structure and Package Management</strong></h4>
+
+<p>I use <a href="https://github.com/astral-sh/uv"><code class="language-plaintext highlighter-rouge">uv</code></a> for fast, reproducible Python package management. Here’s how I set up my local dev environment for CS336 Assignment 5.</p>
+
+<p><strong>Install uv:</strong></p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-LsSf</span> https://astral.sh/uv/install.sh | sh
+</code></pre></div></div>
+
+<p><strong>Project structure:</strong></p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>assignment5-alignment/
+├── cs336_alignment/
+│   ├── __init__.py
+│   ├── sft.py              # Main training code
+│   └── prompts/
+│       └── r1_zero.prompt  # Prompt template
+├── scripts/
+│   ├── run_sft.py          # Training entry point
+│   ├── download_model.py   # Model downloader
+│   └── download_math.py    # Data downloader
+├── notebooks/
+│   └── sft_training_colab.ipynb
+├── pyproject.toml          # Dependencies
+└── uv.lock                 # Locked versions
+</code></pre></div></div>
+
+<p><strong>pyproject.toml</strong> with optional CUDA dependencies:</p>
+<div class="language-toml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nn">[project]</span>
+<span class="py">name</span> <span class="p">=</span> <span class="s">"alignment"</span>
+<span class="py">requires-python</span> <span class="p">=</span> <span class="py">"&gt;</span><span class="p">=</span><span class="mf">3.11</span><span class="p">,</span><span class="err">&lt;</span><span class="mf">3.13</span><span class="s">"</span><span class="err">
+</span><span class="py">dependencies</span> <span class="p">=</span> <span class="p">[</span>
+    <span class="py">"accelerate&gt;</span><span class="p">=</span><span class="mf">1.5</span><span class="err">.</span><span class="mi">2</span><span class="s">",</span><span class="err">
+</span>    <span class="s">"torch"</span><span class="p">,</span>
+    <span class="py">"transformers&gt;</span><span class="p">=</span><span class="mf">4.50</span><span class="err">.</span><span class="mi">0</span><span class="s">",</span><span class="err">
+</span>    <span class="py">"tqdm&gt;</span><span class="p">=</span><span class="mf">4.67</span><span class="err">.</span><span class="mi">1</span><span class="s">",</span><span class="err">
+</span>    <span class="py">"matplotlib&gt;</span><span class="p">=</span><span class="mf">3.8</span><span class="err">.</span><span class="mi">0</span><span class="s">",</span><span class="err">
+</span><span class="p">]</span>
+
+<span class="nn">[project.optional-dependencies]</span>
+<span class="py">cuda</span> <span class="p">=</span> <span class="p">[</span>
+    <span class="py">"flash-attn=</span><span class="p">=</span><span class="mf">2.7</span><span class="err">.</span><span class="mi">4</span><span class="err">.post</span><span class="mi">1</span><span class="s">",</span><span class="err">
+</span><span class="p">]</span>
+</code></pre></div></div>
+
+<p><strong>Local installation:</strong></p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv <span class="nb">sync</span>              <span class="c"># Basic install (Mac/CPU)</span>
+uv <span class="nb">sync</span> <span class="nt">--extra</span> cuda <span class="c"># With CUDA extras (Linux with GPU)</span>
+</code></pre></div></div>
+
+<h3 id="part-2-writing-device-agnostic-training-code"><strong>Part 2: Writing Device-Agnostic Training Code</strong></h3>
+
+<p>The key to seamless local-to-cloud transitions is writing code that adapts to available hardware without manual changes.</p>
+
+<h4 id="handling-device-detection"><strong>Handling Device Detection</strong></h4>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">get_device</span><span class="p">(</span><span class="n">device_str</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s">"auto"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="s">"""Get the best available device for training."""</span>
+    <span class="k">if</span> <span class="n">device_str</span> <span class="o">!=</span> <span class="s">"auto"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">device_str</span>
+    <span class="k">if</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">is_available</span><span class="p">():</span>
+        <span class="k">return</span> <span class="s">"cuda"</span>
+    <span class="k">elif</span> <span class="n">torch</span><span class="p">.</span><span class="n">backends</span><span class="p">.</span><span class="n">mps</span><span class="p">.</span><span class="n">is_available</span><span class="p">():</span>
+        <span class="k">return</span> <span class="s">"mps"</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s">"cpu"</span>
+</code></pre></div></div>
+
+<h4 id="numerical-precision-considerations"><strong>Numerical Precision Considerations</strong></h4>
+
+<p>This is where many developers encounter their first “works locally, fails on cloud” (or vice versa) bug:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">get_dtype_and_precision</span><span class="p">(</span><span class="n">device</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">torch</span><span class="p">.</span><span class="n">dtype</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+    <span class="s">"""
+    Determine appropriate dtype and mixed precision setting.
+
+    Critical insight: MPS does NOT support float16 training reliably.
+    Using float16 on MPS often results in NaN losses due to lack of
+    proper mixed-precision support and gradient scaling.
+    """</span>
+    <span class="k">if</span> <span class="n">device</span> <span class="o">==</span> <span class="s">"cuda"</span><span class="p">:</span>
+        <span class="c1"># CUDA: Use bfloat16 if available (Ampere+), else float16
+</span>        <span class="k">if</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">is_bf16_supported</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">torch</span><span class="p">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="s">"bf16"</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">torch</span><span class="p">.</span><span class="n">float16</span><span class="p">,</span> <span class="s">"fp16"</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># MPS and CPU: Use float32 for numerical stability
+</span>        <span class="k">return</span> <span class="n">torch</span><span class="p">.</span><span class="n">float32</span><span class="p">,</span> <span class="s">"no"</span>
+</code></pre></div></div>
+
+<p><strong>Why This Matters</strong>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Device</th>
+      <th>Recommended Dtype</th>
+      <th>Reason</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>CUDA (Ampere+)</td>
+      <td>bfloat16</td>
+      <td>Best balance of speed and stability</td>
+    </tr>
+    <tr>
+      <td>CUDA (older)</td>
+      <td>float16</td>
+      <td>With gradient scaling</td>
+    </tr>
+    <tr>
+      <td>MPS</td>
+      <td>float32</td>
+      <td>float16 may cause NaN losses</td>
+    </tr>
+    <tr>
+      <td>CPU</td>
+      <td>float32</td>
+      <td>No mixed precision benefit</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>I learned this the hard way when my training showed <code class="language-plaintext highlighter-rouge">loss: nan</code> on MPS after working fine conceptually. The fix was simple once identified:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Before (broken on MPS)
+</span><span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="p">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_path</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="p">.</span><span class="n">float16</span><span class="p">)</span>
+
+<span class="c1"># After (works everywhere)
+</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">float32</span> <span class="k">if</span> <span class="n">device</span> <span class="ow">in</span> <span class="p">[</span><span class="s">"mps"</span><span class="p">,</span> <span class="s">"cpu"</span><span class="p">]</span> <span class="k">else</span> <span class="n">torch</span><span class="p">.</span><span class="n">bfloat16</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="p">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_path</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h4 id="gradient-accumulation-for-memory-efficiency"><strong>Gradient Accumulation for Memory Efficiency</strong></h4>
+
+<p>With limited memory on laptops (even 32GB unified memory), gradient accumulation is essential:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Effective batch size = batch_size * gradient_accumulation_steps
+# Example: batch_size=1, grad_accum=8 -&gt; effective batch of 8
+</span>
+<span class="k">for</span> <span class="n">step</span><span class="p">,</span> <span class="n">batch</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">dataloader</span><span class="p">):</span>
+    <span class="c1"># Forward pass
+</span>    <span class="n">loss</span> <span class="o">=</span> <span class="n">compute_loss</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">batch</span><span class="p">)</span>
+
+    <span class="c1"># Scale loss for gradient accumulation
+</span>    <span class="n">scaled_loss</span> <span class="o">=</span> <span class="n">loss</span> <span class="o">/</span> <span class="n">gradient_accumulation_steps</span>
+    <span class="n">scaled_loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+
+    <span class="c1"># Only update weights every N steps
+</span>    <span class="k">if</span> <span class="p">(</span><span class="n">step</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">gradient_accumulation_steps</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">torch</span><span class="p">.</span><span class="n">nn</span><span class="p">.</span><span class="n">utils</span><span class="p">.</span><span class="n">clip_grad_norm_</span><span class="p">(</span><span class="n">model</span><span class="p">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">max_grad_norm</span><span class="p">)</span>
+        <span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+        <span class="n">scheduler</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+        <span class="n">optimizer</span><span class="p">.</span><span class="n">zero_grad</span><span class="p">()</span>
+</code></pre></div></div>
+<p><strong>Memory Scaling Recommendations For CS336 Assignment 5 SFT on Qwen2.5-Math-1.5B with the MATH dataset</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Device</th>
+      <th>Chip Generations</th>
+      <th>Typical Memory</th>
+      <th>Found In</th>
+      <th>batch_size</th>
+      <th>gradient_accumulation_steps</th>
+      <th>Effective Batch</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Apple M-series (base)</td>
+      <td>M1, M2, M3, M4</td>
+      <td>8–16GB</td>
+      <td>MacBook Air, 13” MacBook Pro</td>
+      <td>1</td>
+      <td>16</td>
+      <td>16</td>
+    </tr>
+    <tr>
+      <td>Apple M-series Pro</td>
+      <td>M1, M2, M3, M4</td>
+      <td>18–48GB</td>
+      <td>14”/16” MacBook Pro</td>
+      <td>2–4</td>
+      <td>4–8</td>
+      <td>16</td>
+    </tr>
+    <tr>
+      <td>Apple M-series Max</td>
+      <td>M1, M2, M3, M4</td>
+      <td>36–128GB</td>
+      <td>14”/16” MacBook Pro (high-end)</td>
+      <td>4–8</td>
+      <td>2–4</td>
+      <td>16</td>
+    </tr>
+    <tr>
+      <td>Apple M-series Ultra</td>
+      <td>M1, M2</td>
+      <td>64–192GB</td>
+      <td>Mac Studio, Mac Pro</td>
+      <td>8–16</td>
+      <td>1–2</td>
+      <td>16</td>
+    </tr>
+    <tr>
+      <td>NVIDIA A100 (40GB)</td>
+      <td>—</td>
+      <td>40GB</td>
+      <td>Cloud (Lambda, GCP, AWS)</td>
+      <td>8</td>
+      <td>2</td>
+      <td>16</td>
+    </tr>
+    <tr>
+      <td>NVIDIA A100 (80GB)</td>
+      <td>—</td>
+      <td>80GB</td>
+      <td>Cloud (Lambda, GCP, AWS)</td>
+      <td>16</td>
+      <td>1</td>
+      <td>16</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><em>Effective batch = batch_size × gradient_accumulation_steps. Larger batch sizes reduce training time but require more memory.</em></p>
+
+<p><strong>Key insights:</strong></p>
+
+<ul>
+  <li>
+    <p><strong>Memory constrains batch size, not effective batch size.</strong> When GPU memory is limited, reduce <code class="language-plaintext highlighter-rouge">batch_size</code> and increase <code class="language-plaintext highlighter-rouge">gradient_accumulation_steps</code> to maintain the same effective batch size. The model sees identical gradients either way—accumulation just trades memory for time.</p>
+  </li>
+  <li>
+    <p><strong>Gradient accumulation is a memory-saving trick.</strong> Instead of computing gradients on 16 samples at once (which requires storing all intermediate activations), you process 1 sample 16 times, accumulating gradients before each optimizer step. This uses ~1/16th the memory at the cost of ~16× more forward/backward passes.</p>
+  </li>
+  <li>
+    <p><strong>Effective batch size should stay constant across devices.</strong> Notice that all rows target an effective batch of 16. This ensures consistent training dynamics regardless of hardware—important for reproducibility when moving between local development and cloud training.</p>
+  </li>
+  <li>
+    <p><strong>Diminishing returns on large batch sizes.</strong> Beyond a certain point, larger batch sizes don’t proportionally speed up training due to memory bandwidth limits (GPUs can only move data so fast, once your batch is large enough to fully utilize the GPU, making it bigger just creates a queue—the GPU can’t process it any faster) and reduced gradient noise (which can actually help optimization).</p>
+  </li>
+</ul>
+
+<h3 id="part-3-local-testing-and-validation">Part 3: Local Testing and Validation</h3>
+
+<p>Before deploying to cloud, thorough local testing saves time and money.</p>
+
+<h4 id="quick-sanity-checks">Quick Sanity Checks</h4>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Test with minimal samples to verify pipeline works</span>
+uv run python scripts/run_sft.py <span class="se">\</span>
+    <span class="nt">--model-name-or-path</span> models/qwen2.5-math-1.5b <span class="se">\</span>
+    <span class="nt">--train-data-path</span> data/math/train.jsonl <span class="se">\</span>
+    <span class="nt">--output-dir</span> outputs/sft_test <span class="se">\</span>
+    <span class="nt">--num-samples</span> 10 <span class="se">\</span>
+    <span class="nt">--num-epochs</span> 1 <span class="se">\</span>
+    <span class="nt">--batch-size</span> 1 <span class="se">\</span>
+    <span class="nt">--gradient-accumulation-steps</span> 2
+</code></pre></div></div>
+
+<p><strong>What to verify:</strong></p>
+<ol>
+  <li>Model loads without errors</li>
+  <li>Data pipeline produces valid batches</li>
+  <li>Loss decreases (not NaN or constant)</li>
+  <li>Checkpoints save correctly</li>
+  <li>Model can be reloaded from checkpoint</li>
+</ol>
+
+<h4 id="inference-engine-local-vs-cloud">Inference Engine: Local vs Cloud</h4>
+
+<p>A key challenge when developing on Apple Silicon is that <a href="https://github.com/vllm-project/vllm">vLLM</a>—the go-to inference engine for fast LLM serving—requires CUDA and doesn’t run on Macs. This means I need two inference backends during the initial development phase:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Environment</th>
+      <th>Inference Backend</th>
+      <th>Why</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Local (MPS)</td>
+      <td>HuggingFace Transformers</td>
+      <td>Pure PyTorch, runs anywhere</td>
+    </tr>
+    <tr>
+      <td>Cloud (CUDA)</td>
+      <td>vLLM</td>
+      <td>Optimized kernels, PagedAttention, 10–20× faster</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>My approach</strong>: Write a simple abstraction layer that switches backends based on the available hardware:</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">get_inference_backend</span><span class="p">(</span><span class="n">model_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="s">"""Return appropriate inference backend for the current environment."""</span>
+    <span class="k">if</span> <span class="n">device</span> <span class="o">==</span> <span class="s">"cuda"</span> <span class="ow">and</span> <span class="n">is_vllm_available</span><span class="p">():</span>
+        <span class="kn">from</span> <span class="nn">vllm</span> <span class="kn">import</span> <span class="n">LLM</span>
+        <span class="k">return</span> <span class="n">VLLMBackend</span><span class="p">(</span><span class="n">LLM</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">model_path</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Fallback to HuggingFace for MPS/CPU
+</span>        <span class="kn">from</span> <span class="nn">transformers</span> <span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
+        <span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="p">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_path</span><span class="p">).</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="p">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_path</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">TransformersBackend</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>What this enables:</strong></p>
+<ul>
+  <li><strong>Local development</strong>: Test generation logic, prompt templates, and output parsing using the Transformers backend on my Mac</li>
+  <li><strong>Cloud deployment</strong>: Automatically switch to vLLM for fast, batched inference without changing my evaluation code</li>
+</ul>
+
+<p><strong>Trade-off to keep in mind</strong>: my local inference is much slower than cloud. For local testing, I need to use small sample sizes (10–50 examples) to validate correctness, before move to run full evaluations on cloud.</p>
+
+<h4 id="verifying-gradient-accumulation"><strong>Verifying Gradient Accumulation</strong></h4>
+
+<p>A common bug is incorrect gradient accumulation scaling. Here’s a verification approach:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">verify_gradient_accumulation</span><span class="p">():</span>
+    <span class="s">"""
+    Verify that accumulated gradients match single large batch.
+
+    The gradients should be identical (within floating point tolerance)
+    whether we:
+    1. Process 8 samples in one batch, or
+    2. Process 1 sample 8 times with gradient accumulation
+    """</span>
+    <span class="n">model_single</span> <span class="o">=</span> <span class="n">create_model</span><span class="p">()</span>
+    <span class="n">model_accum</span> <span class="o">=</span> <span class="n">create_model</span><span class="p">()</span>
+
+    <span class="c1"># Copy weights
+</span>    <span class="n">model_accum</span><span class="p">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">model_single</span><span class="p">.</span><span class="n">state_dict</span><span class="p">())</span>
+
+    <span class="c1"># Method 1: Single large batch
+</span>    <span class="n">large_batch</span> <span class="o">=</span> <span class="n">get_batch</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">compute_loss</span><span class="p">(</span><span class="n">model_single</span><span class="p">,</span> <span class="n">large_batch</span><span class="p">)</span>
+    <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">grad_single</span> <span class="o">=</span> <span class="n">get_gradients</span><span class="p">(</span><span class="n">model_single</span><span class="p">)</span>
+
+    <span class="c1"># Method 2: Accumulated small batches
+</span>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">8</span><span class="p">):</span>
+        <span class="n">small_batch</span> <span class="o">=</span> <span class="n">get_batch</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">loss</span> <span class="o">=</span> <span class="n">compute_loss</span><span class="p">(</span><span class="n">model_accum</span><span class="p">,</span> <span class="n">small_batch</span><span class="p">)</span> <span class="o">/</span> <span class="mi">8</span>  <span class="c1"># Scale!
+</span>        <span class="n">loss</span><span class="p">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">grad_accum</span> <span class="o">=</span> <span class="n">get_gradients</span><span class="p">(</span><span class="n">model_accum</span><span class="p">)</span>
+
+    <span class="c1"># Verify they match
+</span>    <span class="k">assert</span> <span class="n">torch</span><span class="p">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">grad_single</span><span class="p">,</span> <span class="n">grad_accum</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h3 id="part-4-packaging-for-cloud-deployment"><strong>Part 4: Packaging for Cloud Deployment</strong></h3>
+
+<h4 id="repository-structure"><strong>Repository Structure</strong></h4>
+
+<p>Push my code to GitHub for easy cloud access, for example</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git add cs336_alignment/ scripts/ notebooks/ pyproject.toml uv.lock
+git commit <span class="nt">-m</span> <span class="s2">"Add SFT training pipeline"</span>
+git push origin main
+</code></pre></div></div>
+
+<h4 id="dependency-management-with-uv"><strong>Dependency Management with uv</strong></h4>
+
+<p>The <code class="language-plaintext highlighter-rouge">uv.lock</code> file ensures reproducible environments:</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Generate lock file locally</span>
+uv lock
+
+<span class="c"># On cloud, install exact versions</span>
+uv <span class="nb">sync</span>  <span class="c"># Reads uv.lock automatically</span>
+</code></pre></div></div>
+
+<p><strong>Why uv over pip/conda/poetry?</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Aspect</th>
+      <th>pip</th>
+      <th>conda</th>
+      <th>Poetry</th>
+      <th>uv</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Speed</td>
+      <td>Moderate</td>
+      <td>Slow</td>
+      <td>Slow</td>
+      <td>Very fast (Rust-based)</td>
+    </tr>
+    <tr>
+      <td>Lock file</td>
+      <td>❌ (requires pip-tools)</td>
+      <td>❌ (manual export)</td>
+      <td>✅</td>
+      <td>✅</td>
+    </tr>
+    <tr>
+      <td>PyTorch/CUDA handling</td>
+      <td>Manual</td>
+      <td>Good</td>
+      <td>Finicky</td>
+      <td>Smooth</td>
+    </tr>
+    <tr>
+      <td>Mac → Linux portability</td>
+      <td>Poor</td>
+      <td>Poor</td>
+      <td>Good</td>
+      <td>Excellent</td>
+    </tr>
+    <tr>
+      <td>Dependency resolution</td>
+      <td>Basic</td>
+      <td>Solver can be slow</td>
+      <td>Good but slow</td>
+      <td>Fast and reliable</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Why this matters for ML workflows:</strong></p>
+
+<ul>
+  <li>
+    <p><strong>Speed</strong>: ML projects have heavy dependencies (PyTorch, Transformers, flash-attn). Poetry can take 30–60s to resolve; uv takes 1–5s.</p>
+  </li>
+  <li>
+    <p><strong>PyTorch complexity</strong>: PyTorch has separate wheels for CPU, CUDA 11.8, CUDA 12.1, etc. Poetry often requires manual configuration with custom sources. uv handles this automatically.</p>
+  </li>
+  <li>
+    <p><strong>Cross-platform</strong>: I am developing on Mac (ARM) and deploying to Linux (x86 + CUDA). uv’s lock file captures platform-specific metadata, so <code class="language-plaintext highlighter-rouge">uv sync</code> installs the correct versions on each platform without separate environment files.</p>
+  </li>
+</ul>
+
+<p><strong>When you might still choose Poetry:</strong></p>
+<ul>
+  <li>Publishing packages to PyPI (Poetry has built-in support)</li>
+  <li>Your team already uses it and has established workflows</li>
+  <li>You need Poetry’s plugin ecosystem</li>
+</ul>
+
+<p>For ML development workflows like this one, uv’s speed and PyTorch handling are significant wins.</p>
+
+<h3 id="part-5-deploying-to-google-colab"><strong>Part 5: Deploying to Google Colab</strong></h3>
+
+<h4 id="single-gpu-training-on-google-colab"><strong>Single GPU Training on Google Colab</strong></h4>
+<p><a href="https://colab.research.google.com/">Google Colab</a> provides easy access to cloud GPUs without any setup. With your packaged repo, you can create a notebook with the following cells to run training on Colab:</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Cell 1: Clone and setup
+</span><span class="err">!</span><span class="n">git</span> <span class="n">clone</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="p">.</span><span class="n">com</span><span class="o">/</span><span class="n">YOUR_USERNAME</span><span class="o">/</span><span class="n">assignment5</span><span class="o">-</span><span class="n">alignment</span><span class="p">.</span><span class="n">git</span>
+<span class="o">%</span><span class="n">cd</span> <span class="n">assignment5</span><span class="o">-</span><span class="n">alignment</span>
+<span class="err">!</span><span class="n">git</span> <span class="n">checkout</span> <span class="n">main</span>
+
+<span class="c1"># Cell 2: Install uv and dependencies
+</span><span class="err">!</span><span class="n">curl</span> <span class="o">-</span><span class="n">LsSf</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">astral</span><span class="p">.</span><span class="n">sh</span><span class="o">/</span><span class="n">uv</span><span class="o">/</span><span class="n">install</span><span class="p">.</span><span class="n">sh</span> <span class="o">|</span> <span class="n">sh</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="n">os</span><span class="p">.</span><span class="n">environ</span><span class="p">[</span><span class="s">'PATH'</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s">"</span><span class="si">{</span><span class="n">os</span><span class="p">.</span><span class="n">path</span><span class="p">.</span><span class="n">expanduser</span><span class="p">(</span><span class="s">'~'</span><span class="p">)</span><span class="si">}</span><span class="s">/.local/bin:</span><span class="si">{</span><span class="n">os</span><span class="p">.</span><span class="n">environ</span><span class="p">[</span><span class="s">'PATH'</span><span class="p">]</span><span class="si">}</span><span class="s">"</span>
+<span class="err">!</span><span class="n">uv</span> <span class="n">sync</span> <span class="o">--</span><span class="n">extra</span> <span class="n">cuda</span>
+
+<span class="c1"># Cell 3: Download model and data
+</span><span class="err">!</span><span class="n">uv</span> <span class="n">run</span> <span class="n">python</span> <span class="n">scripts</span><span class="o">/</span><span class="n">download_model</span><span class="p">.</span><span class="n">py</span> <span class="o">--</span><span class="n">model</span><span class="o">-</span><span class="n">name</span> <span class="n">Qwen</span><span class="o">/</span><span class="n">Qwen2</span><span class="p">.</span><span class="mi">5</span><span class="o">-</span><span class="n">Math</span><span class="o">-</span><span class="mf">1.5</span><span class="n">B</span>
+<span class="err">!</span><span class="n">uv</span> <span class="n">run</span> <span class="n">python</span> <span class="n">scripts</span><span class="o">/</span><span class="n">download_math</span><span class="p">.</span><span class="n">py</span>
+
+<span class="c1"># Cell 4: Run training
+</span><span class="err">!</span><span class="n">uv</span> <span class="n">run</span> <span class="n">python</span> <span class="n">scripts</span><span class="o">/</span><span class="n">run_sft</span><span class="p">.</span><span class="n">py</span> \
+    <span class="o">--</span><span class="n">model</span><span class="o">-</span><span class="n">name</span><span class="o">-</span><span class="ow">or</span><span class="o">-</span><span class="n">path</span> <span class="n">models</span><span class="o">/</span><span class="n">qwen2</span><span class="p">.</span><span class="mi">5</span><span class="o">-</span><span class="n">math</span><span class="o">-</span><span class="mf">1.5</span><span class="n">b</span> \
+    <span class="o">--</span><span class="n">train</span><span class="o">-</span><span class="n">data</span><span class="o">-</span><span class="n">path</span> <span class="n">data</span><span class="o">/</span><span class="n">math</span><span class="o">/</span><span class="n">train</span><span class="p">.</span><span class="n">jsonl</span> \
+    <span class="o">--</span><span class="n">output</span><span class="o">-</span><span class="nb">dir</span> <span class="n">outputs</span><span class="o">/</span><span class="n">sft_model</span> \
+    <span class="o">--</span><span class="n">batch</span><span class="o">-</span><span class="n">size</span> <span class="mi">2</span> \
+    <span class="o">--</span><span class="n">gradient</span><span class="o">-</span><span class="n">accumulation</span><span class="o">-</span><span class="n">steps</span> <span class="mi">8</span> \
+    <span class="o">--</span><span class="n">device</span> <span class="n">cuda</span>
+</code></pre></div></div>
+
+<h4 id="colab-specific-considerations">Colab-Specific Considerations</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Aspect</th>
+      <th>Recommendation</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Runtime selection</strong></td>
+      <td>Runtime → Change runtime type → Select GPU (T4 for free tier, A100 for Pro+)</td>
+    </tr>
+    <tr>
+      <td><strong>Session timeout</strong></td>
+      <td>Save checkpoints every 1–2 epochs; free tier can preempt without warning</td>
+    </tr>
+    <tr>
+      <td><strong>Persistence</strong></td>
+      <td>Mount Google Drive for outputs to survive session resets</td>
+    </tr>
+    <tr>
+      <td><strong>Memory limits</strong></td>
+      <td>T4 has 16GB VRAM—use <code class="language-plaintext highlighter-rouge">batch_size=2</code> with gradient accumulation</td>
+    </tr>
+    <tr>
+      <td><strong>Background execution</strong></td>
+      <td>Pro+ only—training continues after closing browser</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Google Drive mounting:</strong></p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">from</span> <span class="nn">google.colab</span> <span class="kn">import</span> <span class="n">drive</span>
+<span class="n">drive</span><span class="p">.</span><span class="n">mount</span><span class="p">(</span><span class="s">'/content/drive'</span><span class="p">)</span>
+
+<span class="c1"># Save outputs to Drive
+</span><span class="n">output_dir</span> <span class="o">=</span> <span class="s">'/content/drive/MyDrive/sft_outputs'</span>
+</code></pre></div></div>
+
+<p><strong>Saving to Google Drive</strong>:</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">from</span> <span class="nn">google.colab</span> <span class="kn">import</span> <span class="n">drive</span>
+<span class="n">drive</span><span class="p">.</span><span class="n">mount</span><span class="p">(</span><span class="s">'/content/drive'</span><span class="p">)</span>
+<span class="err">!</span><span class="n">cp</span> <span class="o">-</span><span class="n">r</span> <span class="n">outputs</span><span class="o">/</span><span class="n">sft_model</span><span class="o">/</span><span class="n">final</span> <span class="o">/</span><span class="n">content</span><span class="o">/</span><span class="n">drive</span><span class="o">/</span><span class="n">MyDrive</span><span class="o">/</span><span class="n">sft_model</span>
+</code></pre></div></div>
+
+<h3 id="part-6-scaling-to-multi-gpu-with-accelerate"><strong>Part 6: Scaling to Multi-GPU with Accelerate</strong></h3>
+
+<h4 id="why-huggingface-accelerate"><strong>Why HuggingFace Accelerate</strong></h4>
+
+<p>Google Colab typically provides only 1 GPU. For multi-GPU training (Lambda Labs, AWS, etc.), we can use HuggingFace Accelerate:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Manual DDP</th>
+      <th>Accelerate</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Code changes</td>
+      <td>Significant</td>
+      <td>Minimal</td>
+    </tr>
+    <tr>
+      <td>Device placement</td>
+      <td>Manual</td>
+      <td>Automatic</td>
+    </tr>
+    <tr>
+      <td>Gradient sync</td>
+      <td>Manual</td>
+      <td>Automatic</td>
+    </tr>
+    <tr>
+      <td>Mixed precision</td>
+      <td>Manual setup</td>
+      <td>One flag</td>
+    </tr>
+    <tr>
+      <td>Single/Multi GPU</td>
+      <td>Different code paths</td>
+      <td>Same code</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="code-changes-for-multi-gpu-support"><strong>Code Changes for Multi-GPU Support</strong></h4>
+
+<p>The key changes to support multi-GPU:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">from</span> <span class="nn">accelerate</span> <span class="kn">import</span> <span class="n">Accelerator</span>
+
+<span class="k">def</span> <span class="nf">train_sft</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
+    <span class="c1"># Initialize Accelerator
+</span>    <span class="n">accelerator</span> <span class="o">=</span> <span class="n">Accelerator</span><span class="p">(</span>
+        <span class="n">gradient_accumulation_steps</span><span class="o">=</span><span class="n">config</span><span class="p">.</span><span class="n">gradient_accumulation_steps</span><span class="p">,</span>
+        <span class="n">mixed_precision</span><span class="o">=</span><span class="s">"bf16"</span> <span class="k">if</span> <span class="n">device</span> <span class="o">==</span> <span class="s">"cuda"</span> <span class="k">else</span> <span class="s">"no"</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Prepare model, optimizer, dataloader
+</span>    <span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">dataloader</span><span class="p">,</span> <span class="n">scheduler</span> <span class="o">=</span> <span class="n">accelerator</span><span class="p">.</span><span class="n">prepare</span><span class="p">(</span>
+        <span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">dataloader</span><span class="p">,</span> <span class="n">scheduler</span>
+    <span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">dataloader</span><span class="p">:</span>
+        <span class="c1"># Use accelerator's gradient accumulation context
+</span>        <span class="k">with</span> <span class="n">accelerator</span><span class="p">.</span><span class="n">accumulate</span><span class="p">(</span><span class="n">model</span><span class="p">):</span>
+            <span class="n">loss</span> <span class="o">=</span> <span class="n">compute_loss</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">batch</span><span class="p">)</span>
+            <span class="n">accelerator</span><span class="p">.</span><span class="n">backward</span><span class="p">(</span><span class="n">loss</span><span class="p">)</span>  <span class="c1"># Instead of loss.backward()
+</span>
+            <span class="k">if</span> <span class="n">accelerator</span><span class="p">.</span><span class="n">sync_gradients</span><span class="p">:</span>
+                <span class="n">accelerator</span><span class="p">.</span><span class="n">clip_grad_norm_</span><span class="p">(</span><span class="n">model</span><span class="p">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">max_norm</span><span class="p">)</span>
+
+            <span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+            <span class="n">scheduler</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+            <span class="n">optimizer</span><span class="p">.</span><span class="n">zero_grad</span><span class="p">()</span>
+
+    <span class="c1"># Save only on main process
+</span>    <span class="k">if</span> <span class="n">accelerator</span><span class="p">.</span><span class="n">is_main_process</span><span class="p">:</span>
+        <span class="n">unwrapped_model</span> <span class="o">=</span> <span class="n">accelerator</span><span class="p">.</span><span class="n">unwrap_model</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+        <span class="n">save_model</span><span class="p">(</span><span class="n">unwrapped_model</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Key Accelerate Patterns</strong>:</p>
+
+<ol>
+  <li><strong><code class="language-plaintext highlighter-rouge">accelerator.prepare()</code></strong>: Wraps objects for distributed training</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">accelerator.accumulate()</code></strong>: Handles gradient accumulation correctly</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">accelerator.backward()</code></strong>: Syncs gradients across devices</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">accelerator.sync_gradients</code></strong>: True when accumulation cycle completes</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">accelerator.is_main_process</code></strong>: Only one process logs/saves</li>
+</ol>
+
+<h4 id="lambda-labs-deployment"><strong>Lambda Labs Deployment</strong></h4>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SSH into Lambda instance</span>
+ssh ubuntu@your-instance-ip
+
+<span class="c"># Setup</span>
+git clone https://github.com/YOUR_USERNAME/assignment5-alignment.git
+<span class="nb">cd </span>assignment5-alignment
+
+curl <span class="nt">-LsSf</span> https://astral.sh/uv/install.sh | sh
+<span class="nb">source</span> ~/.local/bin/env
+uv <span class="nb">sync</span> <span class="nt">--extra</span> cuda
+
+<span class="c"># Download model and data</span>
+uv run python scripts/download_model.py
+uv run python scripts/download_math.py
+
+<span class="c"># Multi-GPU training (auto-detects available GPUs)</span>
+uv run accelerate launch <span class="nt">--multi_gpu</span> scripts/run_sft.py <span class="se">\</span>
+    <span class="nt">--model-name-or-path</span> models/qwen2.5-math-1.5b <span class="se">\</span>
+    <span class="nt">--batch-size</span> 4 <span class="se">\</span>
+    <span class="nt">--gradient-accumulation-steps</span> 2
+</code></pre></div></div>
+
+<p><strong>Scaling Guide</strong>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>GPUs</th>
+      <th>batch_size</th>
+      <th>grad_accum</th>
+      <th>Effective Batch</th>
+      <th>Command</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>4</td>
+      <td>4</td>
+      <td>16</td>
+      <td><code class="language-plaintext highlighter-rouge">uv run python scripts/run_sft.py</code></td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>4</td>
+      <td>2</td>
+      <td>16</td>
+      <td><code class="language-plaintext highlighter-rouge">accelerate launch --num_processes 2</code></td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>4</td>
+      <td>1</td>
+      <td>16</td>
+      <td><code class="language-plaintext highlighter-rouge">accelerate launch --num_processes 4</code></td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>4</td>
+      <td>1</td>
+      <td>32</td>
+      <td><code class="language-plaintext highlighter-rouge">accelerate launch --num_processes 8</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="part-7-practical-recommendations-and-lessons-learned"><strong>Part 7: Practical Recommendations and Lessons Learned</strong></h3>
+
+<h4 id="development-workflow-summary"><strong>Development Workflow Summary</strong></h4>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+------------------------------------------------------------------+
+|                    LOCAL DEVELOPMENT (Mac)                        |
++------------------------------------------------------------------+
+|  1. Write code with device-agnostic patterns                     |
+|  2. Test with small samples (--num-samples 10)                   |
+|  3. Verify loss decreases, no NaN                                |
+|  4. Run unit tests (pytest)                                      |
+|  5. Commit and push to GitHub                                    |
++------------------------------------------------------------------+
+                              |
+                              v
++------------------------------------------------------------------+
+|                    CLOUD VALIDATION (Colab)                       |
++------------------------------------------------------------------+
+|  1. Clone repo, install dependencies                             |
+|  2. Quick test with 100 samples                                  |
+|  3. Verify CUDA path works correctly                             |
+|  4. Check memory usage fits GPU                                  |
+|  5. Save checkpoint to Google Drive                              |
++------------------------------------------------------------------+
+                              |
+                              v
++------------------------------------------------------------------+
+|                PRODUCTION TRAINING (Lambda/Cloud)                 |
++------------------------------------------------------------------+
+|  1. Use accelerate launch for multi-GPU                          |
+|  2. Full dataset training                                        |
+|  3. Monitor with logging/wandb                                   |
+|  4. Save final model and metrics                                 |
++------------------------------------------------------------------+
+</code></pre></div></div>
+
+<h4 id="common-pitfalls-and-solutions"><strong>Common Pitfalls and Solutions</strong></h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Pitfall</th>
+      <th>Symptom</th>
+      <th>Solution</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Float16 on MPS</td>
+      <td><code class="language-plaintext highlighter-rouge">loss: nan</code></td>
+      <td>Use float32 on MPS</td>
+    </tr>
+    <tr>
+      <td>Wrong grad accumulation</td>
+      <td>Gradients don’t match</td>
+      <td>Divide loss by accumulation steps</td>
+    </tr>
+    <tr>
+      <td>Missing <code class="language-plaintext highlighter-rouge">is_main_process</code> check</td>
+      <td>Duplicate logs/saves</td>
+      <td>Guard with <code class="language-plaintext highlighter-rouge">accelerator.is_main_process</code></td>
+    </tr>
+    <tr>
+      <td>Hardcoded device</td>
+      <td>Crashes on different hardware</td>
+      <td>Use <code class="language-plaintext highlighter-rouge">get_device("auto")</code></td>
+    </tr>
+    <tr>
+      <td>No checkpoint saving</td>
+      <td>Lost progress on timeout</td>
+      <td>Save every N steps</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="performance-comparison"><strong>Performance Comparison</strong></h4>
+
+<p>From my experiments with Qwen2.5-Math-1.5B on MATH dataset:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Environment</th>
+      <th>Device</th>
+      <th>batch_size x grad_accum</th>
+      <th>Time per 100 steps</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>MacBook M2 Pro</td>
+      <td>MPS</td>
+      <td>1 x 8</td>
+      <td>~45 min</td>
+    </tr>
+    <tr>
+      <td>Colab Free</td>
+      <td>T4</td>
+      <td>2 x 8</td>
+      <td>~12 min</td>
+    </tr>
+    <tr>
+      <td>Colab Pro</td>
+      <td>A100</td>
+      <td>8 x 2</td>
+      <td>~3 min</td>
+    </tr>
+    <tr>
+      <td>Lambda (4x A100)</td>
+      <td>4x A100</td>
+      <td>4 x 1 (per GPU)</td>
+      <td>~1 min</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="conclusion">Conclusion</h3>
+
+<p>Developing ML training code that works seamlessly from a MacBook to multi-GPU cloud instances requires intentional design:</p>
+
+<ol>
+  <li><strong>Device-agnostic code</strong>: Abstract device selection and dtype handling</li>
+  <li><strong>Numerical stability</strong>: Use float32 on MPS, mixed precision on CUDA</li>
+  <li><strong>Memory efficiency</strong>: Implement gradient accumulation from the start</li>
+  <li><strong>Reproducible environments</strong>: Use <code class="language-plaintext highlighter-rouge">uv</code> with lock files</li>
+  <li><strong>Distributed-ready</strong>: Integrate Accelerate for painless multi-GPU scaling</li>
+</ol>
+
+<p>The workflow I’ve shared—develop locally on MacBook, validate on Colab, scale on cloud with distributed training—provides fast iteration during development while enabling production-scale training when needed. The key insight is that <strong>the code should adapt to the hardware, not the other way around</strong>.</p>
+
+<p>I hope this empowers you to develop confidently on your laptop, knowing that deploying to powerful cloud GPUs is a matter of changing a single command—not rewriting your training pipeline.</p>
+
+<hr />
+
+<p><strong>Resources</strong>:</p>
+<ul>
+  <li><a href="https://huggingface.co/docs/accelerate">HuggingFace Accelerate Documentation</a></li>
+  <li><a href="https://github.com/astral-sh/uv">uv Package Manager</a></li>
+  <li><a href="https://pytorch.org/docs/stable/notes/mps.html">PyTorch MPS Backend</a></li>
+  <li><a href="https://lambdalabs.com/">Lambda Labs GPU Cloud</a></li>
+</ul>
+
+  </div><a class="u-url" href="/cs336/2026/01/11/cs336-local-to-cloud-training.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col">
+        <p class="feed-subscribe">
+          <a href="http://localhost:4000/feed.xml">
+            <svg class="svg-icon orange">
+              <use xlink:href="/assets/minima-social-icons.svg#rss"></use>
+            </svg><span>Subscribe</span>
+          </a>
+        </p>
+      </div>
+      <div class="footer-col">
+        <p>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</p>
+      </div>
+    </div>
+
+    <div class="social-links"><ul class="social-media-list"></ul>
+</div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>
