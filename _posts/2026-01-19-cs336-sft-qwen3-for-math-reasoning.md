@@ -763,7 +763,7 @@ The SFT model shows clear reasoning followed by a properly formatted answer.
 
 ```
 +------------------------------------------------------------------+
-|                    LOCAL DEVELOPMENT (Mac)                        |
+|                    LOCAL DEVELOPMENT (Mac)                       |
 +------------------------------------------------------------------+
 |  1. Write code with device-agnostic patterns                     |
 |  2. Test with small samples (--num-samples 10)                   |
@@ -773,7 +773,7 @@ The SFT model shows clear reasoning followed by a properly formatted answer.
                               |
                               v
 +------------------------------------------------------------------+
-|                PRODUCTION TRAINING (Lambda Cloud)                 |
+|                PRODUCTION TRAINING (Lambda Cloud)                |
 +------------------------------------------------------------------+
 |  1. SSH into Lambda Cloud compute instance                       |
 |  2. Clone repo, install with uv                                  |
