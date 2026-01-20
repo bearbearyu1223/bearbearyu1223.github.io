@@ -573,7 +573,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Install dependencies 
 uv sync 
 
-# Install dependecies with CUDA support for flash-attn (optional)
+# Install dependecies with CUDA support for flash-attn and vLLM
 uv sync --extra cuda
 ```
 
