@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <link rel="shortcut icon" type="image/png" href="/assets/favicon.png">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>Study Notes: Stanford CS336 Language Modeling from Scratch [13] | 🍒 Han’s Generative AI Quest</title>
+<meta name="generator" content="Jekyll v4.3.2" />
+<meta property="og:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [13]" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Fine-Tuning Qwen3-1.7B on Lambda Labs for Math Reasoning" />
+<meta property="og:description" content="Fine-Tuning Qwen3-1.7B on Lambda Labs for Math Reasoning" />
+<link rel="canonical" href="http://localhost:4000/cs336/2026/01/19/cs336-sft-qwen3-for-math-reasoning.html" />
+<meta property="og:url" content="http://localhost:4000/cs336/2026/01/19/cs336-sft-qwen3-for-math-reasoning.html" />
+<meta property="og:site_name" content="🍒 Han’s Generative AI Quest" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2026-01-19T00:00:00-08:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [13]" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2026-01-19T00:00:00-08:00","datePublished":"2026-01-19T00:00:00-08:00","description":"Fine-Tuning Qwen3-1.7B on Lambda Labs for Math Reasoning","headline":"Study Notes: Stanford CS336 Language Modeling from Scratch [13]","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/cs336/2026/01/19/cs336-sft-qwen3-for-math-reasoning.html"},"url":"http://localhost:4000/cs336/2026/01/19/cs336-sft-qwen3-for-math-reasoning.html"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/css/style.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="🍒 Han&apos;s Generative AI Quest" />
+
+<!-- MathJax Configuration -->
+<script>
+  MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']],
+      processEscapes: true,
+      processEnvironments: true
+    },
+    options: {
+      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+    }
+  };
+</script>
+
+<script type="text/javascript" id="MathJax-script" async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+</script>
+</head>
+<body><header class="site-header">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">🍒 Han&#39;s Generative AI Quest</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/about/">About</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Study Notes: Stanford CS336 Language Modeling from Scratch [13]</h1>
+    <p class="post-meta"><time class="dt-published" datetime="2026-01-19T00:00:00-08:00" itemprop="datePublished">
+        Jan 19, 2026
+      </time>• 
+          <span itemprop="author" itemscope itemtype="http://schema.org/Person">
+            <span class="p-author h-card" itemprop="name">Han Yu</span></span></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <h2 id="fine-tuning-qwen3-17b-on-lambda-labs-for-math-reasoning">Fine-Tuning Qwen3-1.7B on Lambda Labs for Math Reasoning</h2>
+
+<p>When developing machine learning training pipelines, there’s often a disconnect between local development environments and production-scale cloud infrastructure. You might prototype on your laptop (say, a MacBook with Apple Silicon), only to discover that your code breaks on CUDA GPUs, or that patterns that worked locally don’t scale in the cloud.</p>
+
+<p>In this post, I’ll share my workflow for developing Supervised Fine-Tuning (SFT) code on a MacBook with Apple Silicon, testing it locally, then seamlessly deploying to cloud instances like <img src="https://lambdalabs.com/favicon.ico" height="20" style="vertical-align: middle;" /> <a href="https://lambdalabs.com/">Lambda Labs</a>.</p>
+
+<p><em>This workflow was developed while implementing SFT for Qwen3-1.7B on the MATH dataset, but the principles apply broadly to any PyTorch-based training pipeline development.</em></p>
+
+<p><strong>All code is available on GitHub:</strong> <a href="https://github.com/bearbearyu1223/qwen3_supervised_fine_tuning">bearbearyu1223/qwen3_supervised_fine_tuning</a></p>
+
+<h3 id="table-of-contents">Table of Contents</h3>
+<ul>
+  <li><a href="#fine-tuning-qwen3-17b-on-lambda-labs-for-math-reasoning">Fine-Tuning Qwen3-1.7B on Lambda Labs for Math Reasoning</a>
+    <ul>
+      <li><a href="#table-of-contents">Table of Contents</a></li>
+      <li><a href="#the-challenge-bridging-local-and-cloud-development">The Challenge: Bridging Local and Cloud Development</a></li>
+      <li><a href="#part-1-setting-up-local-development-environment">Part 1: Setting Up Local Development Environment</a>
+        <ul>
+          <li><a href="#why-apple-silicon-for-ml-development">Why Apple Silicon for ML Development?</a></li>
+          <li><a href="#why-qwen3-17b-as-the-base-model">Why Qwen3-1.7B as the Base Model?</a></li>
+          <li><a href="#project-structure-and-package-management">Project Structure and Package Management</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-2-writing-device-agnostic-training-code">Part 2: Writing Device-Agnostic Training Code</a>
+        <ul>
+          <li><a href="#automatic-hardware-detection">Automatic Hardware Detection</a></li>
+          <li><a href="#numerical-precision-considerations">Numerical Precision Considerations</a></li>
+          <li><a href="#gradient-accumulation-for-memory-efficiency">Gradient Accumulation for Memory Efficiency</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-3-the-training-pipeline">Part 3: The Training Pipeline</a>
+        <ul>
+          <li><a href="#data-preparation-the-math-dataset">Data Preparation: The MATH Dataset</a></li>
+          <li><a href="#the-r1_zero-prompt-format">The r1_zero Prompt Format</a></li>
+          <li><a href="#response-masking-for-sft">Response Masking for SFT</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-4-local-testing-and-validation">Part 4: Local Testing and Validation</a>
+        <ul>
+          <li><a href="#quick-sanity-checks">Quick Sanity Checks</a></li>
+          <li><a href="#inference-backend-local-vs-cloud">Inference Backend: Local vs Cloud</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-5-scaling-with-huggingface-accelerate">Part 5: Scaling with HuggingFace Accelerate</a>
+        <ul>
+          <li><a href="#why-huggingface-accelerate">Why HuggingFace Accelerate</a></li>
+          <li><a href="#code-changes-for-multi-gpu-support">Code Changes for Multi-GPU Support</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-6-deploying-to-lambda-cloud">Part 6: Deploying to Lambda Cloud</a>
+        <ul>
+          <li><a href="#step-by-step-deployment">Step-by-Step Deployment</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-7-evaluation-pipeline">Part 7: Evaluation Pipeline</a>
+        <ul>
+          <li><a href="#math-answer-grading">Math Answer Grading</a></li>
+          <li><a href="#running-evaluation">Running Evaluation</a></li>
+          <li><a href="#results-before-and-after-sft">Results: Before and After SFT</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-8-practical-recommendations">Part 8: Practical Recommendations</a>
+        <ul>
+          <li><a href="#development-workflow-summary">Development Workflow Summary</a></li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+</ul>
+
+<h3 id="the-challenge-bridging-local-and-cloud-development">The Challenge: Bridging Local and Cloud Development</h3>
+
+<p>My typical ML development workflow faces a fundamental tension—I use a MacBook Pro with M-series chips for personal side projects, which creates some tradeoffs:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Environment</th>
+      <th>Pros</th>
+      <th>Cons</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Local (MacBook)</strong></td>
+      <td>Fast iteration, no cost, familiar tools</td>
+      <td>Limited memory, slower training, no CUDA</td>
+    </tr>
+    <tr>
+      <td><strong>Cloud (Lambda)</strong></td>
+      <td>Powerful GPUs, scalable, CUDA support</td>
+      <td>Setup overhead, costs money, less interactive</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The ideal workflow would let me:</p>
+<ol>
+  <li><strong>Develop locally</strong> with fast feedback loops</li>
+  <li><strong>Test easily</strong> before committing cloud resources</li>
+  <li><strong>Deploy seamlessly</strong> without rewriting code</li>
+  <li><strong>Scale horizontally</strong> when more compute is available</li>
+</ol>
+
+<p>This post presents a battle-tested approach to achieving all four.</p>
+
+<h3 id="part-1-setting-up-local-development-environment">Part 1: Setting Up Local Development Environment</h3>
+
+<h4 id="why-apple-silicon-for-ml-development">Why Apple Silicon for ML Development?</h4>
+
+<p>Beyond personal preference, Apple Silicon Macs offer a genuinely compelling development environment:</p>
+
+<ul>
+  <li><strong>Unified Memory Architecture</strong>: 16–64GB RAM shared between CPU and GPU</li>
+  <li><strong>Metal Performance Shaders (MPS)</strong>: PyTorch backend for GPU acceleration</li>
+  <li><strong>Power Efficiency</strong>: Extended battery life for portable development</li>
+  <li><strong>Native ARM</strong>: Fast Python and native tool execution</li>
+</ul>
+
+<p>However, there are important limitations:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>CUDA (NVIDIA)</th>
+      <th>MPS (Apple Silicon)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Float16 Training</td>
+      <td>Stable with gradient scaling</td>
+      <td>Often causes NaN losses</td>
+    </tr>
+    <tr>
+      <td>BFloat16</td>
+      <td>Full support (Ampere+)</td>
+      <td>Limited support</td>
+    </tr>
+    <tr>
+      <td>Multi-GPU</td>
+      <td>NCCL, NVLink</td>
+      <td>Single GPU only</td>
+    </tr>
+    <tr>
+      <td>Flash Attention</td>
+      <td>Available</td>
+      <td>Not available</td>
+    </tr>
+    <tr>
+      <td>Memory</td>
+      <td>Dedicated VRAM</td>
+      <td>Shared system RAM</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Key Insight</strong>: MPS (Metal Performance Shaders—Apple’s GPU-accelerated compute framework) is excellent for development and testing but usually requires float32 precision for numerical stability.</p>
+
+<h4 id="why-qwen3-17b-as-the-base-model">Why Qwen3-1.7B as the Base Model?</h4>
+
+<p>Choosing the right base model is critical for SFT projects. I selected <a href="https://huggingface.co/Qwen/Qwen3-1.7B">Qwen3-1.7B</a> for several reasons:</p>
+
+<p><strong>1. Right-sized for the task</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Model Size</th>
+      <th>Local Dev (32GB Mac)</th>
+      <th>Single A100 (40GB)</th>
+      <th>Training Time</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0.5B–1B</td>
+      <td>Comfortable</td>
+      <td>Very fast</td>
+      <td>Minutes</td>
+    </tr>
+    <tr>
+      <td><strong>1.7B</strong></td>
+      <td><strong>Workable</strong></td>
+      <td><strong>Fast</strong></td>
+      <td><strong>~1 hour</strong></td>
+    </tr>
+    <tr>
+      <td>4B–8B</td>
+      <td>Challenging</td>
+      <td>Comfortable</td>
+      <td>Hours</td>
+    </tr>
+    <tr>
+      <td>14B+</td>
+      <td>Not feasible</td>
+      <td>Tight fit</td>
+      <td>Many hours</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>At 1.7B parameters, Qwen3-1.7B hits a sweet spot: small enough to iterate quickly on a MacBook during development, yet large enough to demonstrate meaningful learning on complex math problems.</p>
+
+<p><strong>2. Strong base capabilities</strong></p>
+
+<p>Qwen3 models come with several architectural improvements:</p>
+
+<ul>
+  <li><strong>Improved tokenizer</strong>: Better handling of mathematical notation and LaTeX</li>
+  <li><strong>Extended context</strong>: 32K context window for longer reasoning chains</li>
+  <li><strong>Thinking mode support</strong>: Native support for <code class="language-plaintext highlighter-rouge">&lt;think&gt;</code> tags that align with our r1_zero format</li>
+</ul>
+
+<p><strong>3. Active ecosystem</strong></p>
+
+<ul>
+  <li>Regular updates from Alibaba’s Qwen team</li>
+  <li>Good HuggingFace Transformers integration</li>
+  <li>Compatible with vLLM for fast inference</li>
+  <li>Apache 2.0 license for commercial use</li>
+</ul>
+
+<p><strong>4. Qwen3 model family options</strong></p>
+
+<p>The Qwen3 family provides a natural scaling path:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Model</th>
+      <th>Parameters</th>
+      <th>Use Case</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Qwen3-0.6B</td>
+      <td>0.6B</td>
+      <td>Rapid prototyping, edge deployment</td>
+    </tr>
+    <tr>
+      <td><strong>Qwen3-1.7B</strong></td>
+      <td><strong>1.7B</strong></td>
+      <td><strong>Development, single-GPU training</strong></td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>4B</td>
+      <td>Production fine-tuning</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>8B</td>
+      <td>High-quality results, multi-GPU</td>
+    </tr>
+    <tr>
+      <td>Qwen3-14B/32B</td>
+      <td>14B/32B</td>
+      <td>State-of-the-art, distributed training</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Starting with 1.7B allows rapid iteration. Once the pipeline is validated, scaling up to 4B or 8B for better results is straightforward—the same code works across all sizes.</p>
+
+<h4 id="project-structure-and-package-management">Project Structure and Package Management</h4>
+
+<p>I use <a href="https://github.com/astral-sh/uv"><code class="language-plaintext highlighter-rouge">uv</code></a> for fast, reproducible Python package management.</p>
+
+<p><strong>Install uv:</strong></p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-LsSf</span> https://astral.sh/uv/install.sh | sh
+</code></pre></div></div>
+
+<p><strong>Project structure:</strong></p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>qwen3_supervised_fine_tuning/
+├── cs336_alignment/
+│   ├── __init__.py
+│   ├── sft.py              # Main training code
+│   ├── evaluate_math.py    # Evaluation utilities
+│   ├── drgrpo_grader.py    # Math grading functions
+│   └── prompts/
+│       └── r1_zero.prompt  # Prompt template
+├── scripts/
+│   ├── run_sft.py          # Training entry point
+│   ├── run_math_eval.py    # Evaluation entry point
+│   ├── download_model.py   # Model downloader
+│   └── download_math.py    # Data downloader
+├── data/math/              # MATH dataset
+├── pyproject.toml          # Dependencies
+└── uv.lock                 # Locked versions
+</code></pre></div></div>
+
+<p><strong>pyproject.toml</strong> with optional CUDA dependencies:</p>
+<div class="language-toml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nn">[project]</span>
+<span class="py">name</span> <span class="p">=</span> <span class="s">"qwen3-sft"</span>
+<span class="py">requires-python</span> <span class="p">=</span> <span class="py">"&gt;</span><span class="p">=</span><span class="mf">3.11</span><span class="p">,</span><span class="err">&lt;</span><span class="mf">3.13</span><span class="s">"</span><span class="err">
+</span><span class="py">dependencies</span> <span class="p">=</span> <span class="p">[</span>
+    <span class="py">"accelerate&gt;</span><span class="p">=</span><span class="mf">1.5</span><span class="err">.</span><span class="mi">2</span><span class="s">",</span><span class="err">
+</span>    <span class="s">"torch"</span><span class="p">,</span>
+    <span class="py">"transformers&gt;</span><span class="p">=</span><span class="mf">4.50</span><span class="err">.</span><span class="mi">0</span><span class="s">",</span><span class="err">
+</span>    <span class="py">"datasets&gt;</span><span class="p">=</span><span class="mf">3.0</span><span class="err">.</span><span class="mi">0</span><span class="s">",</span><span class="err">
+</span>    <span class="py">"tqdm&gt;</span><span class="p">=</span><span class="mf">4.67</span><span class="err">.</span><span class="mi">1</span><span class="s">",</span><span class="err">
+</span>    <span class="py">"matplotlib&gt;</span><span class="p">=</span><span class="mf">3.8</span><span class="err">.</span><span class="mi">0</span><span class="s">",</span><span class="err">
+</span><span class="p">]</span>
+
+<span class="nn">[project.optional-dependencies]</span>
+<span class="py">cuda</span> <span class="p">=</span> <span class="p">[</span>
+    <span class="py">"flash-attn=</span><span class="p">=</span><span class="mf">2.7</span><span class="err">.</span><span class="mi">4</span><span class="err">.post</span><span class="mi">1</span><span class="s">",</span><span class="err">
+</span><span class="p">]</span>
+</code></pre></div></div>
+
+<p><strong>Local installation:</strong></p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv <span class="nb">sync</span>              <span class="c"># Basic install (Mac/CPU)</span>
+uv <span class="nb">sync</span> <span class="nt">--extra</span> cuda <span class="c"># With CUDA extras (Linux with GPU)</span>
+</code></pre></div></div>
+
+<h3 id="part-2-writing-device-agnostic-training-code">Part 2: Writing Device-Agnostic Training Code</h3>
+
+<p>The key to seamless local-to-cloud transitions is writing code that adapts to available hardware without manual changes.</p>
+
+<h4 id="automatic-hardware-detection">Automatic Hardware Detection</h4>
+
+<p>The training code implements sophisticated automatic device detection:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">detect_compute_environment</span><span class="p">(</span><span class="n">model_name_or_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ComputeEnvironment</span><span class="p">:</span>
+    <span class="s">"""Detect hardware and recommend optimal training settings."""</span>
+
+    <span class="k">if</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">is_available</span><span class="p">():</span>
+        <span class="n">num_gpus</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">device_count</span><span class="p">()</span>
+        <span class="n">device_name</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">get_device_name</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">total_memory_gb</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">get_device_properties</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="n">total_memory</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1024</span><span class="o">**</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">supports_bf16</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">is_bf16_supported</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">ComputeEnvironment</span><span class="p">(</span>
+            <span class="n">device</span><span class="o">=</span><span class="s">"cuda"</span><span class="p">,</span>
+            <span class="n">num_gpus</span><span class="o">=</span><span class="n">num_gpus</span><span class="p">,</span>
+            <span class="n">memory_gb</span><span class="o">=</span><span class="n">total_memory_gb</span><span class="p">,</span>
+            <span class="n">supports_bf16</span><span class="o">=</span><span class="n">supports_bf16</span><span class="p">,</span>
+            <span class="p">...</span>
+        <span class="p">)</span>
+
+    <span class="k">elif</span> <span class="n">torch</span><span class="p">.</span><span class="n">backends</span><span class="p">.</span><span class="n">mps</span><span class="p">.</span><span class="n">is_available</span><span class="p">():</span>
+        <span class="c1"># Extract memory via sysctl on macOS
+</span>        <span class="n">memory_gb</span> <span class="o">=</span> <span class="n">get_mac_memory</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">ComputeEnvironment</span><span class="p">(</span>
+            <span class="n">device</span><span class="o">=</span><span class="s">"mps"</span><span class="p">,</span>
+            <span class="n">num_gpus</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">memory_gb</span><span class="o">=</span><span class="n">memory_gb</span><span class="p">,</span>
+            <span class="n">supports_bf16</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>  <span class="c1"># MPS has limited BF16 support
+</span>            <span class="p">...</span>
+        <span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">ComputeEnvironment</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="s">"cpu"</span><span class="p">,</span> <span class="p">...)</span>
+</code></pre></div></div>
+
+<p>This allows running with <code class="language-plaintext highlighter-rouge">--auto</code> to automatically detect and configure optimal settings:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv run scripts/run_sft.py <span class="nt">--auto</span> <span class="se">\</span>
+    <span class="nt">--model-name-or-path</span> models/qwen3-1.7b <span class="se">\</span>
+    <span class="nt">--train-data-path</span> data/math/train.jsonl <span class="se">\</span>
+    <span class="nt">--output-dir</span> outputs/sft_qwen3
+</code></pre></div></div>
+
+<h4 id="numerical-precision-considerations">Numerical Precision Considerations</h4>
+
+<p>This is where many developers encounter their first “works locally, fails on cloud” (or vice versa) bug:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">get_dtype_and_precision</span><span class="p">(</span><span class="n">device</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">torch</span><span class="p">.</span><span class="n">dtype</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+    <span class="s">"""
+    Determine appropriate dtype and mixed precision setting.
+
+    Critical insight: MPS does NOT support float16 training reliably.
+    Using float16 on MPS often results in NaN losses.
+    """</span>
+    <span class="k">if</span> <span class="n">device</span> <span class="o">==</span> <span class="s">"cuda"</span><span class="p">:</span>
+        <span class="c1"># CUDA: Use bfloat16 if available (Ampere+), else float16
+</span>        <span class="k">if</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">is_bf16_supported</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">torch</span><span class="p">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="s">"bf16"</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">torch</span><span class="p">.</span><span class="n">float16</span><span class="p">,</span> <span class="s">"fp16"</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># MPS and CPU: Use float32 for numerical stability
+</span>        <span class="k">return</span> <span class="n">torch</span><span class="p">.</span><span class="n">float32</span><span class="p">,</span> <span class="s">"no"</span>
+</code></pre></div></div>
+
+<p><strong>Why This Matters</strong>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Device</th>
+      <th>Recommended Dtype</th>
+      <th>Reason</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>CUDA (Ampere+)</td>
+      <td>bfloat16</td>
+      <td>Best balance of speed and stability</td>
+    </tr>
+    <tr>
+      <td>CUDA (older)</td>
+      <td>float16</td>
+      <td>With gradient scaling</td>
+    </tr>
+    <tr>
+      <td>MPS</td>
+      <td>float32</td>
+      <td>float16 causes NaN losses</td>
+    </tr>
+    <tr>
+      <td>CPU</td>
+      <td>float32</td>
+      <td>No mixed precision benefit</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="gradient-accumulation-for-memory-efficiency">Gradient Accumulation for Memory Efficiency</h4>
+
+<p>With limited memory on laptops, gradient accumulation is essential. The code computes optimal settings based on available hardware:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Memory estimation (rough heuristics)
+</span><span class="k">if</span> <span class="n">device</span> <span class="o">==</span> <span class="s">"cuda"</span><span class="p">:</span>
+    <span class="n">memory_per_batch</span> <span class="o">=</span> <span class="n">model_size_billions</span> <span class="o">*</span> <span class="mi">6</span>  <span class="c1"># fp16 training
+</span><span class="k">elif</span> <span class="n">device</span> <span class="o">==</span> <span class="s">"mps"</span><span class="p">:</span>
+    <span class="n">memory_per_batch</span> <span class="o">=</span> <span class="n">model_size_billions</span> <span class="o">*</span> <span class="mi">12</span>  <span class="c1"># fp32 + shared memory
+</span><span class="k">else</span><span class="p">:</span>
+    <span class="n">memory_per_batch</span> <span class="o">=</span> <span class="n">model_size_billions</span> <span class="o">*</span> <span class="mi">16</span>
+
+<span class="c1"># Compute max batch size with 70% safety margin
+</span><span class="n">max_batch_size</span> <span class="o">=</span> <span class="nb">int</span><span class="p">((</span><span class="n">available_memory_gb</span> <span class="o">*</span> <span class="mf">0.7</span><span class="p">)</span> <span class="o">/</span> <span class="n">memory_per_batch</span><span class="p">)</span>
+<span class="n">max_batch_size</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">max_batch_size</span><span class="p">,</span> <span class="n">device_caps</span><span class="p">[</span><span class="n">device</span><span class="p">]))</span>
+
+<span class="c1"># Compute gradient accumulation for target effective batch
+</span><span class="n">gradient_accumulation_steps</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">target_effective_batch</span> <span class="o">//</span> <span class="n">max_batch_size</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Memory Scaling Recommendations for Qwen3-1.7B</strong>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Device</th>
+      <th>Memory</th>
+      <th>batch_size</th>
+      <th>gradient_accumulation_steps</th>
+      <th>Effective Batch</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>MacBook M-series</td>
+      <td>16–32GB</td>
+      <td>1–2</td>
+      <td>8–16</td>
+      <td>16</td>
+    </tr>
+    <tr>
+      <td>NVIDIA A100 (40GB)</td>
+      <td>40GB</td>
+      <td>8</td>
+      <td>2</td>
+      <td>16</td>
+    </tr>
+    <tr>
+      <td>NVIDIA A100 (80GB)</td>
+      <td>80GB</td>
+      <td>16</td>
+      <td>1</td>
+      <td>16</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="part-3-the-training-pipeline">Part 3: The Training Pipeline</h3>
+
+<h4 id="data-preparation-the-math-dataset">Data Preparation: The MATH Dataset</h4>
+
+<p>The <a href="https://github.com/hendrycks/math">MATH dataset</a> is a collection of 12,500 challenging competition mathematics problems (12,000 train / 500 test). Each problem includes a detailed step-by-step solution, making it ideal for training models on mathematical reasoning.</p>
+
+<p><strong>Dataset Structure:</strong></p>
+
+<p>Each example contains:</p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">problem</code>: The math question</li>
+  <li><code class="language-plaintext highlighter-rouge">solution</code>: Step-by-step solution with reasoning</li>
+  <li><code class="language-plaintext highlighter-rouge">answer</code>: Final answer (often in <code class="language-plaintext highlighter-rouge">\boxed{}</code> format)</li>
+  <li><code class="language-plaintext highlighter-rouge">subject</code>: One of 7 mathematical topics</li>
+  <li><code class="language-plaintext highlighter-rouge">level</code>: Difficulty from 1 (easiest) to 5 (hardest)</li>
+</ul>
+
+<p><strong>Subject Distribution:</strong></p>
+
+<p>The dataset covers 7 mathematical topics:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Subject</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Prealgebra</td>
+      <td>Basic arithmetic, fractions, percentages</td>
+    </tr>
+    <tr>
+      <td>Algebra</td>
+      <td>Equations, polynomials, functions</td>
+    </tr>
+    <tr>
+      <td>Number Theory</td>
+      <td>Divisibility, primes, modular arithmetic</td>
+    </tr>
+    <tr>
+      <td>Counting &amp; Probability</td>
+      <td>Combinatorics, probability theory</td>
+    </tr>
+    <tr>
+      <td>Geometry</td>
+      <td>Triangles, circles, coordinate geometry</td>
+    </tr>
+    <tr>
+      <td>Intermediate Algebra</td>
+      <td>Complex equations, series, inequalities</td>
+    </tr>
+    <tr>
+      <td>Precalculus</td>
+      <td>Trigonometry, vectors, complex numbers</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Example Problems by Difficulty:</strong></p>
+
+<p>Here are examples showing the range of difficulty levels:</p>
+
+<hr />
+
+<p><strong>Level 2 (Prealgebra)</strong> — Straightforward algebraic manipulation:</p>
+
+<blockquote>
+  <p><strong>Problem:</strong> If $5x - 3 = 12$, what is the value of $5x + 3$?</p>
+
+  <p><strong>Solution:</strong> Adding 6 to both sides of $5x - 3 = 12$ gives $5x - 3 + 6 = 12 + 6$. Simplifying both sides gives $5x + 3 = \boxed{18}$.</p>
+
+  <p><strong>Answer:</strong> <code class="language-plaintext highlighter-rouge">18</code></p>
+</blockquote>
+
+<hr />
+
+<p><strong>Level 3 (Algebra)</strong> — Requires understanding of functions:</p>
+
+<blockquote>
+  <p><strong>Problem:</strong> How many vertical asymptotes does the graph of $y=\frac{2}{x^2+x-6}$ have?</p>
+
+  <p><strong>Solution:</strong> The denominator of the rational function factors into $x^2+x-6=(x-2)(x+3)$. Since the numerator is always nonzero, there is a vertical asymptote whenever the denominator is $0$, which occurs for $x = 2$ and $x = -3$. Therefore, the graph has $\boxed{2}$ vertical asymptotes.</p>
+
+  <p><strong>Answer:</strong> <code class="language-plaintext highlighter-rouge">2</code></p>
+</blockquote>
+
+<hr />
+
+<p><strong>Level 4 (Geometry)</strong> — Multi-step geometric reasoning:</p>
+
+<blockquote>
+  <p><strong>Problem:</strong> In triangle $\triangle ABC$, we have that $AB = AC = 14$ and $BC = 26$. What is the length of the shortest angle bisector in $ABC$? Express your answer in simplest radical form.</p>
+
+  <p><strong>Solution:</strong> The shortest angle bisector will be from vertex $A$. Since $\triangle ABC$ is isosceles, the angle bisector from $A$ is also the perpendicular bisector of $BC$. Using the Pythagorean theorem with $AC = 14$ and $DC = \frac{1}{2} \cdot BC = 13$, we find $AD^2 = AC^2 - CD^2 = 14^2 - 13^2 = 27$. Therefore, $AD = \boxed{3\sqrt{3}}$.</p>
+
+  <p><strong>Answer:</strong> <code class="language-plaintext highlighter-rouge">3\sqrt{3}</code></p>
+</blockquote>
+
+<hr />
+
+<p><strong>Level 5 (Counting &amp; Probability)</strong> — Complex multi-case reasoning:</p>
+
+<blockquote>
+  <p><strong>Problem:</strong> Ryan has 3 red lava lamps and 3 blue lava lamps. He arranges them in a row on a shelf randomly, then turns 3 random lamps on. What is the probability that the leftmost lamp on the shelf is red, and the leftmost lamp which is turned on is also red?</p>
+
+  <p><strong>Solution:</strong> There are $\binom{6}{3}=20$ ways to arrange the lamps, and $\binom{6}{3}=20$ ways to choose which are on, giving $20 \cdot 20=400$ total outcomes. Case 1: If the left lamp is on, there are $\binom{5}{2}=10$ ways to choose other on-lamps and $\binom{5}{2}=10$ ways to choose other red lamps, giving 100 possibilities. Case 2: If the left lamp isn’t on, there are $\binom{5}{3}=10$ ways to choose on-lamps, and $\binom{4}{1}=4$ ways to choose the other red lamp, giving 40 possibilities. Total: $\frac{140}{400}=\boxed{\frac{7}{20}}$.</p>
+
+  <p><strong>Answer:</strong> <code class="language-plaintext highlighter-rouge">\dfrac{7}{20}</code></p>
+</blockquote>
+
+<hr />
+
+<p><strong>Download the dataset:</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv run python scripts/download_math.py
+</code></pre></div></div>
+
+<h4 id="the-r1_zero-prompt-format">The r1_zero Prompt Format</h4>
+
+<p>The training uses the r1_zero prompt format which encourages chain-of-thought reasoning:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>A conversation between User and Assistant. The User asks a question,
+and the Assistant solves it. The Assistant first thinks about the
+reasoning process in the mind and then provides the User with the answer.
+The reasoning process is enclosed within &lt;think&gt; &lt;/think&gt; and answer
+is enclosed within &lt;answer&gt; &lt;/answer&gt; tags, respectively.
+
+User: {question}
+Assistant: &lt;think&gt;
+{reasoning}
+&lt;/think&gt; &lt;answer&gt; {answer} &lt;/answer&gt;
+</code></pre></div></div>
+
+<p>This format teaches the model to:</p>
+<ol>
+  <li>Think through the problem step-by-step in <code class="language-plaintext highlighter-rouge">&lt;think&gt;</code> tags</li>
+  <li>Provide a clear final answer in <code class="language-plaintext highlighter-rouge">&lt;answer&gt;</code> tags</li>
+</ol>
+
+<h4 id="response-masking-for-sft">Response Masking for SFT</h4>
+
+<p>A key implementation detail: we only compute loss on response tokens, not the prompt:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">class</span> <span class="nc">MathSFTDataset</span><span class="p">(</span><span class="n">Dataset</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">idx</span><span class="p">):</span>
+        <span class="c1"># Tokenize prompt and response separately
+</span>        <span class="n">prompt_tokens</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">tokenizer</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="p">...)</span>
+        <span class="n">response_tokens</span> <span class="o">=</span> <span class="bp">self</span><span class="p">.</span><span class="n">tokenizer</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="p">...)</span>
+
+        <span class="c1"># Create response mask: 1 for response, 0 for prompt/padding
+</span>        <span class="n">response_mask</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">cat</span><span class="p">([</span>
+            <span class="n">torch</span><span class="p">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">prompt_tokens</span><span class="p">)),</span>
+            <span class="n">torch</span><span class="p">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">response_tokens</span><span class="p">)),</span>
+            <span class="n">torch</span><span class="p">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">padding_length</span><span class="p">)</span>
+        <span class="p">])</span>
+
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s">"input_ids"</span><span class="p">:</span> <span class="n">input_ids</span><span class="p">,</span>
+            <span class="s">"attention_mask"</span><span class="p">:</span> <span class="n">attention_mask</span><span class="p">,</span>
+            <span class="s">"response_mask"</span><span class="p">:</span> <span class="n">response_mask</span><span class="p">,</span>
+        <span class="p">}</span>
+</code></pre></div></div>
+
+<p>The loss is then computed only on response tokens:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># NLL loss normalized by response tokens
+</span><span class="n">nll_loss</span> <span class="o">=</span> <span class="n">masked_normalize</span><span class="p">(</span>
+    <span class="n">tensor</span><span class="o">=-</span><span class="n">policy_log_probs</span><span class="p">,</span>
+    <span class="n">mask</span><span class="o">=</span><span class="n">response_mask</span><span class="p">,</span>
+    <span class="n">normalize_constant</span><span class="o">=</span><span class="n">num_response_tokens</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div></div>
+
+<h3 id="part-4-local-testing-and-validation">Part 4: Local Testing and Validation</h3>
+
+<p>Before deploying to cloud, thorough local testing saves time and money.</p>
+
+<h4 id="quick-sanity-checks">Quick Sanity Checks</h4>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Test with minimal samples to verify pipeline works</span>
+uv run python scripts/run_sft.py <span class="se">\</span>
+    <span class="nt">--model-name-or-path</span> models/qwen3-1.7b <span class="se">\</span>
+    <span class="nt">--train-data-path</span> data/math/train.jsonl <span class="se">\</span>
+    <span class="nt">--output-dir</span> outputs/sft_test <span class="se">\</span>
+    <span class="nt">--num-samples</span> 10 <span class="se">\</span>
+    <span class="nt">--num-epochs</span> 1 <span class="se">\</span>
+    <span class="nt">--batch-size</span> 1 <span class="se">\</span>
+    <span class="nt">--gradient-accumulation-steps</span> 2
+</code></pre></div></div>
+
+<p><strong>What to verify:</strong></p>
+<ol>
+  <li>Model loads without errors</li>
+  <li>Data pipeline produces valid batches</li>
+  <li>Loss decreases (not NaN or constant)</li>
+  <li>Checkpoints save correctly</li>
+  <li>Model can be reloaded from checkpoint</li>
+</ol>
+
+<h4 id="inference-backend-local-vs-cloud">Inference Backend: Local vs Cloud</h4>
+
+<p>A key challenge when developing on Apple Silicon is that <a href="https://github.com/vllm-project/vllm">vLLM</a>—the go-to inference engine for fast LLM serving—requires CUDA and doesn’t run on Macs. The evaluation code handles this with two backends:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Environment</th>
+      <th>Inference Backend</th>
+      <th>Why</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Local (MPS)</td>
+      <td>HuggingFace Transformers</td>
+      <td>Pure PyTorch, runs anywhere</td>
+    </tr>
+    <tr>
+      <td>Cloud (CUDA)</td>
+      <td>vLLM</td>
+      <td>Optimized kernels, 10–20× faster</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">get_inference_backend</span><span class="p">(</span><span class="n">model_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="s">"""Return appropriate inference backend for the current environment."""</span>
+    <span class="k">if</span> <span class="n">device</span> <span class="o">==</span> <span class="s">"cuda"</span> <span class="ow">and</span> <span class="n">is_vllm_available</span><span class="p">():</span>
+        <span class="kn">from</span> <span class="nn">vllm</span> <span class="kn">import</span> <span class="n">LLM</span>
+        <span class="k">return</span> <span class="n">VLLMBackend</span><span class="p">(</span><span class="n">LLM</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">model_path</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Fallback to HuggingFace for MPS/CPU
+</span>        <span class="kn">from</span> <span class="nn">transformers</span> <span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
+        <span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="p">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_path</span><span class="p">).</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="p">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_path</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">TransformersBackend</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h3 id="part-5-scaling-with-huggingface-accelerate">Part 5: Scaling with HuggingFace Accelerate</h3>
+
+<h4 id="why-huggingface-accelerate">Why HuggingFace Accelerate</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Manual DDP</th>
+      <th>Accelerate</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Code changes</td>
+      <td>Significant</td>
+      <td>Minimal</td>
+    </tr>
+    <tr>
+      <td>Device placement</td>
+      <td>Manual</td>
+      <td>Automatic</td>
+    </tr>
+    <tr>
+      <td>Gradient sync</td>
+      <td>Manual</td>
+      <td>Automatic</td>
+    </tr>
+    <tr>
+      <td>Mixed precision</td>
+      <td>Manual setup</td>
+      <td>One flag</td>
+    </tr>
+    <tr>
+      <td>Single/Multi GPU</td>
+      <td>Different code paths</td>
+      <td>Same code</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="code-changes-for-multi-gpu-support">Code Changes for Multi-GPU Support</h4>
+
+<p>The key changes to support multi-GPU:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">from</span> <span class="nn">accelerate</span> <span class="kn">import</span> <span class="n">Accelerator</span>
+
+<span class="k">def</span> <span class="nf">train_sft</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
+    <span class="c1"># Initialize Accelerator
+</span>    <span class="n">accelerator</span> <span class="o">=</span> <span class="n">Accelerator</span><span class="p">(</span>
+        <span class="n">gradient_accumulation_steps</span><span class="o">=</span><span class="n">config</span><span class="p">.</span><span class="n">gradient_accumulation_steps</span><span class="p">,</span>
+        <span class="n">mixed_precision</span><span class="o">=</span><span class="s">"bf16"</span> <span class="k">if</span> <span class="n">device</span> <span class="o">==</span> <span class="s">"cuda"</span> <span class="k">else</span> <span class="s">"no"</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Prepare model, optimizer, dataloader
+</span>    <span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">dataloader</span><span class="p">,</span> <span class="n">scheduler</span> <span class="o">=</span> <span class="n">accelerator</span><span class="p">.</span><span class="n">prepare</span><span class="p">(</span>
+        <span class="n">model</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">dataloader</span><span class="p">,</span> <span class="n">scheduler</span>
+    <span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">dataloader</span><span class="p">:</span>
+        <span class="c1"># Use accelerator's gradient accumulation context
+</span>        <span class="k">with</span> <span class="n">accelerator</span><span class="p">.</span><span class="n">accumulate</span><span class="p">(</span><span class="n">model</span><span class="p">):</span>
+            <span class="n">loss</span> <span class="o">=</span> <span class="n">compute_loss</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">batch</span><span class="p">)</span>
+            <span class="n">accelerator</span><span class="p">.</span><span class="n">backward</span><span class="p">(</span><span class="n">loss</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">accelerator</span><span class="p">.</span><span class="n">sync_gradients</span><span class="p">:</span>
+                <span class="n">accelerator</span><span class="p">.</span><span class="n">clip_grad_norm_</span><span class="p">(</span><span class="n">model</span><span class="p">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">max_norm</span><span class="p">)</span>
+
+            <span class="n">optimizer</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+            <span class="n">scheduler</span><span class="p">.</span><span class="n">step</span><span class="p">()</span>
+            <span class="n">optimizer</span><span class="p">.</span><span class="n">zero_grad</span><span class="p">()</span>
+
+    <span class="c1"># Save only on main process
+</span>    <span class="k">if</span> <span class="n">accelerator</span><span class="p">.</span><span class="n">is_main_process</span><span class="p">:</span>
+        <span class="n">unwrapped_model</span> <span class="o">=</span> <span class="n">accelerator</span><span class="p">.</span><span class="n">unwrap_model</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+        <span class="n">unwrapped_model</span><span class="p">.</span><span class="n">save_pretrained</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Key Accelerate Patterns</strong>:</p>
+
+<ol>
+  <li><strong><code class="language-plaintext highlighter-rouge">accelerator.prepare()</code></strong>: Wraps objects for distributed training</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">accelerator.accumulate()</code></strong>: Handles gradient accumulation correctly</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">accelerator.backward()</code></strong>: Syncs gradients across devices</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">accelerator.sync_gradients</code></strong>: True when accumulation cycle completes</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">accelerator.is_main_process</code></strong>: Only one process logs/saves</li>
+</ol>
+
+<h3 id="part-6-deploying-to-lambda-cloud">Part 6: Deploying to Lambda Cloud</h3>
+
+<h4 id="step-by-step-deployment">Step-by-Step Deployment</h4>
+
+<p>This guide uses a <strong>1x A100 40GB SXM4</strong> instance on <a href="https://lambdalabs.com/service/gpu-cloud">Lambda Cloud</a>.</p>
+
+<p><strong>Step 1: Launch Instance and SSH</strong></p>
+
+<p>Go to <a href="https://cloud.lambdalabs.com/">Lambda Cloud</a> and launch a <strong>1x A100 40GB SXM4</strong> instance</p>
+
+<p><img src="/assets/picture/2026-01-19-cs336-sft-qwen3-for-math-reasoning/select_gou_instance.png" alt="Select GPU Instance on Lambda Cloud" /></p>
+
+<p>SSH into your instance:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ssh ubuntu@&lt;your-instance-ip&gt;
+</code></pre></div></div>
+
+<p><img src="/assets/picture/2026-01-19-cs336-sft-qwen3-for-math-reasoning/ssh_into_lambda_compute_instance.png" alt="SSH into Lambda Compute Instance" /></p>
+
+<p><strong>Step 2: Clone and Setup Environment</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Clone the repository</span>
+git clone https://github.com/bearbearyu1223/qwen3_supervised_fine_tuning.git
+<span class="nb">cd </span>qwen3_supervised_fine_tuning
+
+<span class="c"># Install uv package manager</span>
+curl <span class="nt">-LsSf</span> https://astral.sh/uv/install.sh | sh
+
+<span class="c"># Install dependencies </span>
+uv <span class="nb">sync</span> 
+
+<span class="c"># Install dependecies with CUDA support for flash-attn (optional)</span>
+uv <span class="nb">sync</span> <span class="nt">--extra</span> cuda
+</code></pre></div></div>
+
+<p><strong>Step 3: Download Model and Data</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv run python scripts/download_model.py <span class="nt">--model-name</span> Qwen/Qwen3-1.7B
+uv run python scripts/download_math.py
+</code></pre></div></div>
+
+<p><strong>Step 4: Run SFT Training</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Run with AUTO mode (auto-detects GPU and optimal settings)</span>
+uv run accelerate launch scripts/run_sft.py <span class="nt">--auto</span> <span class="se">\</span>
+    <span class="nt">--model-name-or-path</span> models/qwen3-1.7b <span class="se">\</span>
+    <span class="nt">--train-data-path</span> data/math/train.jsonl <span class="se">\</span>
+    <span class="nt">--output-dir</span> outputs/sft_qwen3
+</code></pre></div></div>
+
+<p><img src="/assets/picture/2026-01-19-cs336-sft-qwen3-for-math-reasoning/sft_qwen3_model.png" alt="SFT Training Progress" /></p>
+
+<p>The <code class="language-plaintext highlighter-rouge">--auto</code> flag triggers automatic compute environment detection. On this Lambda instance, the script detected:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Setting</th>
+      <th>Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Platform</td>
+      <td>NVIDIA A100-SXM4-40GB</td>
+    </tr>
+    <tr>
+      <td>Device</td>
+      <td>cuda</td>
+    </tr>
+    <tr>
+      <td>Memory</td>
+      <td>39.5 GB</td>
+    </tr>
+    <tr>
+      <td>BF16 Support</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>FP16 Support</td>
+      <td>True</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Based on these capabilities, the training configuration was automatically resolved to:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Auto-Selected Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Batch size</td>
+      <td>2</td>
+    </tr>
+    <tr>
+      <td>Gradient accumulation</td>
+      <td>4</td>
+    </tr>
+    <tr>
+      <td>Effective batch size</td>
+      <td>8</td>
+    </tr>
+    <tr>
+      <td>Mixed precision</td>
+      <td>bf16</td>
+    </tr>
+    <tr>
+      <td>Model dtype</td>
+      <td>torch.bfloat16</td>
+    </tr>
+    <tr>
+      <td>Num workers</td>
+      <td>4</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The training then proceeds through 12,000 examples (the full MATH training set) for 1,500 update steps. The training curves below show the loss and learning rate schedule:</p>
+
+<p><img src="/assets/picture/2026-01-19-cs336-sft-qwen3-for-math-reasoning/training_curves.png" alt="Training Curves" /></p>
+
+<p>The left plot shows the training loss dropping rapidly from ~2.3 to ~0.7 in the first 100 steps, then gradually decreasing to ~0.5 by the end of training. The right plot shows the learning rate schedule: a linear warmup to 2e-5 followed by linear decay to zero.</p>
+
+<p><strong>Step 5: Evaluate the Trained Model</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv run python scripts/run_math_eval.py <span class="se">\</span>
+    <span class="nt">--model-name-or-path</span> outputs/sft_qwen3/final <span class="se">\</span>
+    <span class="nt">--output-path</span> outputs/sft_qwen3_eval.jsonl
+</code></pre></div></div>
+
+<h3 id="part-7-evaluation-pipeline">Part 7: Evaluation Pipeline</h3>
+
+<h4 id="math-answer-grading">Math Answer Grading</h4>
+
+<p>The evaluation uses a sophisticated grading pipeline that handles the complexity of mathematical answers:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">r1_zero_reward_fn</span><span class="p">(</span><span class="n">response</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">ground_truth</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+    <span class="s">"""
+    Grade a model response against the ground truth.
+
+    Returns:
+        format_reward: 1.0 if response has correct &lt;think&gt;/&lt;answer&gt; format
+        answer_reward: 1.0 if answer is mathematically correct
+        reward: Combined reward
+    """</span>
+    <span class="c1"># Check format: must have "&lt;/think&gt; &lt;answer&gt;" and "&lt;/answer&gt;" tags
+</span>    <span class="k">if</span> <span class="s">"&lt;/think&gt; &lt;answer&gt;"</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">response</span> <span class="ow">or</span> <span class="s">"&lt;/answer&gt;"</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">response</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s">"format_reward"</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span> <span class="s">"answer_reward"</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span> <span class="s">"reward"</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">}</span>
+
+    <span class="c1"># Extract answer from tags
+</span>    <span class="n">model_answer</span> <span class="o">=</span> <span class="n">response</span><span class="p">.</span><span class="n">split</span><span class="p">(</span><span class="s">"&lt;answer&gt;"</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">].</span><span class="n">replace</span><span class="p">(</span><span class="s">"&lt;/answer&gt;"</span><span class="p">,</span> <span class="s">""</span><span class="p">)</span>
+
+    <span class="c1"># Handle \boxed{} format
+</span>    <span class="k">if</span> <span class="s">"</span><span class="se">\\</span><span class="s">boxed"</span> <span class="ow">in</span> <span class="n">model_answer</span><span class="p">:</span>
+        <span class="n">model_answer</span> <span class="o">=</span> <span class="n">extract_boxed_answer</span><span class="p">(</span><span class="n">model_answer</span><span class="p">)</span>
+
+    <span class="c1"># Grade using multiple strategies
+</span>    <span class="n">is_correct</span> <span class="o">=</span> <span class="n">grade_answer</span><span class="p">(</span><span class="n">model_answer</span><span class="p">,</span> <span class="n">ground_truth</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s">"format_reward"</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+        <span class="s">"answer_reward"</span><span class="p">:</span> <span class="mf">1.0</span> <span class="k">if</span> <span class="n">is_correct</span> <span class="k">else</span> <span class="mf">0.0</span><span class="p">,</span>
+        <span class="s">"reward"</span><span class="p">:</span> <span class="mf">1.0</span> <span class="k">if</span> <span class="n">is_correct</span> <span class="k">else</span> <span class="mf">0.5</span><span class="p">,</span>  <span class="c1"># Partial credit for format
+</span>    <span class="p">}</span>
+</code></pre></div></div>
+
+<p>The grading uses multiple strategies with timeout protection:</p>
+<ol>
+  <li><strong>MATHD normalization</strong>: Dan Hendrycks’ string normalization</li>
+  <li><strong>Sympy symbolic equality</strong>: For algebraic equivalence</li>
+  <li><strong>math_verify library</strong>: Advanced parsing for complex expressions</li>
+</ol>
+
+<h4 id="running-evaluation">Running Evaluation</h4>
+
+<p><strong>Zero-shot evaluation (baseline):</strong></p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv run python scripts/run_math_eval.py <span class="se">\</span>
+    <span class="nt">--model-name-or-path</span> models/qwen3-1.7b <span class="se">\</span>
+    <span class="nt">--output-path</span> outputs/qwen3_base_eval.jsonl
+</code></pre></div></div>
+
+<p><strong>Fine-tuned model evaluation:</strong></p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv run python scripts/run_math_eval.py <span class="se">\</span>
+    <span class="nt">--model-name-or-path</span> outputs/sft_qwen3/final <span class="se">\</span>
+    <span class="nt">--output-path</span> outputs/sft_qwen3_eval.jsonl
+</code></pre></div></div>
+
+<p><img src="/assets/picture/2026-01-19-cs336-sft-qwen3-for-math-reasoning/eval_after_sft.png" alt="vLLM Evaluation Output" /></p>
+
+<p>On CUDA, the evaluation script automatically uses <a href="https://github.com/vllm-project/vllm">vLLM</a> for high-throughput inference. The screenshot shows vLLM’s initialization process:</p>
+
+<ol>
+  <li><strong>Model loading</strong>: The fine-tuned model loads into ~3.2 GB of GPU memory</li>
+  <li><strong>CUDA graph compilation</strong>: vLLM compiles optimized CUDA graphs for the decode phase</li>
+  <li><strong>KV cache allocation</strong>: With 30.87 GB available, vLLM allocates a KV cache supporting ~209K tokens</li>
+</ol>
+
+<p>Once initialized, vLLM generates responses for all 500 test problems at impressive speeds—approximately 17,800 tokens/second throughput, with input processing at ~2,800 toks/s and output generation at ~6,300 toks/s. The entire evaluation completes in under 30 seconds, compared to several minutes with standard HuggingFace inference.</p>
+
+<p>The aggregated metrics show the final results: 36% answer accuracy (<code class="language-plaintext highlighter-rouge">answer_reward: 0.36</code>) and 90% format compliance (<code class="language-plaintext highlighter-rouge">format_reward: 0.90</code>).</p>
+
+<h4 id="results-before-and-after-sft">Results: Before and After SFT</h4>
+
+<p>After training Qwen3-1.7B on ~12K examples from the MATH dataset with only one epoch, here are the evaluation results on 500 test problems:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Metric</th>
+      <th>Base Model (Zero-Shot)</th>
+      <th>After SFT</th>
+      <th>Improvement</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Correct Answers</strong></td>
+      <td>133 (26.6%)</td>
+      <td>180 (36.0%)</td>
+      <td>+9.4pp (+35% relative)</td>
+    </tr>
+    <tr>
+      <td><strong>Format Compliance</strong></td>
+      <td>148 (29.6%)</td>
+      <td>450 (90.0%)</td>
+      <td>+60.4pp (+204% relative)</td>
+    </tr>
+    <tr>
+      <td><strong>Format Only (wrong answer)</strong></td>
+      <td>15 (3.0%)</td>
+      <td>270 (54.0%)</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td><strong>Neither (no format, wrong)</strong></td>
+      <td>352 (70.4%)</td>
+      <td>50 (10.0%)</td>
+      <td>-60.4pp</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Key Observations:</strong></p>
+
+<ol>
+  <li>
+    <p><strong>Dramatic format improvement</strong>: The base Qwen3-1.7B model doesn’t naturally output the <code class="language-plaintext highlighter-rouge">&lt;think&gt;...&lt;/think&gt; &lt;answer&gt;...&lt;/answer&gt;</code> format. After SFT, 90% of responses follow the expected format—a critical requirement for downstream applications that parse structured outputs.</p>
+  </li>
+  <li>
+    <p><strong>Meaningful accuracy gains</strong>: Correct answers improved from 26.6% to 36.0%, a 35% relative improvement. While there’s still room for growth, this demonstrates the model is learning genuine mathematical reasoning, not just format mimicry.</p>
+  </li>
+  <li>
+    <p><strong>The “format only” category</strong>: After SFT, 54% of responses have correct format but wrong answers. These are cases where the model follows the reasoning structure but makes mathematical errors—a good target for future improvements like RLHF or more training data.</p>
+  </li>
+</ol>
+
+<p><strong>Example: Before SFT (Base Model)</strong></p>
+
+<p>The base model often ignores the expected format entirely:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Problem: What is the smallest positive perfect cube that can be written
+         as the sum of three consecutive integers?
+
+Base Model Output:
+&lt;/think&gt;
+&lt;/think&gt;
+To solve this problem, we need to find the smallest positive perfect cube
+that can be expressed as the sum of three consecutive integers.
+Let the three consecutive integers be $ n-1 $, $ n $, and $ n+1 $.
+The sum of these three integers is: $(n-1) + n + (n+1) = 3n$
+...
+</code></pre></div></div>
+
+<p>Notice the malformed <code class="language-plaintext highlighter-rouge">&lt;/think&gt;&lt;/think&gt;</code> without opening tags or <code class="language-plaintext highlighter-rouge">&lt;answer&gt;</code> tags.</p>
+
+<p><strong>Example: After SFT</strong></p>
+
+<p>The fine-tuned model produces well-structured reasoning:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Problem: What is the smallest positive perfect cube that can be written
+         as the sum of three consecutive integers?
+
+SFT Model Output:
+Let the three consecutive integers be $n-1$, $n$, and $n+1$. Then
+$(n-1)+n+(n+1)=3n$. We want to find the smallest positive perfect cube
+that is divisible by 3. The smallest positive perfect cube divisible
+by 3 is $3^3=27$. Therefore, the smallest positive perfect cube that
+can be written as the sum of three consecutive integers is $\boxed{27}$.
+&lt;/think&gt; &lt;answer&gt;\boxed{27}&lt;/answer&gt;
+</code></pre></div></div>
+
+<p>The SFT model shows clear reasoning followed by a properly formatted answer.</p>
+
+<h3 id="part-8-practical-recommendations">Part 8: Practical Recommendations</h3>
+
+<h4 id="development-workflow-summary">Development Workflow Summary</h4>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+------------------------------------------------------------------+
+|                    LOCAL DEVELOPMENT (Mac)                        |
++------------------------------------------------------------------+
+|  1. Write code with device-agnostic patterns                     |
+|  2. Test with small samples (--num-samples 10)                   |
+|  3. Verify loss decreases, no NaN                                |
+|  4. Commit and push to GitHub                                    |
++------------------------------------------------------------------+
+                              |
+                              v
++------------------------------------------------------------------+
+|                PRODUCTION TRAINING (Lambda Cloud)                 |
++------------------------------------------------------------------+
+|  1. SSH into Lambda Cloud compute instance                                       |
+|  2. Clone repo, install with uv                                  |
+|  3. Run training with --auto flag                                |
+|  4. Evaluate and save results                                    |
++------------------------------------------------------------------+
+</code></pre></div></div>
+
+<hr />
+
+<p><strong>Resources</strong>:</p>
+<ul>
+  <li><a href="https://github.com/bearbearyu1223/qwen3_supervised_fine_tuning">Project Repository</a> — Full source code for this blog post</li>
+  <li><a href="https://huggingface.co/docs/accelerate">HuggingFace Accelerate Documentation</a></li>
+  <li><a href="https://github.com/astral-sh/uv">uv Package Manager</a></li>
+  <li><a href="https://pytorch.org/docs/stable/notes/mps.html">PyTorch MPS Backend</a></li>
+  <li><a href="https://lambdalabs.com/">Lambda Labs GPU Cloud</a></li>
+  <li><a href="https://huggingface.co/Qwen">Qwen3 Models</a></li>
+  <li><a href="https://github.com/hendrycks/math">MATH Dataset</a></li>
+</ul>
+
+  </div><a class="u-url" href="/cs336/2026/01/19/cs336-sft-qwen3-for-math-reasoning.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col">
+        <p class="feed-subscribe">
+          <a href="http://localhost:4000/feed.xml">
+            <svg class="svg-icon orange">
+              <use xlink:href="/assets/minima-social-icons.svg#rss"></use>
+            </svg><span>Subscribe</span>
+          </a>
+        </p>
+      </div>
+      <div class="footer-col">
+        <p>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</p>
+      </div>
+    </div>
+
+    <div class="social-links"><ul class="social-media-list"></ul>
+</div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>
