@@ -775,7 +775,7 @@ The SFT model shows clear reasoning followed by a properly formatted answer.
 +------------------------------------------------------------------+
 |                PRODUCTION TRAINING (Lambda Cloud)                 |
 +------------------------------------------------------------------+
-|  1. SSH into Lambda Cloud compute instance                                       |
+|  1. SSH into Lambda Cloud compute instance                       |
 |  2. Clone repo, install with uv                                  |
 |  3. Run training with --auto flag                                |
 |  4. Evaluate and save results                                    |
