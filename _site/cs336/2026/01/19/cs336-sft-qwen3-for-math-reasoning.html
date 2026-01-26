@@ -907,7 +907,7 @@ curl <span class="nt">-LsSf</span> https://astral.sh/uv/install.sh | sh
 <span class="c"># Install dependencies </span>
 uv <span class="nb">sync</span> 
 
-<span class="c"># Install dependecies with CUDA support for flash-attn (optional)</span>
+<span class="c"># Install dependecies with CUDA support for flash-attn and vLLM</span>
 uv <span class="nb">sync</span> <span class="nt">--extra</span> cuda
 </code></pre></div></div>
 
@@ -1177,7 +1177,7 @@ can be written as the sum of three consecutive integers is $\boxed{27}$.
 <h4 id="development-workflow-summary">Development Workflow Summary</h4>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+------------------------------------------------------------------+
-|                    LOCAL DEVELOPMENT (Mac)                        |
+|                    LOCAL DEVELOPMENT (Mac)                       |
 +------------------------------------------------------------------+
 |  1. Write code with device-agnostic patterns                     |
 |  2. Test with small samples (--num-samples 10)                   |
@@ -1187,9 +1187,9 @@ can be written as the sum of three consecutive integers is $\boxed{27}$.
                               |
                               v
 +------------------------------------------------------------------+
-|                PRODUCTION TRAINING (Lambda Cloud)                 |
+|                PRODUCTION TRAINING (Lambda Cloud)                |
 +------------------------------------------------------------------+
-|  1. SSH into Lambda Cloud compute instance                                       |
+|  1. SSH into Lambda Cloud compute instance                       |
 |  2. Clone repo, install with uv                                  |
 |  3. Run training with --auto flag                                |
 |  4. Evaluate and save results                                    |

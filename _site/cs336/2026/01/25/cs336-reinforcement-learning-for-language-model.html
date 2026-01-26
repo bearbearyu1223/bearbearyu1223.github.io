@@ -1,0 +1,1691 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <link rel="shortcut icon" type="image/png" href="/assets/favicon.png">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>Study Notes: Stanford CS336 Language Modeling from Scratch [14] | 🍒 Han’s Generative AI Quest</title>
+<meta name="generator" content="Jekyll v4.3.2" />
+<meta property="og:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [14]" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="A Beginner’s Guide to Reinforcement Learning for Language Models" />
+<meta property="og:description" content="A Beginner’s Guide to Reinforcement Learning for Language Models" />
+<link rel="canonical" href="http://localhost:4000/cs336/2026/01/25/cs336-reinforcement-learning-for-language-model.html" />
+<meta property="og:url" content="http://localhost:4000/cs336/2026/01/25/cs336-reinforcement-learning-for-language-model.html" />
+<meta property="og:site_name" content="🍒 Han’s Generative AI Quest" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2026-01-25T00:00:00-08:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [14]" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2026-01-25T00:00:00-08:00","datePublished":"2026-01-25T00:00:00-08:00","description":"A Beginner’s Guide to Reinforcement Learning for Language Models","headline":"Study Notes: Stanford CS336 Language Modeling from Scratch [14]","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/cs336/2026/01/25/cs336-reinforcement-learning-for-language-model.html"},"url":"http://localhost:4000/cs336/2026/01/25/cs336-reinforcement-learning-for-language-model.html"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/css/style.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="🍒 Han&apos;s Generative AI Quest" />
+
+<!-- MathJax Configuration -->
+<script>
+  MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']],
+      processEscapes: true,
+      processEnvironments: true
+    },
+    options: {
+      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+    }
+  };
+</script>
+
+<script type="text/javascript" id="MathJax-script" async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+</script>
+</head>
+<body><header class="site-header">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">🍒 Han&#39;s Generative AI Quest</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/about/">About</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Study Notes: Stanford CS336 Language Modeling from Scratch [14]</h1>
+    <p class="post-meta"><time class="dt-published" datetime="2026-01-25T00:00:00-08:00" itemprop="datePublished">
+        Jan 25, 2026
+      </time>• 
+          <span itemprop="author" itemscope itemtype="http://schema.org/Person">
+            <span class="p-author h-card" itemprop="name">Han Yu</span></span></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <h2 id="a-beginners-guide-to-reinforcement-learning-for-language-models">A Beginner’s Guide to Reinforcement Learning for Language Models</h2>
+
+<p>Recent breakthroughs in AI reasoning—like DeepSeek R1 and OpenAI’s o1—have been powered by reinforcement learning (RL). But if you’re new to RL, the math can feel intimidating. Terms like “policy gradients,” “baselines,” and “importance sampling” get thrown around, and the equations look like alphabet soup.</p>
+
+<p>In this note, I am trying to break down the core concepts of RL for language models in plain English, with simple examples and step-by-step explanations of a few key formulas.</p>
+
+<p><em>This guide is based on my study notes from Stanford CS336 and resources like OpenAI’s Spinning Up in Deep RL and Nathan Lambert’s RLHF Book.</em></p>
+
+<h3 id="table-of-contents">Table of Contents</h3>
+<ul>
+  <li><a href="#a-beginners-guide-to-reinforcement-learning-for-language-models">A Beginner’s Guide to Reinforcement Learning for Language Models</a>
+    <ul>
+      <li><a href="#table-of-contents">Table of Contents</a></li>
+      <li><a href="#the-big-picture-training-dogs-and-language-models">The Big Picture: Training Dogs and Language Models</a></li>
+      <li><a href="#part-1-language-models-as-policies">Part 1: Language Models as Policies</a>
+        <ul>
+          <li><a href="#what-is-a-policy">What is a Policy?</a></li>
+          <li><a href="#the-two-operations-you-need">The Two Operations You Need</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-2-trajectories--recording-the-journey">Part 2: Trajectories — Recording the Journey</a>
+        <ul>
+          <li><a href="#what-is-a-trajectory">What is a Trajectory?</a></li>
+          <li><a href="#a-concrete-example">A Concrete Example</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-3-rewards-and-returns--measuring-success">Part 3: Rewards and Returns — Measuring Success</a>
+        <ul>
+          <li><a href="#the-reward-function">The Reward Function</a></li>
+          <li><a href="#the-return-adding-up-rewards">The Return: Adding Up Rewards</a></li>
+          <li><a href="#the-objective-maximize-expected-return">The Objective: Maximize Expected Return</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-4-the-policy-gradient-vanilla-reinforce">Part 4: The Policy Gradient (Vanilla REINFORCE)</a>
+        <ul>
+          <li><a href="#the-key-equation">The Key Equation</a></li>
+          <li><a href="#symbol-by-symbol-breakdown">Symbol-by-Symbol Breakdown</a></li>
+          <li><a href="#the-log-derivative-trick-why-the-math-works">The Log-Derivative Trick: Why the Math Works</a></li>
+          <li><a href="#deriving-the-policy-gradient-step-by-step">Deriving the Policy Gradient Step-by-Step</a></li>
+          <li><a href="#intuitive-summary">Intuitive Summary</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-5-baselines--reducing-the-noise">Part 5: Baselines — Reducing the Noise</a>
+        <ul>
+          <li><a href="#the-problem-with-vanilla-reinforce">The Problem with Vanilla REINFORCE</a></li>
+          <li><a href="#the-solution-subtract-a-baseline">The Solution: Subtract a Baseline</a></li>
+          <li><a href="#a-concrete-example-1">A Concrete Example</a></li>
+          <li><a href="#why-baselines-dont-add-bias">Why Baselines Don’t Add Bias</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-6-off-policy-learning--reusing-old-data">Part 6: Off-Policy Learning — Reusing Old Data</a>
+        <ul>
+          <li><a href="#the-inefficiency-of-on-policy-learning">The Inefficiency of On-Policy Learning</a></li>
+          <li><a href="#the-solution-importance-sampling">The Solution: Importance Sampling</a></li>
+          <li><a href="#a-concrete-example-2">A Concrete Example</a></li>
+          <li><a href="#the-catch-dont-stray-too-far">The Catch: Don’t Stray Too Far</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-7-grpo--group-relative-policy-optimization">Part 7: GRPO — Group Relative Policy Optimization</a>
+        <ul>
+          <li><a href="#the-core-idea-compare-siblings">The Core Idea: Compare Siblings</a></li>
+          <li><a href="#step-1-sample-multiple-outputs-per-question">Step 1: Sample Multiple Outputs Per Question</a></li>
+          <li><a href="#step-2-compute-group-normalized-advantages">Step 2: Compute Group-Normalized Advantages</a></li>
+          <li><a href="#step-3-the-grpo-clip-objective">Step 3: The GRPO-Clip Objective</a></li>
+          <li><a href="#why-clipping-matters">Why Clipping Matters</a></li>
+          <li><a href="#the-grpo-training-loop-visualized">The GRPO Training Loop Visualized</a></li>
+          <li><a href="#the-complete-grpo-algorithm">The Complete GRPO Algorithm</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-8-putting-it-all-together">Part 8: Putting It All Together</a>
+        <ul>
+          <li><a href="#summary-table">Summary Table</a></li>
+          <li><a href="#key-equations-at-a-glance">Key Equations at a Glance</a></li>
+          <li><a href="#the-pytorch-connection">The PyTorch Connection</a></li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+</ul>
+
+<h3 id="the-big-picture-training-dogs-and-language-models">The Big Picture: Training Dogs and Language Models</h3>
+
+<p>Before diving into equations, let’s build intuition with an analogy.</p>
+
+<p><strong>Imagine you’re training a dog to do tricks.</strong> You can’t tell the dog exactly which muscles to move—you can only reward it when it does something good. Over time, the dog learns to repeat actions that led to treats and avoid actions that didn’t.</p>
+
+<p>Reinforcement learning for language models works the same way:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Dog Training</th>
+      <th>LLM Training</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Dog decides what action to take</td>
+      <td>LLM decides what token to generate</td>
+    </tr>
+    <tr>
+      <td>You give a treat (or not)</td>
+      <td>Reward function gives a score (0 or 1)</td>
+    </tr>
+    <tr>
+      <td>Dog repeats actions that got treats</td>
+      <td>LLM increases probability of tokens that led to rewards</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The key insight: <strong>we don’t tell the model what to generate (e.g., what is the groundtruth)—we just tell it whether its answer was good or bad, and it figures out the rest.</strong></p>
+
+<h3 id="part-1-language-models-as-policies">Part 1: Language Models as Policies</h3>
+
+<h4 id="what-is-a-policy">What is a Policy?</h4>
+
+<p>In RL terminology, a <strong>policy</strong> is just a decision-making strategy. For language models:</p>
+
+<ul>
+  <li><strong>State</strong> ($s_t$): The text generated so far (the context, or the prefix)</li>
+  <li><strong>Action</strong> ($a_t$): The next token to generate</li>
+  <li><strong>Policy</strong> ($\pi_\theta$): The probability distribution over possible next tokens</li>
+</ul>
+
+<p>Your LLM is a policy! Given a text prefix, it outputs probabilities for each possible next token:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>State:  "The capital of France is"
+Policy: {"Paris": 0.85, "Lyon": 0.05, "the": 0.03, ...}
+Action: Sample from this distribution → "Paris"
+</code></pre></div></div>
+
+<p>Mathematically, we write this as:</p>
+
+\[a_t \sim \pi_\theta(\cdot | s_t)\]
+
+<p>This reads: “action $a_t$ is sampled from the policy $\pi_\theta$ given state $s_t$.”</p>
+
+<h4 id="the-two-operations-you-need">The Two Operations You Need</h4>
+
+<p>To train a policy with RL, you only need two operations:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Operation</th>
+      <th>What It Does</th>
+      <th>Example</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Sampling</strong></td>
+      <td>Draw a token from the probability distribution</td>
+      <td>Pick “Paris” with 85% probability-the highest probability</td>
+    </tr>
+    <tr>
+      <td><strong>Scoring</strong></td>
+      <td>Compute the log-probability of a token</td>
+      <td>$\log \pi_\theta(\text{“Paris”} \mid s_t) = \log(0.85) \approx -0.16$</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>That’s it! You don’t need to know anything else about the model’s internals.</p>
+
+<h3 id="part-2-trajectories--recording-the-journey">Part 2: Trajectories — Recording the Journey</h3>
+
+<h4 id="what-is-a-trajectory">What is a Trajectory?</h4>
+
+<p>A <strong>trajectory</strong> (also called an episode or rollout) is the complete sequence of states and actions from start to finish:</p>
+
+\[\tau = (s_0, a_0, s_1, a_1, \ldots, s_T, a_T)\]
+
+<p>Think of it like recording a chess game move-by-move—you capture everything that happened.</p>
+
+<h4 id="a-concrete-example">A Concrete Example</h4>
+
+<p>Let’s trace a trajectory for a math problem:</p>
+
+<p><strong>Prompt:</strong> “What is 2+3? Think step by step.”</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Timestep</th>
+      <th>State ($s_t$)</th>
+      <th>Action ($a_t$)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>“What is 2+3? Think step by step. <think>"</think></td>
+      <td>“I”</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>“… <think> I"</think></td>
+      <td>“need”</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>“… <think> I need"</think></td>
+      <td>“to”</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>“… <think> I need to"</think></td>
+      <td>“add”</td>
+    </tr>
+    <tr>
+      <td>…</td>
+      <td>…</td>
+      <td>…</td>
+    </tr>
+    <tr>
+      <td>T</td>
+      <td>“… &lt;/think&gt; <answer>"</answer></td>
+      <td>“5”</td>
+    </tr>
+    <tr>
+      <td>T+1</td>
+      <td>“… <answer> 5"</answer></td>
+      <td>”&lt;/answer&gt;”</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The trajectory ends when the model emits an end-of-text token (like <code class="language-plaintext highlighter-rouge">&lt;/answer&gt;</code>) or hits a maximum length.</p>
+
+<p><strong>Key observation:</strong> In LLM-land, the “environment” is trivially deterministic. The next state is just the old state plus the new token:</p>
+
+\[s_{t+1} = s_t | a_t\]
+
+<p>(where $|$ means concatenation)</p>
+
+<h3 id="part-3-rewards-and-returns--measuring-success">Part 3: Rewards and Returns — Measuring Success</h3>
+
+<h4 id="the-reward-function">The Reward Function</h4>
+
+<p>The <strong>reward</strong> $r_t = R(s_t, a_t)$ judges how good an action was. For RL on math problems, we typically use <strong>sparse rewards</strong>:</p>
+
+<ul>
+  <li><strong>Intermediate steps:</strong> $r_t = 0$ (no feedback until the end)</li>
+  <li><strong>Final answer:</strong> $r_T = 1$ if correct, $0$ if wrong</li>
+</ul>
+
+<p><strong>Example:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Trajectory</th>
+      <th>Final Answer</th>
+      <th>Correct?</th>
+      <th>Reward</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>“… <answer>5</answer>”</td>
+      <td>5</td>
+      <td>✓</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>“… <answer>6</answer>”</td>
+      <td>6</td>
+      <td>✗</td>
+      <td>0</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="the-return-adding-up-rewards">The Return: Adding Up Rewards</h4>
+
+<p>The <strong>return</strong> $R(\tau)$ is the total reward accumulated over a trajectory:</p>
+
+\[R(\tau) = \sum_{t=0}^{T} r_t\]
+
+<p>With sparse rewards, only the final step matters, so $R(\tau)$ equals the terminal reward (0 or 1).</p>
+
+<h4 id="the-objective-maximize-expected-return">The Objective: Maximize Expected Return</h4>
+
+<p>The goal of RL is to find policy parameters $\theta$ that maximize expected return:</p>
+
+\[J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta}[R(\tau)]\]
+
+<p>In plain English: <strong>“On average, how much reward does my policy get?”</strong></p>
+
+<p>If $J(\theta) = 0.7$, that means your model solves 70% of problems correctly.</p>
+
+<h3 id="part-4-the-policy-gradient-vanilla-reinforce">Part 4: The Policy Gradient (Vanilla REINFORCE)</h3>
+
+<p>Now we get to the heart of RL: how do we actually improve the policy?</p>
+
+<h4 id="the-key-equation">The Key Equation</h4>
+
+<p>The <strong>Vanilla REINFORCE policy gradient</strong> tells us how to update parameters:</p>
+
+\[\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta}\left[\sum_{t=0}^{T} \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot R(\tau)\right]\]
+
+<p>This looks complex, but the intuition is simple: <strong>increase the probability of actions that led to high rewards.</strong></p>
+
+<h4 id="symbol-by-symbol-breakdown">Symbol-by-Symbol Breakdown</h4>
+
+<p>Let me explain every symbol in this equation:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Symbol</th>
+      <th>Name</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>$J(\theta)$</td>
+      <td>Objective function</td>
+      <td>Expected total reward—the thing we want to maximize</td>
+    </tr>
+    <tr>
+      <td>$\theta$</td>
+      <td>Parameters</td>
+      <td>All the weights in your language model (millions of numbers)</td>
+    </tr>
+    <tr>
+      <td>$\nabla_\theta J$</td>
+      <td>Gradient</td>
+      <td>“Which direction should I nudge each parameter to increase J - the expected total reward?”</td>
+    </tr>
+    <tr>
+      <td>$\mathbb{E}[\cdot]$</td>
+      <td>Expectation</td>
+      <td>Average over many samples</td>
+    </tr>
+    <tr>
+      <td>$\tau$</td>
+      <td>Trajectory</td>
+      <td>One complete episode (e.g., prompt → response → end)</td>
+    </tr>
+    <tr>
+      <td>$\tau \sim \pi_\theta$</td>
+      <td>Sampling</td>
+      <td>Generate trajectories by running the policy</td>
+    </tr>
+    <tr>
+      <td>$\sum_t$</td>
+      <td>Sum over timesteps</td>
+      <td>Add up contributions from every token</td>
+    </tr>
+    <tr>
+      <td>$s_t$</td>
+      <td>State</td>
+      <td>Text prefix at timestep $t$</td>
+    </tr>
+    <tr>
+      <td>$a_t$</td>
+      <td>Action</td>
+      <td>Token generated at timestep $t$</td>
+    </tr>
+    <tr>
+      <td>$\pi_\theta(a_t \mid s_t)$</td>
+      <td>Probability</td>
+      <td>How likely was this token given this context?</td>
+    </tr>
+    <tr>
+      <td>$\log \pi_\theta(a_t \mid s_t)$</td>
+      <td>Log-probability</td>
+      <td>Same info, but in log space (more stable)</td>
+    </tr>
+    <tr>
+      <td>$\nabla_\theta \log \pi_\theta(a_t \mid s_t)$</td>
+      <td>Score function*</td>
+      <td>Gradient of the log-probability; points in the direction that increases this token’s probability</td>
+    </tr>
+    <tr>
+      <td>$R(\tau)$</td>
+      <td>Return</td>
+      <td>Total reward for this trajectory (0 or 1)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Note on terminology</strong>: The name “score function*” comes from statistics, despite “score” sounding like a scalar, the score function is a vector pointing in the direction of steepest increase for the log-probability.</p>
+
+<h4 id="the-log-derivative-trick-why-the-math-works">The Log-Derivative Trick: Why the Math Works</h4>
+
+<p>The magic behind policy gradients is a simple calculus identity:</p>
+
+\[\nabla_\theta P = P \cdot \nabla_\theta \log P\]
+
+<p>This comes from the chain rule for logarithms:</p>
+
+\[\frac{d}{d\theta} \log P = \frac{1}{P} \cdot \frac{d}{d\theta} P\]
+
+<p>Rearranging:</p>
+
+\[\frac{d}{d\theta} P = P \cdot \frac{d}{d\theta} \log P\]
+
+<p><strong>Why is this useful?</strong> It lets us convert “gradient of an expectation” into “expectation of a gradient”—which we can estimate by sampling!</p>
+
+<p><strong>Numerical example:</strong></p>
+
+<p>Suppose $P(a) = 0.3$ is the probability of some action.</p>
+
+<p>Direct gradient: $\nabla_\theta P = 1$ (some value)</p>
+
+<p>Using the trick:</p>
+<ul>
+  <li>$\nabla_\theta \log P = \nabla_\theta \log(0.3) = \frac{1}{0.3} \cdot \nabla_\theta P = 3.33 \cdot 1$</li>
+  <li>$P \cdot \nabla_\theta \log P = 0.3 \times 3.33 = 1$ ✓</li>
+</ul>
+
+<p>Same answer! The trick is just a rearrangement that makes computation easier.</p>
+
+<h4 id="deriving-the-policy-gradient-step-by-step">Deriving the Policy Gradient Step-by-Step</h4>
+
+<p>Let’s derive the REINFORCE equation from scratch.</p>
+
+<p><strong>Step 1: Write out the expectation explicitly</strong></p>
+
+\[J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta}[R(\tau)] = \sum_{\tau} P(\tau | \theta) \cdot R(\tau)\]
+
+<p>This sums over all possible trajectories, weighted by their probability.</p>
+
+<p><strong>Step 2: Take the gradient</strong></p>
+
+\[\nabla_\theta J(\theta) = \sum_{\tau} \nabla_\theta P(\tau | \theta) \cdot R(\tau)\]
+
+<p>Note: $R(\tau)$ doesn’t depend on $\theta$ (it’s just “was the answer correct?”)</p>
+
+<p><strong>Step 3: Apply the log-derivative trick</strong></p>
+
+\[\nabla_\theta J(\theta)= \sum_{\tau} P(\tau | \theta) \cdot \nabla_\theta \log P(\tau | \theta) \cdot R(\tau)\]
+
+<p><strong>Step 4: Recognize this as an expectation</strong></p>
+
+\[\nabla_\theta J(\theta)= \mathbb{E}_{\tau \sim \pi_\theta}\left[\nabla_\theta \log P(\tau | \theta) \cdot R(\tau)\right]\]
+
+<p><strong>Step 5: Expand the trajectory probability</strong></p>
+
+<p>A trajectory’s probability is:</p>
+
+\[P(\tau | \theta) = \underbrace{\rho_0(s_0)}_{\text{initial prompt}} \cdot \prod_{t=0}^{T} \underbrace{P(s_{t+1}|s_t, a_t)}_{\text{environment}} \cdot \underbrace{\pi_\theta(a_t|s_t)}_{\text{policy}}\]
+
+<p>Taking the log:</p>
+
+\[\log P(\tau | \theta) = \log \rho_0(s_0) + \sum_t \log P(s_{t+1}|s_t, a_t) + \sum_t \log \pi_\theta(a_t|s_t)\]
+
+<p>When we take $\nabla_\theta$, the first two terms vanish (they don’t depend on $\theta$):</p>
+
+\[\nabla_\theta \log P(\tau | \theta) = \sum_{t=0}^{T} \nabla_\theta \log \pi_\theta(a_t|s_t)\]
+
+<p><strong>Final result:</strong></p>
+
+\[\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta}\left[\sum_{t=0}^{T} \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot R(\tau)\right]\]
+
+<h4 id="intuitive-summary">Intuitive Summary</h4>
+
+<p>The policy gradient says:</p>
+
+<ol>
+  <li><strong>Sample trajectories</strong> by running your policy</li>
+  <li><strong>For each token</strong>, compute “how to make it more likely” ($\nabla_\theta \log \pi_\theta$)</li>
+  <li><strong>Scale by the reward</strong> — good outcomes get reinforced, bad ones don’t</li>
+  <li><strong>Average across trajectories</strong></li>
+</ol>
+
+<h3 id="part-5-baselines--reducing-the-noise">Part 5: Baselines — Reducing the Noise</h3>
+
+<h4 id="the-problem-with-vanilla-reinforce">The Problem with Vanilla REINFORCE</h4>
+
+<p>Vanilla REINFORCE has <strong>high variance</strong>. Here’s why:</p>
+
+<p>Suppose your model already solves 90% of problems. Most trajectories get $R(\tau) = 1$, so the gradient says “increase probability of these tokens!” even for trajectories that succeeded by luck.</p>
+
+<p>The signal is noisy—sometimes you’re reinforcing good reasoning, sometimes just lucky guesses.</p>
+
+<h4 id="the-solution-subtract-a-baseline">The Solution: Subtract a Baseline</h4>
+
+<p>The fix is to subtract a <strong>baseline</strong> $b(s)$ that estimates “what return do we typically get?”:</p>
+
+\[\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta}\left[\sum_t \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot \underbrace{(R(\tau) - b(s_t))}_{\text{advantage}}\right]\]
+
+<p>The quantity $(R(\tau) - b(s_t))$ is called the <strong>advantage</strong>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Advantage</th>
+      <th>Meaning</th>
+      <th>Effect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Positive</td>
+      <td>Better than expected</td>
+      <td>Reinforce these tokens</td>
+    </tr>
+    <tr>
+      <td>Negative</td>
+      <td>Worse than expected</td>
+      <td>Discourage these tokens</td>
+    </tr>
+    <tr>
+      <td>Zero</td>
+      <td>Exactly as expected</td>
+      <td>No change</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="a-concrete-example-1">A Concrete Example</h4>
+
+<p><strong>Without baseline:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Trajectory</th>
+      <th>$R(\tau)$</th>
+      <th>Gradient Signal</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Correct</td>
+      <td>1</td>
+      <td>Make these tokens more likely!</td>
+    </tr>
+    <tr>
+      <td>Wrong</td>
+      <td>0</td>
+      <td>Do nothing</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Every correct answer gets the same reinforcement, regardless of difficulty; every wrong answer gets no punishment. The model only learns from successes.
+This is actually a key limitation of vanilla REINFORCE with 0/1 rewards! You’re not learning what to avoid, only what worked.</p>
+
+<p><strong>With baseline</strong> (say, $b = 0.9$ because model gets 90% right):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Trajectory</th>
+      <th>$R(\tau)$</th>
+      <th>Advantage = $R - 0.9$</th>
+      <th>Gradient Signal</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Correct</td>
+      <td>1</td>
+      <td>+0.1</td>
+      <td>“Slightly reinforce”</td>
+    </tr>
+    <tr>
+      <td>Wrong</td>
+      <td>0</td>
+      <td>-0.9</td>
+      <td>“Strongly discourage!”</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Now the model can also learn avoiding failures rather than redundantly reinforcing successes!</p>
+
+<h4 id="why-baselines-dont-add-bias">Why Baselines Don’t Add Bias</h4>
+
+<p>You might worry: “Doesn’t subtracting something change the answer?”</p>
+
+<p>No! The baseline term vanishes in expectation. Let’s prove it.</p>
+
+<p><strong>The claim:</strong> For any baseline $b(s)$ that only depends on the state:</p>
+
+\[\mathbb{E}_{a \sim \pi_\theta}[\nabla_\theta \log \pi_\theta(a|s) \cdot b(s)] = 0\]
+
+<p><strong>The proof:</strong></p>
+
+<p>Since $b(s)$ doesn’t depend on the action $a$, we can pull it out:</p>
+
+\[\mathbb{E}_{a \sim \pi_\theta}[\nabla_\theta \log \pi_\theta(a|s) \cdot b(s)]= b(s) \cdot \mathbb{E}_{a \sim \pi_\theta}[\nabla_\theta \log \pi_\theta(a|s)]\]
+
+<p>Now we show the expectation of the score function is zero:</p>
+
+\[\mathbb{E}_{a \sim \pi_\theta}[\nabla_\theta \log \pi_\theta(a|s)] = \sum_{a} \pi_\theta(a|s) \cdot \nabla_\theta \log \pi_\theta(a|s)\]
+
+<p>Using the identity $\nabla_\theta \log P = \frac{\nabla_\theta P}{P}$:</p>
+
+\[\mathbb{E}_{a \sim \pi_\theta}[\nabla_\theta \log \pi_\theta(a|s)]= \sum_{a} \pi_\theta(a|s) \cdot \frac{\nabla_\theta \pi_\theta(a|s)}{\pi_\theta(a|s)} = \sum_{a} \nabla_\theta \pi_\theta(a|s)\]
+
+<p>Swapping sum and gradient:</p>
+
+\[\mathbb{E}_{a \sim \pi_\theta}[\nabla_\theta \log \pi_\theta(a|s)]= \nabla_\theta \sum_{a} \pi_\theta(a|s) = \nabla_\theta 1 = 0\]
+
+<p>The last step works because probabilities over all possible actions that can be taken sum to 1.</p>
+
+<p><strong>Concrete example with softmax as the policy function:</strong></p>
+
+<p>Let’s work through a real example. Considering a language model, where token probabilities come from softmax (policy) over logits:</p>
+
+\[\pi(a) = \frac{e^{z_a}}{\sum_k e^{z_k}}\]
+
+<p>The log-probability simplifies nicely:</p>
+
+\[\log \pi(a) = z_a - \log \sum_k e^{z_k}\]
+
+<p>Taking gradients with respect to each logit $z_i$:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Gradient</th>
+      <th>Formula</th>
+      <th>Intuition</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>$\frac{\partial \log \pi(a)}{\partial z_a}$</td>
+      <td>$1 - \pi(a)$</td>
+      <td>Increasing own logit (or probability) helps (less help if already confident with high probability)</td>
+    </tr>
+    <tr>
+      <td>$\frac{\partial \log \pi(a)}{\partial z_b}$</td>
+      <td>$-\pi(b)$</td>
+      <td>Increasing competitor’s logit (or probability) hurts</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><em>Derivation:</em> For the chosen token, $\frac{\partial}{\partial z_a}[z_a - \log\sum_k e^{z_k}] = 1 - \frac{e^{z_a}}{\sum_k e^{z_k}} = 1 - \pi(a)$. For other tokens, $\frac{\partial}{\partial z_b}[z_a - \log\sum_k e^{z_k}] = 0 - \frac{e^{z_b}}{\sum_k e^{z_k}} = -\pi(b)$.</p>
+
+<p><strong>Numerical example:</strong></p>
+
+<p>Suppose we have 3 tokens with probabilities $[\pi(A), \pi(B), \pi(C)] = [0.5, 0.3, 0.2]$.</p>
+
+<p>The score function for each token (as a vector over logits $[z_A, z_B, z_C]$):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Token</th>
+      <th>Score function $\nabla_z \log \pi$</th>
+      <th>Weighted by $\pi$</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>A</td>
+      <td>$[1-0.5, -0.3, -0.2] = [+0.5, -0.3, -0.2]$</td>
+      <td>$0.5 \times [+0.5, -0.3, -0.2] = [+0.25, -0.15, -0.10]$</td>
+    </tr>
+    <tr>
+      <td>B</td>
+      <td>$[-0.5, 1-0.3, -0.2] = [-0.5, +0.7, -0.2]$</td>
+      <td>$0.3 \times [-0.5, +0.7, -0.2] = [-0.15, +0.21, -0.06]$</td>
+    </tr>
+    <tr>
+      <td>C</td>
+      <td>$[-0.5, -0.3, 1-0.2] = [-0.5, -0.3, +0.8]$</td>
+      <td>$0.2 \times [-0.5, -0.3, +0.8] = [-0.10, -0.06, +0.16]$</td>
+    </tr>
+    <tr>
+      <td><strong>Sum</strong></td>
+      <td> </td>
+      <td>$[0, 0, 0]$ ✓</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Each component sums to zero! For example, the first component: $0.25 - 0.15 - 0.10 = 0$.</p>
+
+<p>The “increase my probability” directions (positive entries) are exactly canceled by the “decrease others’ probability” directions (negative entries) when weighted by the policy.</p>
+
+<p><strong>Why this matters:</strong></p>
+
+<p>We can subtract any function of the state from our rewards without changing the expected gradient:</p>
+
+\[\mathbb{E}[\nabla_\theta \log \pi_\theta \cdot (R(\tau) - b(s))] = \mathbb{E}[\nabla_\theta \log \pi_\theta \cdot R(\tau)] - \underbrace{\mathbb{E}[\nabla_\theta \log \pi_\theta \cdot b(s)]}_{= 0}\]
+
+<p>We get <strong>lower variance</strong> (because advantages are centered around zero) <strong>without introducing bias</strong>. Free lunch!</p>
+
+<h3 id="part-6-off-policy-learning--reusing-old-data">Part 6: Off-Policy Learning — Reusing Old Data</h3>
+
+<h4 id="the-inefficiency-of-on-policy-learning">The Inefficiency of On-Policy Learning</h4>
+
+<p>Vanilla REINFORCE is <strong>on-policy</strong>: you generate rollouts, take one gradient step, then throw away the data and generate fresh rollouts.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Generate 1000 responses → one gradient step → discard → Generate 1000 more → ...
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ON-POLICY REINFORCE                                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Step 1: Sample 1000 questions from your question bank                      │
+│          (e.g., "What is 2+3?", "Solve x²=4", ...)                          │
+│                         │                                                   │
+│                         ▼                                                   │
+│  Step 2: Current model π_θ GENERATES responses for each question            │
+│          (This is expensive! Running inference 1000 times)                  │
+│                         │                                                   │
+│                         ▼                                                   │
+│  Step 3: Check answers → rewards [1, 0, 1, 1, 0, ...]                       │
+│                         │                                                   │
+│                         ▼                                                   │
+│  Step 4: Compute gradient, update θ → θ'                                    │
+│                         │                                                   │
+│                         ▼                                                   │
+│  Step 5: DISCARD all 1000 responses ← This is the wasteful part!            │
+│                         │                                                   │
+│                         ▼                                                   │
+│  Step 6: Go back to Step 1 with the NEW model π_θ'                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+</code></pre></div></div>
+<p>This is wasteful! LLM inference is expensive, and we’re only using each sample once.</p>
+
+<h4 id="the-solution-importance-sampling">The Solution: Importance Sampling</h4>
+
+<p>In <strong>off-policy</strong> learning, we reuse rollouts from a previous policy $\pi_{\theta_{\text{old}}}$ to train the current policy $\pi_\theta$.</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌─────────────────────────────────────────────────────────────────────────────┐
+│  OFF-POLICY                                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Step 1: Sample questions                                                   │
+│                         │                                                   │
+│                         ▼                                                   │
+│  Step 2: π_θ_old generates responses (expensive, but done ONCE)             │
+│                         │                                                   │
+│                         ▼                                                   │
+│  Step 3: Check answers → rewards                                            │
+│                         │                                                   │
+│                         ▼                                                   │
+│  ┌─────────────────────────────────────────────┐                            │
+│  │  Step 4: Gradient step 1 (with importance   │                            │
+│  │          weights to correct for π_θ_old)    │                            │
+│  │                     │                       │                            │
+│  │                     ▼                       │                            │
+│  │  Step 5: Gradient step 2 (same data!)       │  ← Reuse the same          │
+│  │                     │                       │    responses multiple      │
+│  │                     ▼                       │    times!                  │
+│  │  Step 6: Gradient step 3 (same data!)       │                            │
+│  │                     │                       │                            │
+│  │                     ▼                       │                            │
+│  │  ... (typically 4-8 steps per batch)        │                            │
+│  └─────────────────────────────────────────────┘                            │
+│                         │                                                   │
+│                         ▼                                                   │
+│  Step 7: NOW discard and generate fresh responses                           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+</code></pre></div></div>
+
+<p>The trick is <strong>importance sampling</strong>: we reweight samples to correct for the mismatch between old and new policies.</p>
+
+\[g_{\text{off-policy}} = \frac{1}{N} \sum_{i=1}^{N} \sum_t \underbrace{\frac{\pi_\theta(a_t^{(i)}|s_t^{(i)})}{\pi_{\theta_{\text{old}}}(a_t^{(i)}|s_t^{(i)})}}_{\text{importance weight}} \nabla_\theta \log \pi_\theta(a_t^{(i)}|s_t^{(i)}) \cdot R(\tau^{(i)})\]
+
+<p>\(N\) is number of trajectories in the batch (e.g., 1000 responses).</p>
+
+<p>The importance weight $\rho_t = \frac{\pi_\theta}{\pi_{\theta_{\text{old}}}}$ corrects for the distribution shift.</p>
+
+<h4 id="a-concrete-example-2">A Concrete Example</h4>
+
+<p>Suppose the old policy generated token “Paris” with probability 0.5, but your current policy would generate it with probability 0.7.</p>
+
+<p><strong>Without correction:</strong> You’d undercount “Paris” because it was sampled from a distribution that liked it less.</p>
+
+<p><strong>With importance weight:</strong> $\rho = 0.7 / 0.5 = 1.4$</p>
+
+<p>You upweight this sample by 40% to compensate.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Old Policy</th>
+      <th>Current Policy</th>
+      <th>Importance Weight</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>P(“Paris”) = 0.5</td>
+      <td>P(“Paris”) = 0.7</td>
+      <td>0.7/0.5 = 1.4</td>
+    </tr>
+    <tr>
+      <td>P(“Lyon”) = 0.3</td>
+      <td>P(“Lyon”) = 0.1</td>
+      <td>0.1/0.3 = 0.33</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="the-catch-dont-stray-too-far">The Catch: Don’t Stray Too Far</h4>
+
+<p>Importance sampling only works when $\pi_\theta$ and $\pi_{\theta_{\text{old}}}$ are similar. If they diverge:</p>
+
+<ul>
+  <li>Some importance weights explode (e.g., 100×)</li>
+  <li>Gradient estimates become unreliable</li>
+  <li>Training becomes unstable</li>
+</ul>
+
+<p>This is why algorithms like PPO and GRPO <strong>clip</strong> the importance weights—more on this next!</p>
+
+<p>Now let’s put everything together with GRPO, the algorithm used to train DeepSeek R1.</p>
+
+<h3 id="part-7-grpo--group-relative-policy-optimization">Part 7: GRPO — Group Relative Policy Optimization</h3>
+
+<h4 id="the-core-idea-compare-siblings">The Core Idea: Compare Siblings</h4>
+
+<p>Remember, we need a baseline to reduce variance. The standard approach is to train a separate model to predict expected returns—but this is extra work.</p>
+
+<p><strong>GRPO’s insight:</strong> Instead of learning a baseline, sample multiple answers for the same question and compare them to each other!</p>
+
+<p>If you ask the model “What is 2+3?” five times and it gets three right and two wrong, the correct answers are “better than average” and the wrong ones are “worse than average.” No separate baseline network needed!</p>
+
+<h4 id="step-1-sample-multiple-outputs-per-question">Step 1: Sample Multiple Outputs Per Question</h4>
+
+<p>For each question $q$, sample $G$ outputs (the “group”):</p>
+
+\[\{o^{(1)}, o^{(2)}, \ldots, o^{(G)}\} \sim \pi_\theta(\cdot | q)\]
+
+<p><strong>Example with G=5:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Question</th>
+      <th>Output $i$</th>
+      <th>Answer</th>
+      <th>Correct?</th>
+      <th>Reward $r^{(i)}$</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>“What is 15×7?”</td>
+      <td>1</td>
+      <td>“105”</td>
+      <td>✓</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td> </td>
+      <td>2</td>
+      <td>“105”</td>
+      <td>✓</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td> </td>
+      <td>3</td>
+      <td>“112”</td>
+      <td>✗</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td> </td>
+      <td>4</td>
+      <td>“105”</td>
+      <td>✓</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td> </td>
+      <td>5</td>
+      <td>“107”</td>
+      <td>✗</td>
+      <td>0</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="step-2-compute-group-normalized-advantages">Step 2: Compute Group-Normalized Advantages</h4>
+
+<p>The advantage for output $i$ is computed by normalizing within the group:</p>
+
+\[A^{(i)} = \frac{r^{(i)} - \text{mean}(r^{(1)}, \ldots, r^{(G)})}{\text{std}(r^{(1)}, \ldots, r^{(G)}) + \epsilon}\]
+
+<p><strong>Continuing the example:</strong></p>
+
+<ul>
+  <li>mean$(r) = (1+1+0+1+0)/5 = 0.6$</li>
+  <li>std$(r) = 0.49$</li>
+</ul>
+
+<table>
+  <thead>
+    <tr>
+      <th>Output $i$</th>
+      <th>$r^{(i)}$</th>
+      <th>$A^{(i)} = \frac{r^{(i)} - 0.6}{0.49}$</th>
+      <th>Interpretation</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>1</td>
+      <td>+0.82</td>
+      <td>Better than siblings → reinforce</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>1</td>
+      <td>+0.82</td>
+      <td>Better than siblings → reinforce</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>0</td>
+      <td>-1.22</td>
+      <td>Worse than siblings → discourage</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>1</td>
+      <td>+0.82</td>
+      <td>Better than siblings → reinforce</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>0</td>
+      <td>-1.22</td>
+      <td>Worse than siblings → discourage</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Key insight:</strong> The same advantage applies to <strong>every token</strong> in that output. If output 1 was correct, every token in its reasoning chain gets $A = +0.82$.</p>
+
+<h4 id="step-3-the-grpo-clip-objective">Step 3: The GRPO-Clip Objective</h4>
+
+<p>GRPO combines off-policy learning with <strong>clipping</strong> to stay stable:</p>
+
+\[J_{\text{GRPO-Clip}}(\theta) = \mathbb{E}\left[\frac{1}{G}\sum_{i=1}^{G}\frac{1}{|o^{(i)}|}\sum_{t} \min\left(\rho_t \cdot A^{(i)}, \text{clip}(\rho_t, 1-\epsilon, 1+\epsilon) \cdot A^{(i)}\right)\right]\]
+
+<p><strong>Symbol-by-symbol breakdown:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Symbol</th>
+      <th>Name</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>$J_{\text{GRPO-Clip}}(\theta)$</td>
+      <td>Objective function</td>
+      <td>The thing we want to maximize — “how good is our policy?”</td>
+    </tr>
+    <tr>
+      <td>$\theta$</td>
+      <td>Parameters</td>
+      <td>All the weights in our neural network</td>
+    </tr>
+    <tr>
+      <td>$\mathbb{E}[\cdot]$</td>
+      <td>Expectation</td>
+      <td>Average over many sampled questions and responses</td>
+    </tr>
+    <tr>
+      <td>$G$</td>
+      <td>Group size</td>
+      <td>Number of responses we generate per question (e.g., 8)</td>
+    </tr>
+    <tr>
+      <td>$\frac{1}{G}\sum_{i=1}^{G}$</td>
+      <td>Average over group</td>
+      <td>Average the objective across all G responses for this question</td>
+    </tr>
+    <tr>
+      <td>$i$</td>
+      <td>Response index</td>
+      <td>Which response in the group (1st, 2nd, …, G-th)</td>
+    </tr>
+    <tr>
+      <td>$o^{(i)}$</td>
+      <td>Response i</td>
+      <td>The i-th generated response (sequence of tokens)</td>
+    </tr>
+    <tr>
+      <td>$|o^{(i)}|$</td>
+      <td>Response length</td>
+      <td>Number of tokens in response i</td>
+    </tr>
+    <tr>
+      <td>$\frac{1}{|o^{(i)}|}\sum_{t}$</td>
+      <td>Average over tokens</td>
+      <td>Average the objective across all tokens in this response</td>
+    </tr>
+    <tr>
+      <td>$t$</td>
+      <td>Token index</td>
+      <td>Which token position in the response</td>
+    </tr>
+    <tr>
+      <td>$\rho_t$</td>
+      <td>Probability ratio</td>
+      <td>$\frac{\pi_\theta(o_t)}{\pi_{\theta_{old}}(o_t)}$ — how much more/less likely is this token under new vs old policy?</td>
+    </tr>
+    <tr>
+      <td>$A^{(i)}$</td>
+      <td>Advantage</td>
+      <td>Was response i better or worse than average in its group?</td>
+    </tr>
+    <tr>
+      <td>$\epsilon$</td>
+      <td>Clip parameter</td>
+      <td>How far we allow the policy to change (typically 0.1–0.2)</td>
+    </tr>
+    <tr>
+      <td>$\text{clip}(\rho_t, 1-\epsilon, 1+\epsilon)$</td>
+      <td>Clipped ratio</td>
+      <td>Force $\rho_t$ to stay in range $[1-\epsilon, 1+\epsilon]$</td>
+    </tr>
+    <tr>
+      <td>$\min(\cdot, \cdot)$</td>
+      <td>Minimum</td>
+      <td>Take the smaller of the two values (conservative update)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>The probability ratio $\rho_t$ in detail:</strong></p>
+
+\[\rho_t = \frac{\pi_\theta(o_t^{(i)} | q, o_{&lt;t}^{(i)})}{\pi_{\theta_{\text{old}}}(o_t^{(i)} | q, o_{&lt;t}^{(i)})}\]
+
+<table>
+  <thead>
+    <tr>
+      <th>$\rho_t$ value</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1.0</td>
+      <td>Token probability unchanged since we generated the same response</td>
+    </tr>
+    <tr>
+      <td>1.5</td>
+      <td>New policy is 50% more likely to generate this token</td>
+    </tr>
+    <tr>
+      <td>0.7</td>
+      <td>New policy is 30% less likely to generate this token</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>The clipping function:</strong></p>
+
+<p>With $\epsilon = 0.2$, the clip function constrains $\rho_t$ to the range $[0.8, 1.2]$:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Input ρ_t:    0.5   0.8   1.0   1.2   1.5   2.0
+              ↓     ↓     ↓     ↓     ↓     ↓
+Output:       0.8   0.8   1.0   1.2   1.2   1.2
+              ↑           ↑           ↑
+           clipped     unchanged   clipped
+              up                     down
+</code></pre></div></div>
+
+<p><strong>The min operation — being conservative:</strong></p>
+
+<p>We compute BOTH the clipped and unclipped objectives, then take the minimum:</p>
+
+\[\min\left(\rho_t \cdot A^{(i)}, \text{clip}(\rho_t, 1-\epsilon, 1+\epsilon) \cdot A^{(i)}\right)\]
+
+<p><strong>Case 1: Positive advantage (good response, $A &gt; 0$)</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>$\rho_t$</th>
+      <th>Unclipped $\rho_t \cdot A$</th>
+      <th>Clipped</th>
+      <th>Min (used)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0.8</td>
+      <td>0.8A</td>
+      <td>0.8A</td>
+      <td>0.8A</td>
+    </tr>
+    <tr>
+      <td>1.0</td>
+      <td>1.0A</td>
+      <td>1.0A</td>
+      <td>1.0A</td>
+    </tr>
+    <tr>
+      <td>1.2</td>
+      <td>1.2A</td>
+      <td>1.2A</td>
+      <td>1.2A</td>
+    </tr>
+    <tr>
+      <td>1.5</td>
+      <td>1.5A</td>
+      <td>1.2A</td>
+      <td><strong>1.2A</strong> ← capped!</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Once $\rho_t &gt; 1 + \epsilon$, the objective stops increasing. No more reward for pushing probability higher.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Objective
+    ▲
+    │            ┌────────────── capped at (1+ε)A
+    │           /
+    │          /
+    │         /
+    └────────┴─────────────────► ρ_t
+           1.0  1.2
+</code></pre></div></div>
+
+<p><strong>Case 2: Negative advantage (bad response, $A &lt; 0$)</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>$\rho_t$</th>
+      <th>Unclipped $\rho_t \cdot A$</th>
+      <th>Clipped</th>
+      <th>Min (used)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1.2</td>
+      <td>-1.2A</td>
+      <td>-1.2A</td>
+      <td>-1.2A</td>
+    </tr>
+    <tr>
+      <td>1.0</td>
+      <td>-1.0A</td>
+      <td>-1.0A</td>
+      <td>-1.0A</td>
+    </tr>
+    <tr>
+      <td>0.8</td>
+      <td>-0.8A</td>
+      <td>-0.8A</td>
+      <td>-0.8A</td>
+    </tr>
+    <tr>
+      <td>0.5</td>
+      <td>-0.5A</td>
+      <td>-0.8A</td>
+      <td><strong>-0.8A</strong> ← capped!</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Once $\rho_t &lt; 1 - \epsilon$, the objective stops decreasing. No more penalty for pushing probability lower.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Objective
+    ▲
+    │   ─────────┐
+    │             \
+    │              \
+    │               \
+    └───────────────┴────────► ρ_t
+               0.8  1.0
+</code></pre></div></div>
+
+<p><strong>Complete worked example:</strong></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌─────────────────────────────────────────────────────────────────────────────┐
+│                    GRPO-Clip Objective: Step by Step                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   Question: "What is 2+3?"                                                  │
+│                                                                             │
+│   Step 1: Generate G=4 responses from π_θ_old                               │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  Response 1: "Let me think... 2+3 = 5" ✓    reward = 1              │   │
+│   │  Response 2: "2 plus 3 equals 6" ✗          reward = 0              │   │
+│   │  Response 3: "The answer is 5" ✓            reward = 1              │   │
+│   │  Response 4: "I believe it's 7" ✗           reward = 0              │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│   Step 2: Compute group-normalized advantages                               │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  mean(rewards) = 0.5,  std(rewards) = 0.5                           │   │
+│   │                                                                     │   │
+│   │  A⁽¹⁾ = (1 - 0.5) / 0.5 = +1.0   (better than average)              │   │
+│   │  A⁽²⁾ = (0 - 0.5) / 0.5 = -1.0   (worse than average)               │   │
+│   │  A⁽³⁾ = (1 - 0.5) / 0.5 = +1.0   (better than average)              │   │
+│   │  A⁽⁴⁾ = (0 - 0.5) / 0.5 = -1.0   (worse than average)               │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│   Step 3: For each token, compute clipped objective                         │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  Example: Token "5" in Response 1 (A = +1.0)                        │   │
+│   │                                                                     │   │
+│   │  π_θ_old("5" | context) = 0.4                                       │   │
+│   │  π_θ("5" | context) = 0.6        (after some gradient steps)        │   │
+│   │                                                                     │   │
+│   │  ρ_t = 0.6 / 0.4 = 1.5                                              │   │
+│   │                                                                     │   │
+│   │  Unclipped: ρ_t × A = 1.5 × 1.0 = 1.50                              │   │
+│   │  Clipped:   clip(1.5, 0.8, 1.2) × A = 1.2 × 1.0 = 1.20              │   │
+│   │                                                                     │   │
+│   │  min(1.50, 1.20) = 1.20  ← Use the conservative value               │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  Example: Token "6" in Response 2 (A = -1.0)                        │   │
+│   │                                                                     │   │
+│   │  π_θ_old("6" | context) = 0.3                                       │   │
+│   │  π_θ("6" | context) = 0.15       (model learned to avoid this)      │   │
+│   │                                                                     │   │
+│   │  ρ_t = 0.15 / 0.3 = 0.5                                             │   │
+│   │                                                                     │   │
+│   │  Unclipped: ρ_t × A = 0.5 × (-1.0) = -0.50                          │   │
+│   │  Clipped:   clip(0.5, 0.8, 1.2) × A = 0.8 × (-1.0) = -0.80          │   │
+│   │                                                                     │   │
+│   │  min(-0.50, -0.80) = -0.80  ← Use the more negative value           │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│   Step 4: Average over all tokens and responses → Final objective J(θ)      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+</code></pre></div></div>
+
+<p><strong>Plain English summary:</strong></p>
+
+<p>The GRPO-Clip objective says:</p>
+
+<blockquote>
+  <ol>
+    <li><strong>For each question:</strong> Generate G different responses, score them, compute advantages</li>
+    <li><strong>For each token:</strong> Check how much the probability changed ($\rho_t$), multiply by advantage</li>
+    <li><strong>But clip the change:</strong> Don’t let the policy move more than $\epsilon$ away from the old policy</li>
+    <li><strong>Average everything:</strong> Over all tokens and all responses</li>
+  </ol>
+</blockquote>
+
+<h4 id="why-clipping-matters">Why Clipping Matters</h4>
+
+<p>Without clipping, taking many gradient steps on the same batch leads to <strong>overfitting</strong>. Clipping ensures the policy can only move <strong>X% away from the old policy per batch</strong>. This keeps training stable.</p>
+
+<h4 id="the-grpo-training-loop-visualized">The GRPO Training Loop Visualized</h4>
+
+<p>Here’s the complete GRPO workflow showing how it reuses generated responses:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌─────────────────────────────────────────────────────────────────────────────┐
+│                           GRPO TRAINING LOOP                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Step 1: Sample a batch of questions from dataset                           │
+│          ["What is 2+3?", "Solve x²=4", "What is 7×8?", ...]                │
+│                         │                                                   │
+│                         ▼                                                   │
+│  Step 2: Snapshot current model as π_θ_old                                  │
+│                         │                                                   │
+│                         ▼                                                   │
+│  Step 3: Generate G responses per question using π_θ_old                    │
+│          (This is EXPENSIVE — full inference G times per question)          │
+│                         │                                                   │
+│          ┌──────────────┴──────────────┐                                    │
+│          │  Question: "What is 2+3?"   │                                    │
+│          │  Response 1: "5" ✓          │                                    │
+│          │  Response 2: "6" ✗          │                                    │
+│          │  Response 3: "5" ✓          │                                    │
+│          │  Response 4: "7" ✗          │                                    │
+│          └──────────────┬──────────────┘                                    │
+│                         │                                                   │
+│                         ▼                                                   │
+│  Step 4: Compute rewards and group-normalized advantages                    │
+│          A⁽¹⁾=+1.0, A⁽²⁾=-1.0, A⁽³⁾=+1.0, A⁽⁴⁾=-1.0                         │
+│                         │                                                   │
+│                         ▼                                                   │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │  Step 5-8: MULTIPLE gradient steps on the SAME responses              │  │
+│  │            (This is where we save compute!)                           │  │
+│  │                                                                       │  │
+│  │    ┌─────────────────────────────────────────────────────────────┐    │  │
+│  │    │  Gradient step 1:                                           │    │  │
+│  │    │    - Compute ρ_t = π_θ(token) / π_θ_old(token) for all      │    │  │
+│  │    │    - Apply clipping to keep ρ_t in [0.8, 1.2]               │    │  │
+│  │    │    - Update θ                                               │    │  │
+│  │    └─────────────────────────────────────────────────────────────┘    │  │
+│  │                           │                                           │  │
+│  │                           ▼                                           │  │
+│  │    ┌─────────────────────────────────────────────────────────────┐    │  │
+│  │    │  Gradient step 2: (same responses, updated π_θ)             │    │  │
+│  │    │    - Recompute ρ_t with new π_θ                             │    │  │
+│  │    │    - Clipping prevents ρ_t from going too far               │    │  │
+│  │    │    - Update θ again                                         │    │  │
+│  │    └─────────────────────────────────────────────────────────────┘    │  │
+│  │                           │                                           │  │
+│  │                           ▼                                           │  │
+│  │    ┌─────────────────────────────────────────────────────────────┐    │  │
+│  │    │  Gradient steps 3, 4, ... (typically 4-8 total)             │    │  │
+│  │    │    - Eventually ρ_t hits clip boundaries                    │    │  │
+│  │    │    - Gradients become zero → time for fresh data            │    │  │
+│  │    └─────────────────────────────────────────────────────────────┘    │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                         │                                                   │
+│                         ▼                                                   │
+│  Step 9: Discard responses, go back to Step 1 with updated π_θ              │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+</code></pre></div></div>
+
+<p><strong>Why is this more efficient than vanilla REINFORCE?</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Method</th>
+      <th style="text-align: right">Responses generated</th>
+      <th style="text-align: right">Gradient steps</th>
+      <th style="text-align: right">Efficiency</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>REINFORCE</td>
+      <td style="text-align: right">1000</td>
+      <td style="text-align: right">1</td>
+      <td style="text-align: right">1 step per 1000 inferences</td>
+    </tr>
+    <tr>
+      <td>GRPO</td>
+      <td style="text-align: right">1000</td>
+      <td style="text-align: right">4-8</td>
+      <td style="text-align: right">4-8 steps per 1000 inferences</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>GRPO extracts 4-8× more learning from each expensive batch of generated responses!</p>
+
+<h4 id="the-complete-grpo-algorithm">The Complete GRPO Algorithm</h4>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Algorithm: GRPO
+
+Input: initial model π_θ, reward function R, questions D
+
+1:  π_θ ← π_θ_init                        # Start with base model
+
+2:  for step = 1 to n_grpo_steps:          # Main training loop
+3:      Sample batch of questions D_b
+4:      π_θ_old ← π_θ                      # Snapshot current model
+5:      
+6:      # Sample G outputs per question
+7:      for each question q in D_b:
+8:          Sample {o^(1), ..., o^(G)} from π_θ_old
+9:          Compute rewards {r^(1), ..., r^(G)}
+10:         Compute advantages A^(i) via group normalization
+11:     
+12:     # Take multiple gradient steps on same rollouts (off-policy)
+13:     for train_step = 1 to n_train_steps_per_rollout_batch:
+14:         Update π_θ by maximizing GRPO-Clip objective
+15:     
+16: Output: trained π_θ
+</code></pre></div></div>
+
+<p><strong>Why this works:</strong></p>
+
+<ol>
+  <li><strong>Group normalization</strong> provides a baseline without training a separate network</li>
+  <li><strong>Off-policy updates</strong> let us take multiple gradient steps per batch (efficient!)</li>
+  <li><strong>Clipping</strong> prevents the policy from changing too much (stable!)</li>
+</ol>
+
+<h3 id="part-8-putting-it-all-together">Part 8: Putting It All Together</h3>
+
+<h4 id="summary-table">Summary Table</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Concept</th>
+      <th>What It Is</th>
+      <th>What It Does</th>
+      <th>Example</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Policy</strong> $\pi_\theta$</td>
+      <td>Your LLM parameterized by weights $\theta$</td>
+      <td>Given context, outputs probability distribution over next tokens</td>
+      <td>P(“Paris” \mid “The capital of France is”) = 0.85</td>
+    </tr>
+    <tr>
+      <td><strong>State</strong> $s_t$</td>
+      <td>The text generated so far</td>
+      <td>Provides context for the next decision</td>
+      <td>“What is 2+3? <think> I need to"</think></td>
+    </tr>
+    <tr>
+      <td><strong>Action</strong> $a_t$</td>
+      <td>A single token</td>
+      <td>The choice made at each step</td>
+      <td>“add”</td>
+    </tr>
+    <tr>
+      <td><strong>Trajectory</strong> $\tau$</td>
+      <td>Complete sequence $(s_0, a_0, s_1, a_1, …, s_T, a_T)$</td>
+      <td>One full episode from prompt to end-of-text</td>
+      <td>Question → reasoning → answer → <code class="language-plaintext highlighter-rouge">&lt;/answer&gt;</code></td>
+    </tr>
+    <tr>
+      <td><strong>Reward</strong> $r_t$</td>
+      <td>Scalar feedback signal</td>
+      <td>Judges quality of action at state</td>
+      <td>0 for intermediate steps, 1 if final answer correct</td>
+    </tr>
+    <tr>
+      <td><strong>Return</strong> $R(\tau)$</td>
+      <td>Sum of rewards over trajectory</td>
+      <td>Single number measuring “how good was this trajectory?”</td>
+      <td>R = 1 (correct) or R = 0 (wrong)</td>
+    </tr>
+    <tr>
+      <td><strong>Score function</strong> $\nabla_\theta \log \pi_\theta(a \mid s)$</td>
+      <td>Gradient of log-probability</td>
+      <td>Direction in parameter space that increases P(action)</td>
+      <td>A vector with one entry per model parameter</td>
+    </tr>
+    <tr>
+      <td><strong>REINFORCE</strong></td>
+      <td>Vanilla policy gradient algorithm</td>
+      <td>Multiply score function by return, average over trajectories</td>
+      <td>Good trajectories → reinforce all their tokens</td>
+    </tr>
+    <tr>
+      <td><strong>Baseline</strong> $b(s)$</td>
+      <td>Estimate of expected return</td>
+      <td>Subtract from reward to get advantage</td>
+      <td>If model gets 70% right, b ≈ 0.7</td>
+    </tr>
+    <tr>
+      <td><strong>Advantage</strong> $A = R(\tau) - b$</td>
+      <td>“Better or worse than expected?”</td>
+      <td>Positive → reinforce, Negative → discourage, Zero → no signal</td>
+      <td>R=1, b=0.7 → A=+0.3 (good!); R=0, b=0.7 → A=-0.7 (bad!)</td>
+    </tr>
+    <tr>
+      <td><strong>On-policy</strong></td>
+      <td>Generate → one gradient step → discard</td>
+      <td>Uses fresh data for each update</td>
+      <td>Wasteful: 1000 inferences for 1 gradient step</td>
+    </tr>
+    <tr>
+      <td><strong>Off-policy</strong></td>
+      <td>Generate → multiple gradient steps → discard</td>
+      <td>Reuses data with importance weights $\frac{\pi_\theta}{\pi_{\theta_{old}}}$</td>
+      <td>Efficient: 1000 inferences for 4-8 gradient steps</td>
+    </tr>
+    <tr>
+      <td><strong>Importance weight</strong> $\rho_t$</td>
+      <td>Ratio $\frac{\pi_\theta(a)}{\pi_{\theta_{old}}(a)}$</td>
+      <td>Corrects for distribution mismatch when reusing old data</td>
+      <td>If old P=0.4, new P=0.6, then ρ=1.5</td>
+    </tr>
+    <tr>
+      <td><strong>Clipping</strong></td>
+      <td>Constrain $\rho_t$ to $[1-\epsilon, 1+\epsilon]$</td>
+      <td>Prevents policy from changing too fast</td>
+      <td>With ε=0.2, ρ stays in [0.8, 1.2]</td>
+    </tr>
+    <tr>
+      <td><strong>GRPO</strong></td>
+      <td>Group Relative Policy Optimization</td>
+      <td>Sample G responses per question, use group statistics as baseline</td>
+      <td>No need to train separate value network</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="key-equations-at-a-glance">Key Equations at a Glance</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Equation</th>
+      <th>Name</th>
+      <th>Plain English</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>$\nabla_\theta J = \mathbb{E}<em>{\tau}[\sum_t \nabla</em>\theta \log \pi_\theta(a_t \mid s_t) \cdot R(\tau)]$</td>
+      <td>Policy Gradient</td>
+      <td>“Increase probability of tokens that led to high rewards”</td>
+    </tr>
+    <tr>
+      <td>$\nabla_\theta J = \mathbb{E}<em>{\tau}[\sum_t \nabla</em>\theta \log \pi_\theta(a_t \mid s_t) \cdot (R(\tau) - b)]$</td>
+      <td>Baselined Policy Gradient</td>
+      <td>“Reinforce better-than-expected, discourage worse-than-expected”</td>
+    </tr>
+    <tr>
+      <td>$A^{(i)} = \frac{r^{(i)} - \text{mean}(r)}{\text{std}(r)}$</td>
+      <td>GRPO Advantage</td>
+      <td>“Compare this response to its siblings”</td>
+    </tr>
+    <tr>
+      <td>$\min(\rho_t \cdot A, \text{clip}(\rho_t) \cdot A)$</td>
+      <td>Clipped Objective</td>
+      <td>“Update conservatively — don’t change too much at once”</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="the-pytorch-connection">The PyTorch Connection</h4>
+
+<p>When you implement GRPO, the core looks like this:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">compute_grpo_loss</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">old_log_probs</span><span class="p">,</span> <span class="n">advantages</span><span class="p">,</span> <span class="n">epsilon</span><span class="o">=</span><span class="mf">0.2</span><span class="p">):</span>
+    <span class="s">"""
+    Compute GRPO-Clip loss for a batch of trajectories.
+    """</span>
+    <span class="c1"># Get current log probabilities
+</span>    <span class="n">logits</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="s">"input_ids"</span><span class="p">])</span>
+    <span class="n">log_probs</span> <span class="o">=</span> <span class="n">get_log_probs</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">batch</span><span class="p">[</span><span class="s">"input_ids"</span><span class="p">])</span>
+    
+    <span class="c1"># Compute probability ratios: π_θ / π_θ_old
+</span>    <span class="n">ratios</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">exp</span><span class="p">(</span><span class="n">log_probs</span> <span class="o">-</span> <span class="n">old_log_probs</span><span class="p">)</span>
+    
+    <span class="c1"># Clipped objective
+</span>    <span class="n">unclipped</span> <span class="o">=</span> <span class="n">ratios</span> <span class="o">*</span> <span class="n">advantages</span>
+    <span class="n">clipped</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">ratios</span><span class="p">,</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">epsilon</span><span class="p">,</span> <span class="mi">1</span> <span class="o">+</span> <span class="n">epsilon</span><span class="p">)</span> <span class="o">*</span> <span class="n">advantages</span>
+    
+    <span class="c1"># Take minimum (conservative update)
+</span>    <span class="n">loss</span> <span class="o">=</span> <span class="o">-</span><span class="n">torch</span><span class="p">.</span><span class="nb">min</span><span class="p">(</span><span class="n">unclipped</span><span class="p">,</span> <span class="n">clipped</span><span class="p">).</span><span class="n">mean</span><span class="p">()</span>
+    
+    <span class="k">return</span> <span class="n">loss</span>
+</code></pre></div></div>
+
+<p>The key steps are:</p>
+<ol>
+  <li>Compute current vs. old log-probabilities</li>
+  <li>Form the probability ratio</li>
+  <li>Clip the ratio</li>
+  <li>Take the minimum of clipped and unclipped objectives</li>
+  <li>Maximize (so we minimize the negative)</li>
+</ol>
+
+<p>The math may look intimidating at first, but the core ideas are simple:</p>
+<ul>
+  <li><strong>Try things</strong> (sample trajectories)</li>
+  <li><strong>See what works</strong> (check rewards)</li>
+  <li><strong>Do more of what works</strong> (policy gradient)</li>
+  <li><strong>Be smart about it</strong> (baselines, clipping, group normalization)</li>
+</ul>
+
+<p>That’s really all there is to it!</p>
+
+<hr />
+
+<p><strong>Resources:</strong></p>
+<ul>
+  <li><a href="https://stanford-cs336.github.io/spring2025/">Stanford CS336: Language Modeling from Scratch</a></li>
+  <li><a href="https://spinningup.openai.com/">OpenAI Spinning Up in Deep RL</a></li>
+  <li><a href="https://rlhfbook.com/">Nathan Lambert’s RLHF Book</a></li>
+  <li><a href="https://arxiv.org/abs/2401.02954">DeepSeek R1 Paper</a></li>
+  <li><a href="https://arxiv.org/abs/2402.03300">DeepSeekMath Paper</a> — Original GRPO formulation</li>
+  <li><a href="https://arxiv.org/abs/1707.06347">PPO Paper</a> — Proximal Policy Optimization</li>
+</ul>
+
+  </div><a class="u-url" href="/cs336/2026/01/25/cs336-reinforcement-learning-for-language-model.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col">
+        <p class="feed-subscribe">
+          <a href="http://localhost:4000/feed.xml">
+            <svg class="svg-icon orange">
+              <use xlink:href="/assets/minima-social-icons.svg#rss"></use>
+            </svg><span>Subscribe</span>
+          </a>
+        </p>
+      </div>
+      <div class="footer-col">
+        <p>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</p>
+      </div>
+    </div>
+
+    <div class="social-links"><ul class="social-media-list"></ul>
+</div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>
