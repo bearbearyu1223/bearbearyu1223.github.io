@@ -1,0 +1,1618 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <link rel="shortcut icon" type="image/png" href="/assets/favicon.png">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>Study Notes: Stanford CS336 Language Modeling from Scratch [15] | 🍒 Han’s Generative AI Quest</title>
+<meta name="generator" content="Jekyll v4.3.2" />
+<meta property="og:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [15]" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s" />
+<meta property="og:description" content="Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s" />
+<link rel="canonical" href="http://localhost:4000/cs336/2026/02/08/grpo-math-reasoning-lambda-cloud.html" />
+<meta property="og:url" content="http://localhost:4000/cs336/2026/02/08/grpo-math-reasoning-lambda-cloud.html" />
+<meta property="og:site_name" content="🍒 Han’s Generative AI Quest" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2026-02-08T00:00:00-08:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Study Notes: Stanford CS336 Language Modeling from Scratch [15]" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2026-02-08T00:00:00-08:00","datePublished":"2026-02-08T00:00:00-08:00","description":"Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s","headline":"Study Notes: Stanford CS336 Language Modeling from Scratch [15]","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/cs336/2026/02/08/grpo-math-reasoning-lambda-cloud.html"},"url":"http://localhost:4000/cs336/2026/02/08/grpo-math-reasoning-lambda-cloud.html"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/css/style.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="🍒 Han&apos;s Generative AI Quest" />
+
+<!-- MathJax Configuration -->
+<script>
+  MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']],
+      processEscapes: true,
+      processEnvironments: true
+    },
+    options: {
+      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+    }
+  };
+</script>
+
+<script type="text/javascript" id="MathJax-script" async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+</script>
+</head>
+<body><header class="site-header">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">🍒 Han&#39;s Generative AI Quest</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/about/">About</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Study Notes: Stanford CS336 Language Modeling from Scratch [15]</h1>
+    <p class="post-meta"><time class="dt-published" datetime="2026-02-08T00:00:00-08:00" itemprop="datePublished">
+        Feb 8, 2026
+      </time>• 
+          <span itemprop="author" itemscope itemtype="http://schema.org/Person">
+            <span class="p-author h-card" itemprop="name">Han Yu</span></span></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <h2 id="training-math-reasoning-models-with-grpo-on-lambda-cloud-with-2xh100s-">Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s <a href="https://lambda.ai/service/gpu-cloud"><img src="/assets/picture/2026-02-08-grpo-math-reasoning-lambda-cloud/lambda-labs-logo.svg" alt="Lambda" width="120" /></a></h2>
+
+<p>We’ve all read about GRPO (Group Relative Policy Optimization) and have a rough grasp of the theory. But a practical question often remains: how do you actually train a math reasoning model with GRPO?</p>
+
+<p>This post aims to bridge the gap between understanding GRPO on paper and running it on real cloud hardware.</p>
+
+<p>Using <a href="https://huggingface.co/Qwen/Qwen2.5-Math-1.5B">Qwen2.5-Math-1.5B</a> as a concrete example, I’ll walk through how to improve its math accuracy from ~6% to ~25%—a 4× improvement—by training with GRPO on Lambda Cloud using 2× H100 GPUs. Along the way, I’ll share:</p>
+
+<ul>
+  <li>
+    <p>How GRPO is implemented in practice</p>
+  </li>
+  <li>
+    <p>How to structure a 2-GPU training setup (policy model + vLLM inference)</p>
+  </li>
+  <li>
+    <p>How to read and reason about GRPO training curves and what signals actually matter</p>
+  </li>
+</ul>
+
+<p>The goal is not just to explain what GRPO is, but to show how it behaves end-to-end in a real training run—from reward computation, to GPU allocation, to interpreting the final plots.</p>
+
+<p><em>This guide builds on my previous <a href="/cs336/2026/01/25/cs336-reinforcement-learning-for-language-model.html">study notes on reinforcement learning for language models</a>. If terms like “policy gradient” or “advantage” are unfamiliar, start there first.</em></p>
+
+<h3 id="table-of-contents">Table of Contents</h3>
+<ul>
+  <li><a href="#training-math-reasoning-models-with-grpo-on-lambda-cloud-with-2xh100s--width120-">Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s {: width=”120” }</a>
+    <ul>
+      <li><a href="#table-of-contents">Table of Contents</a></li>
+      <li><a href="#notation">Notation</a></li>
+      <li><a href="#why-grpo-for-math-reasoning">Why GRPO for Math Reasoning?</a></li>
+      <li><a href="#grpo-intuition-groups-as-your-baseline">GRPO Intuition: Groups as Your Baseline</a>
+        <ul>
+          <li><a href="#the-group-concept">The “Group” Concept</a></li>
+        </ul>
+      </li>
+      <li><a href="#grpo-vs-pporlhf">GRPO vs PPO/RLHF</a></li>
+      <li><a href="#the-algorithm-step-by-step">The Algorithm Step-by-Step</a>
+        <ul>
+          <li><a href="#algorithm-3-from-cs336-assignment-5-grpo-training-loop">Algorithm 3 from CS336 Assignment 5: GRPO Training Loop</a></li>
+          <li><a href="#the-group-normalization-formula">The Group Normalization Formula</a></li>
+        </ul>
+      </li>
+      <li><a href="#key-implementation-details">Key Implementation Details</a>
+        <ul>
+          <li><a href="#group-normalized-rewards">Group-Normalized Rewards</a></li>
+          <li><a href="#three-loss-types">Three Loss Types</a></li>
+          <li><a href="#token-level-loss-with-masking">Token-Level Loss with Masking</a></li>
+          <li><a href="#training-loop-and-2-gpu-architecture">Training Loop and 2-GPU Architecture</a></li>
+        </ul>
+      </li>
+      <li><a href="#grpo-experiment-on-lambda-cloud-setup-with-2h100-80gb-sxm5">GRPO Experiment on Lambda Cloud Setup with 2×H100 (80GB SXM5)</a>
+        <ul>
+          <li><a href="#how-two-gpus-work-together-in-a-grpo-training-setup">How Two GPUs Work Together in a GRPO Training Setup?</a></li>
+          <li><a href="#step-by-step-setup">Step-by-Step Setup</a></li>
+          <li><a href="#troubleshooting">Troubleshooting</a></li>
+        </ul>
+      </li>
+      <li><a href="#interpreting-training-plots">Interpreting Training Plots</a>
+        <ul>
+          <li><a href="#panel-1-average-reward-per-step">Panel 1: Average Reward per Step</a></li>
+          <li><a href="#panel-2-answer-reward-train-vs-val">Panel 2: Answer Reward (Train vs Val)</a></li>
+          <li><a href="#panel-3-policy-gradient-loss">Panel 3: Policy Gradient Loss</a></li>
+          <li><a href="#panel-4-reward-range-minmaxmean">Panel 4: Reward Range (Min/Max/Mean)</a></li>
+        </ul>
+      </li>
+      <li><a href="#evaluation-results-base-model-vs-grpo-trained">Evaluation Results: Base Model vs GRPO-Trained</a>
+        <ul>
+          <li><a href="#example-improvements">Example improvements</a></li>
+        </ul>
+      </li>
+      <li><a href="#summary-and-key-takeaways">Summary and Key Takeaways</a></li>
+    </ul>
+  </li>
+</ul>
+
+<h3 id="notation">Notation</h3>
+
+<p>Before diving in, here’s a quick reference for the mathematical symbols used throughout this guide:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Symbol</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>$\pi$</td>
+      <td><strong>Policy</strong> — the language model being trained</td>
+    </tr>
+    <tr>
+      <td>$\theta$</td>
+      <td><strong>Parameters</strong> — the model weights</td>
+    </tr>
+    <tr>
+      <td>$\pi_\theta(a \mid s)$</td>
+      <td>Probability of generating token $a$ given context $s$, under model with weights $\theta$</td>
+    </tr>
+    <tr>
+      <td>$G$</td>
+      <td><strong>Group size</strong> — number of responses sampled per question</td>
+    </tr>
+    <tr>
+      <td>$R$</td>
+      <td><strong>Reward function</strong> — scores each response (e.g., 1 if correct, 0 if wrong)</td>
+    </tr>
+    <tr>
+      <td>$r^{(i)}$</td>
+      <td>Reward for the $i$-th response in a group</td>
+    </tr>
+    <tr>
+      <td>$V(s)$</td>
+      <td><strong>Value function</strong> — estimates expected future reward from state $s$ (used in PPO, not GRPO)</td>
+    </tr>
+    <tr>
+      <td>$A$</td>
+      <td><strong>Advantage</strong> — how much better a response is compared to baseline</td>
+    </tr>
+    <tr>
+      <td>$\mu_G$, $\sigma_G$</td>
+      <td>Mean and standard deviation of rewards within a group</td>
+    </tr>
+    <tr>
+      <td>$\epsilon$</td>
+      <td>Small constant (e.g., 1e-6) to prevent division by zero</td>
+    </tr>
+    <tr>
+      <td>$\rho$</td>
+      <td><strong>Importance sampling ratio</strong> — $\pi_\theta / \pi_{\theta_{old}}$, used for off-policy correction</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><em>Don’t worry if these aren’t all clear yet — each will be explained in context as we go.</em></p>
+
+<h3 id="why-grpo-for-math-reasoning">Why GRPO for Math Reasoning?</h3>
+
+<p>Large language models struggle with multi-step math reasoning. They might solve “2+3” but fail on “If a train leaves at 2pm traveling 60mph, and another train leaves at 3pm traveling 80mph…“—problems requiring chained logical steps.</p>
+
+<p>GRPO offers a simpler alternative to full RLHF:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Approach</th>
+      <th>Value Function?</th>
+      <th>Complexity</th>
+      <th>When to Use</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>RLHF with PPO</strong></td>
+      <td>Yes (separate model)</td>
+      <td>High</td>
+      <td>When you need maximum performance</td>
+    </tr>
+    <tr>
+      <td><strong>GRPO</strong></td>
+      <td>No (group statistics)</td>
+      <td>Medium</td>
+      <td>When you want simplicity + good results</td>
+    </tr>
+    <tr>
+      <td><strong>Vanilla REINFORCE</strong></td>
+      <td>No</td>
+      <td>Low</td>
+      <td>When you’re learning/debugging</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Key insight:</strong> GRPO uses the diversity of multiple responses to the same question as a “natural” baseline, eliminating the need to train a separate value network.</p>
+
+<p>The approach was introduced in <a href="https://arxiv.org/abs/2402.03300">DeepSeekMath</a> and later refined in <a href="https://arxiv.org/abs/2501.12948">DeepSeek-R1</a>.</p>
+
+<h3 id="grpo-intuition-groups-as-your-baseline">GRPO Intuition: Groups as Your Baseline</h3>
+
+<h4 id="the-group-concept">The “Group” Concept</h4>
+
+<p>For each question, GRPO samples G different responses from the current model. These responses form a <em>group</em>. Instead of judging each answer in isolation, GRPO compares responses against each other.</p>
+
+<p>If some responses are correct and others are wrong:</p>
+
+<ul>
+  <li>The correct ones are better than the group average → they should be <strong>reinforced</strong></li>
+  <li>The incorrect ones are worse than the group average → they should be actively <strong>de-emphasized</strong></li>
+</ul>
+
+<p>In other words, GRPO does two things at once:</p>
+
+<ul>
+  <li>
+    <p>Pushes up good responses</p>
+  </li>
+  <li>
+    <p>Pushes down bad responses, without needing an explicit value baseline or a separate critic</p>
+  </li>
+</ul>
+
+<p>By normalizing rewards within the group, GRPO naturally:</p>
+
+<ul>
+  <li>
+    <p>Encourages the model to repeat reasoning patterns that work</p>
+  </li>
+  <li>
+    <p>Discourages failure modes and bad reasoning trajectories</p>
+  </li>
+</ul>
+
+<p>The group itself becomes the <strong>baseline</strong>:
+“Given multiple ways I could have answered this question, which ones should I do more often—and which ones should I avoid?”</p>
+
+<p>This relative comparison is what makes GRPO both simple and stable, especially for domains like math reasoning where clear correctness signals exist.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌─────────────────────────────────────────────────────────────────────┐
+│  Question: "What is 15 × 7?"                                        │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │
+│  │ Response 1  │  │ Response 2  │  │ Response 3  │  │ Response 4  │ │
+│  │ "105" ✓     │  │ "105" ✓     │  │ "112" ✗     │  │ "107" ✗     │ │
+│  │ reward = 1  │  │ reward = 1  │  │ reward = 0  │  │ reward = 0  │ │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘ │
+│                                                                     │
+│         Group mean = 0.5        Group std = 0.5                     │
+│                                                                     │
+│  Advantages:                                                        │
+│  A₁ = (1-0.5)/0.5 = +1.0  ← Reinforce!                              │
+│  A₂ = (1-0.5)/0.5 = +1.0  ← Reinforce!                              │
+│  A₃ = (0-0.5)/0.5 = -1.0  ← Discourage!                             │
+│  A₄ = (0-0.5)/0.5 = -1.0  ← Discourage!                             │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+</code></pre></div></div>
+<p><strong>Key insight:</strong> GRPO only learns from <em>diversity</em>. If all G responses were correct (or all wrong), the advantages would be zero and no learning would occur. This is why sampling temperature matters and we need some exploration!</p>
+
+<h3 id="grpo-vs-pporlhf">GRPO vs PPO/RLHF</h3>
+
+<p>Here’s how GRPO compares to standard RLHF with PPO:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌─────────────────────────────────────────────────────────────────────┐
+│                    RLHF with PPO                                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌──────────────┐      ┌──────────────┐      ┌──────────────┐       │
+│  │ Policy Model │      │ Value Model  │      │ Reward Model │       │
+│  │   (train)    │      │   (train)    │      │  (frozen)    │       │
+│  └──────────────┘      └──────────────┘      └──────────────┘       │
+│         │                    │                      │               │
+│         ▼                    ▼                      ▼               │
+│   Generate response   Estimate expected      Score response         │
+│         │             return V(s)                   │               │
+│         │                    │                      │               │
+│         └────────────────────┼──────────────────────┘               │
+│                              ▼                                      │
+│                    Advantage = R - V(s)                             │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                         GRPO                                        │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌──────────────┐                           ┌──────────────┐        │
+│  │ Policy Model │                           │ Reward Model │        │
+│  │   (train)    │                           │  (frozen)    │        │
+│  └──────────────┘                           └──────────────┘        │
+│         │                                          │                │
+│         ▼                                          ▼                │
+│   Generate G responses                      Score all G             │
+│   for same question                         responses               │
+│         │                                          │                │
+│         └──────────────────────────────────────────┘                │
+│                              ▼                                      │
+│                    Advantage = (R - mean) / std                     │
+│                    (computed from G siblings)                       │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+</code></pre></div></div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Aspect</th>
+      <th>RLHF/PPO</th>
+      <th>GRPO</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Value function</strong></td>
+      <td>Trained separately</td>
+      <td>Not needed</td>
+    </tr>
+    <tr>
+      <td><strong>Memory</strong></td>
+      <td>2 full models</td>
+      <td>1 model + reward function</td>
+    </tr>
+    <tr>
+      <td><strong>Baseline</strong></td>
+      <td>Learned V(s)</td>
+      <td>Group statistics</td>
+    </tr>
+    <tr>
+      <td><strong>Compute</strong></td>
+      <td>Higher</td>
+      <td>Lower</td>
+    </tr>
+    <tr>
+      <td><strong>Implementation</strong></td>
+      <td>Complex</td>
+      <td>Simpler</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Why this matters:</strong> for a 1.5B-parameter model, GRPO saves roughly ~3 GB of VRAM by eliminating the need for a separate value network. This reduction is substantial—especially when running on consumer or constrained GPUs—and often makes the difference between fitting the model comfortably and needing aggressive memory hacks.</p>
+
+<h3 id="the-algorithm-step-by-step">The Algorithm Step-by-Step</h3>
+
+<h4 id="algorithm-3-from-cs336-assignment-5-grpo-training-loop">Algorithm 3 from CS336 Assignment 5: GRPO Training Loop</h4>
+
+<p>Here’s the complete GRPO algorithm in pseudocode:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Algorithm: GRPO Training
+
+Input: policy π_θ, reward function R, training data D, group size G
+
+for step = 1 to n_grpo_steps:
+
+    # Step 1: Sample batch of questions
+    Sample questions {q₁, q₂, ..., qₙ} from D
+
+    # Step 2: Generate G responses per question
+    for each question q:
+        Sample {o⁽¹⁾, ..., o⁽ᴳ⁾} ~ π_θ(· | q)
+        Compute rewards {r⁽¹⁾, ..., r⁽ᴳ⁾} using R
+
+        # Step 3: Group normalization
+        μ = mean(r⁽¹⁾, ..., r⁽ᴳ⁾)
+        σ = std(r⁽¹⁾, ..., r⁽ᴳ⁾)
+        A⁽ⁱ⁾ = (r⁽ⁱ⁾ - μ) / (σ + ε)  for i = 1..G
+
+    # Step 4: Store old log-probs for off-policy training
+    Store log π_θ_old(oₜ | q, o&lt;ₜ) for all tokens
+
+    # Step 5: Multiple gradient steps (off-policy)
+    for epoch = 1 to epochs_per_batch:
+        Compute policy gradient loss with clipping
+        Update θ using Adam optimizer
+
+Output: trained policy π_θ
+</code></pre></div></div>
+
+<h4 id="the-group-normalization-formula">The Group Normalization Formula</h4>
+
+<p>The advantage for response i in a group is:</p>
+
+\[A^{(i)} = \frac{r^{(i)} - \mu_G}{\sigma_G + \epsilon}\]
+
+<p>where:</p>
+<ul>
+  <li>$r^{(i)}$ = reward for response i</li>
+  <li>$\mu_G$ = mean reward in the group</li>
+  <li>$\sigma_G$ = standard deviation of rewards in the group</li>
+  <li>$\epsilon$ = small constant (1e-6) to prevent division by zero</li>
+</ul>
+
+<p><strong>Dr. GRPO variant:</strong> Some implementations skip the std normalization:</p>
+
+\[A^{(i)} = r^{(i)} - \mu_G\]
+
+<p>This simpler form works well when rewards are binary (0 or 1).</p>
+
+<h3 id="key-implementation-details">Key Implementation Details</h3>
+
+<h4 id="group-normalized-rewards">Group-Normalized Rewards</h4>
+
+<p>Here’s the core implementation from <code class="language-plaintext highlighter-rouge">grpo.py</code>:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">compute_group_normalized_rewards</span><span class="p">(</span>
+    <span class="n">reward_fn</span><span class="p">,</span>
+    <span class="n">rollout_responses</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">repeated_ground_truths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">advantage_eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-6</span><span class="p">,</span>
+    <span class="n">normalize_by_std</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="bp">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="nb">dict</span><span class="p">]:</span>
+    <span class="s">"""
+    Compute rewards normalized by group statistics.
+
+    Args:
+        reward_fn: Function that scores response against ground truth
+        rollout_responses: All generated responses (n_questions * group_size)
+        repeated_ground_truths: Ground truths repeated for each response
+        group_size: Number of responses per question (G)
+        normalize_by_std: If True, divide by std (standard GRPO)
+                          If False, only subtract mean (Dr. GRPO)
+    """</span>
+    <span class="n">n_groups</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">rollout_responses</span><span class="p">)</span> <span class="o">//</span> <span class="n">group_size</span>
+
+    <span class="c1"># Score all responses
+</span>    <span class="n">raw_rewards</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">response</span><span class="p">,</span> <span class="n">ground_truth</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">rollout_responses</span><span class="p">,</span> <span class="n">repeated_ground_truths</span><span class="p">):</span>
+        <span class="n">reward_info</span> <span class="o">=</span> <span class="n">reward_fn</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">ground_truth</span><span class="p">)</span>
+        <span class="n">raw_rewards</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">reward_info</span><span class="p">[</span><span class="s">"reward"</span><span class="p">])</span>
+
+    <span class="n">raw_rewards</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">raw_rewards</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="p">.</span><span class="n">float32</span><span class="p">)</span>
+
+    <span class="c1"># Reshape to (n_groups, group_size) for group-wise operations
+</span>    <span class="n">rewards_grouped</span> <span class="o">=</span> <span class="n">raw_rewards</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_groups</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
+
+    <span class="c1"># Compute group statistics
+</span>    <span class="n">group_means</span> <span class="o">=</span> <span class="n">rewards_grouped</span><span class="p">.</span><span class="n">mean</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>  <span class="c1"># (n_groups, 1)
+</span>    <span class="n">group_stds</span> <span class="o">=</span> <span class="n">rewards_grouped</span><span class="p">.</span><span class="n">std</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>    <span class="c1"># (n_groups, 1)
+</span>
+    <span class="c1"># Compute advantages
+</span>    <span class="k">if</span> <span class="n">normalize_by_std</span><span class="p">:</span>
+        <span class="c1"># Standard GRPO: A = (r - mean) / (std + eps)
+</span>        <span class="n">advantages_grouped</span> <span class="o">=</span> <span class="p">(</span><span class="n">rewards_grouped</span> <span class="o">-</span> <span class="n">group_means</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">group_stds</span> <span class="o">+</span> <span class="n">advantage_eps</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Dr. GRPO: A = r - mean
+</span>        <span class="n">advantages_grouped</span> <span class="o">=</span> <span class="n">rewards_grouped</span> <span class="o">-</span> <span class="n">group_means</span>
+
+    <span class="c1"># Flatten back to (rollout_batch_size,)
+</span>    <span class="n">advantages</span> <span class="o">=</span> <span class="n">advantages_grouped</span><span class="p">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">advantages</span><span class="p">,</span> <span class="n">raw_rewards</span><span class="p">,</span> <span class="n">metadata</span>
+</code></pre></div></div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Normalization</th>
+      <th>Formula</th>
+      <th>When to Use</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Standard GRPO</strong></td>
+      <td>A = (r - μ) / (σ + ε)</td>
+      <td>General case, variable rewards</td>
+    </tr>
+    <tr>
+      <td><strong>Dr. GRPO</strong></td>
+      <td>A = r - μ</td>
+      <td>Binary rewards (0/1), simpler</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="three-loss-types">Three Loss Types</h4>
+
+<p>The implementation supports three policy gradient loss types:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">compute_policy_gradient_loss</span><span class="p">(</span>
+    <span class="n">policy_log_probs</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">loss_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>  <span class="c1"># "no_baseline", "reinforce_with_baseline", "grpo_clip"
+</span>    <span class="n">raw_rewards</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="n">advantages</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="n">old_log_probs</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="n">cliprange</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="k">if</span> <span class="n">loss_type</span> <span class="o">==</span> <span class="s">"no_baseline"</span><span class="p">:</span>
+        <span class="c1"># Vanilla REINFORCE: -R * log π(a|s)
+</span>        <span class="n">loss</span> <span class="o">=</span> <span class="o">-</span><span class="n">raw_rewards</span> <span class="o">*</span> <span class="n">policy_log_probs</span>
+
+    <span class="k">elif</span> <span class="n">loss_type</span> <span class="o">==</span> <span class="s">"reinforce_with_baseline"</span><span class="p">:</span>
+        <span class="c1"># REINFORCE with baseline: -A * log π(a|s)
+</span>        <span class="n">loss</span> <span class="o">=</span> <span class="o">-</span><span class="n">advantages</span> <span class="o">*</span> <span class="n">policy_log_probs</span>
+
+    <span class="k">elif</span> <span class="n">loss_type</span> <span class="o">==</span> <span class="s">"grpo_clip"</span><span class="p">:</span>
+        <span class="c1"># PPO-style clipping for off-policy stability
+</span>        <span class="n">ratio</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">exp</span><span class="p">(</span><span class="n">policy_log_probs</span> <span class="o">-</span> <span class="n">old_log_probs</span><span class="p">)</span>
+        <span class="n">clipped_ratio</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">ratio</span><span class="p">,</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">cliprange</span><span class="p">,</span> <span class="mi">1</span> <span class="o">+</span> <span class="n">cliprange</span><span class="p">)</span>
+
+        <span class="c1"># Take minimum (pessimistic bound)
+</span>        <span class="n">loss</span> <span class="o">=</span> <span class="o">-</span><span class="n">torch</span><span class="p">.</span><span class="nb">min</span><span class="p">(</span><span class="n">ratio</span> <span class="o">*</span> <span class="n">advantages</span><span class="p">,</span> <span class="n">clipped_ratio</span> <span class="o">*</span> <span class="n">advantages</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">loss</span>
+</code></pre></div></div>
+
+<p><strong>On-Policy vs Off-Policy: What’s the Difference?</strong></p>
+
+<p><em>Quick terminology note:</em> In RL for language models, the <strong>policy</strong> ($\pi$) <em>is</em> the language model being trained. The policy parameters ($\theta$) are the model weights. When we write $\pi_\theta(a \mid s)$, we mean “the probability of generating token $a$ given context $s$, according to the model with weights $\theta$.” The model defines a probability distribution over actions (next tokens) given states (prompt + tokens so far)—that’s exactly what a policy is.</p>
+
+<p>This distinction matters for understanding when to use each loss type:</p>
+
+<ul>
+  <li>
+    <p><strong>On-policy</strong>: The policy used to <em>generate</em> the data is the <em>same</em> as the policy being <em>updated</em>. Each batch of rollouts is used for exactly one gradient step, then discarded. Simple but wasteful—you throw away expensive samples after one use.</p>
+  </li>
+  <li>
+    <p><strong>Off-policy</strong>: The policy used to <em>generate</em> the data can be <em>different</em> from the policy being <em>updated</em>. This lets you reuse the same batch of rollouts for multiple gradient steps, extracting more learning signal from each expensive generation.</p>
+  </li>
+</ul>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>On-Policy (REINFORCE):
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│ Generate with│ ──► │ One gradient │ ──► │   Discard    │
+│    π_θ       │     │    step      │     │   rollouts   │
+└──────────────┘     └──────────────┘     └──────────────┘
+
+Off-Policy (GRPO with clipping):
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│ Generate with│ ──► │  Multiple    │ ──► │   Then       │
+│   π_θ_old    │     │ grad steps   │     │  discard     │
+└──────────────┘     └──────────────┘     └──────────────┘
+                           │
+                     Uses ratio ρ = π_θ/π_θ_old
+                     to correct for policy drift
+</code></pre></div></div>
+
+<p>The catch with off-policy: as you update $\theta$, the current policy $\pi_\theta$ drifts away from the old policy $\pi_{\theta_{old}}$ that generated the data. The <strong>importance sampling ratio</strong> $\rho = \pi_\theta(a \mid s) / \pi_{\theta_{old}}(a \mid s)$ corrects for this, but if $\theta$ changes too much, the correction becomes unreliable. That’s why <code class="language-plaintext highlighter-rouge">grpo_clip</code> uses PPO-style clipping—it prevents the ratio from getting too large, keeping updates stable even when reusing rollouts.</p>
+
+<p><strong>Comparison table:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Loss Type</th>
+      <th>Formula</th>
+      <th>Pros</th>
+      <th>Cons</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">no_baseline</code></td>
+      <td>-R × log π</td>
+      <td>Simplest</td>
+      <td>High variance</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">reinforce_with_baseline</code></td>
+      <td>-A × log π</td>
+      <td>Lower variance</td>
+      <td>On-policy only</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">grpo_clip</code></td>
+      <td>-min(ρA, clip(ρ)A)</td>
+      <td>Off-policy stable</td>
+      <td>More complex</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>When to use each:</strong></p>
+<ul>
+  <li><strong>no_baseline</strong>: Debugging, understanding basics</li>
+  <li><strong>reinforce_with_baseline</strong>: Default choice, good balance</li>
+  <li><strong>grpo_clip</strong>: When reusing rollouts across multiple gradient steps</li>
+</ul>
+
+<h4 id="token-level-loss-with-masking">Token-Level Loss with Masking</h4>
+
+<p>GRPO applies the loss only to response tokens, not the prompt:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌─────────────────────────────────────────────────────────────────────┐
+│  Token sequence:                                                    │
+│                                                                     │
+│  [What][is][2+3][?][&lt;think&gt;][I][need][to][add][&lt;/think&gt;][5][&lt;EOS&gt;]  │
+│  ├────────────────┤├─────────────────────────────────────────────┤  │
+│        PROMPT                        RESPONSE                       │
+│        mask = 0                      mask = 1                       │
+│                                                                     │
+│  Loss is computed ONLY over response tokens (mask = 1)              │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+</code></pre></div></div>
+
+<p>The <code class="language-plaintext highlighter-rouge">masked_mean</code> function handles this:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">masked_mean</span><span class="p">(</span><span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">torch</span><span class="p">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="bp">None</span><span class="p">):</span>
+    <span class="s">"""Average only over positions where mask == 1."""</span>
+    <span class="n">mask_float</span> <span class="o">=</span> <span class="n">mask</span><span class="p">.</span><span class="nb">float</span><span class="p">()</span>
+    <span class="n">masked_tensor</span> <span class="o">=</span> <span class="n">tensor</span> <span class="o">*</span> <span class="n">mask_float</span>
+
+    <span class="k">if</span> <span class="n">dim</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="c1"># Global mean
+</span>        <span class="k">return</span> <span class="n">masked_tensor</span><span class="p">.</span><span class="nb">sum</span><span class="p">()</span> <span class="o">/</span> <span class="n">mask_float</span><span class="p">.</span><span class="nb">sum</span><span class="p">().</span><span class="n">clamp</span><span class="p">(</span><span class="nb">min</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Mean along dimension
+</span>        <span class="k">return</span> <span class="n">masked_tensor</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">dim</span><span class="p">)</span> <span class="o">/</span> <span class="n">mask_float</span><span class="p">.</span><span class="nb">sum</span><span class="p">(</span><span class="n">dim</span><span class="p">).</span><span class="n">clamp</span><span class="p">(</span><span class="nb">min</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>Why this matters:</strong> Including prompt tokens in the loss would reinforce the model for generating the question—not what we want! We only want to reinforce good <em>answers</em>.</p>
+
+<h4 id="training-loop-and-2-gpu-architecture">Training Loop and 2-GPU Architecture</h4>
+
+<p>This section uses <strong><a href="https://github.com/vllm-project/vllm">vLLM</a></strong> for fast inference. vLLM is a high-throughput LLM serving engine that uses <strong>PagedAttention</strong> to efficiently manage GPU memory and <strong>continuous batching</strong> to maximize throughput. For GRPO, where we need to generate many responses (G per question) quickly, vLLM can be 10-24x faster than standard Hugging Face <code class="language-plaintext highlighter-rouge">generate()</code>.</p>
+
+<p><strong>Why Separate GPUs?</strong></p>
+
+<p>I used <strong>2× H100 (80GB SXM5)</strong> GPUs from Lambda Labs for the GRPO experiments (~6.38 USD/hour). Even with 80GB per GPU, running both vLLM inference and policy training on the same GPU leads to memory contention. GRPO training has two distinct phases with competing memory requirements:</p>
+
+<ol>
+  <li><strong>Rollout generation</strong> (inference): Generate G responses per question using vLLM</li>
+  <li><strong>Policy training</strong> (gradient computation): Update weights using the computed advantages</li>
+</ol>
+
+<p>These phases have different memory patterns:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Phase</th>
+      <th>GPU</th>
+      <th>Memory Breakdown</th>
+      <th>Total</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Rollout (vLLM)</strong></td>
+      <td>GPU 0</td>
+      <td>Model weights (~3GB) + KV cache (~40-60GB at high utilization)</td>
+      <td>~65GB</td>
+    </tr>
+    <tr>
+      <td><strong>Training (Policy)</strong></td>
+      <td>GPU 1</td>
+      <td>Model weights (~3GB) + Optimizer states (~6GB) + Activations (~2-4GB)</td>
+      <td>~12GB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Why not share a single 80GB GPU?</strong></p>
+
+<p>While the training phase only uses ~12GB, combining both workloads is problematic:</p>
+
+<ul>
+  <li><strong>Peak memory overlap</strong>: vLLM’s KV cache grows dynamically during generation. If training starts while vLLM is generating long sequences, combined memory can exceed 80GB → OOM.</li>
+  <li><strong>Memory fragmentation</strong>: vLLM uses PagedAttention which allocates memory in blocks. Frequent allocation/deallocation during training causes fragmentation, reducing effective capacity.</li>
+  <li><strong>Throughput loss</strong>: Context switching between inference and training modes adds overhead.</li>
+</ul>
+
+<p>The 2-GPU solution is clean: GPU 0 runs vLLM inference exclusively, GPU 1 handles training. After each rollout batch, updated weights are synced from GPU 1 → GPU 0.</p>
+
+<p><strong>GPU Detection and Allocation Logic</strong></p>
+
+<p>The training script detects available GPUs and chooses between two modes:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Mode</th>
+      <th>GPUs</th>
+      <th>Rollout Generation</th>
+      <th>Performance</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>2-GPU mode</strong></td>
+      <td>2+</td>
+      <td>vLLM (fast, dedicated GPU)</td>
+      <td>~10-24× faster rollouts</td>
+    </tr>
+    <tr>
+      <td><strong>Single-GPU mode</strong></td>
+      <td>1</td>
+      <td>HuggingFace <code class="language-plaintext highlighter-rouge">generate()</code></td>
+      <td>Slower, but works</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># From run_grpo.py
+</span><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="n">n_gpus</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">device_count</span><span class="p">()</span>
+<span class="n">logger</span><span class="p">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s">"Detected </span><span class="si">{</span><span class="n">n_gpus</span><span class="si">}</span><span class="s"> GPU(s)"</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">n_gpus</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">:</span>
+    <span class="c1"># 2-GPU mode: vLLM on GPU 0, policy training on GPU 1
+</span>    <span class="n">use_vllm</span> <span class="o">=</span> <span class="bp">True</span>
+    <span class="n">vllm_device</span> <span class="o">=</span> <span class="s">"cuda:0"</span>
+    <span class="n">policy_device</span> <span class="o">=</span> <span class="s">"cuda:1"</span>
+
+    <span class="n">vllm_instance</span> <span class="o">=</span> <span class="n">init_vllm</span><span class="p">(</span>
+        <span class="n">model_id</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">model_name_or_path</span><span class="p">,</span>
+        <span class="n">device</span><span class="o">=</span><span class="n">vllm_device</span><span class="p">,</span>
+        <span class="n">gpu_memory_utilization</span><span class="o">=</span><span class="mf">0.85</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="c1"># Single-GPU mode: no vLLM, use HuggingFace generate instead
+</span>    <span class="n">use_vllm</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="n">policy_device</span> <span class="o">=</span> <span class="s">"cuda:0"</span>
+    <span class="n">logger</span><span class="p">.</span><span class="n">warning</span><span class="p">(</span><span class="s">"Only 1 GPU detected. Falling back to HuggingFace generate (slower)."</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><strong>How does PyTorch know which GPU to use?</strong> It doesn’t decide automatically—<strong>you specify it in your code</strong>. PyTorch requires explicit device placement using <code class="language-plaintext highlighter-rouge">.to(device)</code>:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Load policy model explicitly on GPU 1
+</span><span class="n">policy</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="p">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
+<span class="n">policy</span> <span class="o">=</span> <span class="n">policy</span><span class="p">.</span><span class="n">to</span><span class="p">(</span><span class="s">"cuda:1"</span><span class="p">)</span>  <span class="c1"># ← You specify this
+</span>
+<span class="c1"># Tensors must also be moved to the same device
+</span><span class="n">input_ids</span> <span class="o">=</span> <span class="n">input_ids</span><span class="p">.</span><span class="n">to</span><span class="p">(</span><span class="s">"cuda:1"</span><span class="p">)</span>  <span class="c1"># Data must match model's device
+</span></code></pre></div></div>
+
+<p>If you just call <code class="language-plaintext highlighter-rouge">model.cuda()</code> without specifying a device, it defaults to GPU 0. For multi-GPU setups like GRPO, explicit placement (<code class="language-plaintext highlighter-rouge">cuda:0</code>, <code class="language-plaintext highlighter-rouge">cuda:1</code>) is essential to keep workloads separated.</p>
+
+<p><strong>Why the fallback to use HF generate?</strong> vLLM and policy training can’t efficiently share a single GPU—vLLM’s memory management (PagedAttention, continuous batching) conflicts with PyTorch’s training memory patterns. With only 1 GPU, the script disables vLLM entirely and uses HuggingFace’s simpler <code class="language-plaintext highlighter-rouge">generate()</code> method, which is slower but avoids memory conflicts.</p>
+
+<p><strong>What is HuggingFace <code class="language-plaintext highlighter-rouge">generate()</code>?</strong> <a href="https://huggingface.co/docs/transformers">HuggingFace Transformers</a> is the most popular library for working with pretrained language models. Its <code class="language-plaintext highlighter-rouge">model.generate()</code> method is the standard way to produce text from a model—it handles tokenization, sampling strategies (greedy, top-k, top-p), and decoding in a straightforward API. While easy to use and compatible with training (same PyTorch model instance), it processes requests one batch at a time without the advanced optimizations (PagedAttention, continuous batching) that make vLLM fast. For GRPO, this means rollout generation takes longer, but it works reliably on a single GPU.</p>
+
+<p><strong>Decision flowchart:</strong></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌─────────────────────────────────────────────────────────────────────┐
+│                     GPU Allocation Decision                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│                    ┌─────────────────────────┐                      │
+│                    │  torch.cuda.device_count()                     │
+│                    └───────────┬─────────────┘                      │
+│                                │                                    │
+│              ┌─────────────────┴─────────────────┐                  │
+│              ▼                                   ▼                  │
+│       ┌─────────────┐                     ┌─────────────┐           │
+│       │   1 GPU     │                     │   2+ GPUs   │           │
+│       └──────┬──────┘                     └──────┬──────┘           │
+│              │                                   │                  │
+│              ▼                                   ▼                  │
+│  ┌───────────────────────┐         ┌───────────────────────┐        │
+│  │  Single-GPU Mode      │         │    2-GPU Mode         │        │
+│  │                       │         │                       │        │
+│  │  • Policy: cuda:0     │         │  • vLLM: cuda:0       │        │
+│  │  • Rollouts: HF       │         │  • Policy: cuda:1     │        │
+│  │    generate() (slow)  │         │  • Rollouts: vLLM     │        │
+│  │  • Shared memory      │         │    (10-24× faster)    │        │
+│  └───────────────────────┘         └───────────────────────┘        │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+</code></pre></div></div>
+
+<p><strong>Memory Profiling</strong></p>
+
+<p>The training loop includes memory logging to help diagnose issues:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">log_gpu_memory</span><span class="p">(</span><span class="n">msg</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s">""</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="s">"""Log current GPU memory usage."""</span>
+    <span class="k">if</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">is_available</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">device_count</span><span class="p">()):</span>
+            <span class="n">allocated</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">memory_allocated</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="o">/</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">3</span>
+            <span class="n">reserved</span> <span class="o">=</span> <span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">memory_reserved</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="o">/</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">3</span>
+            <span class="n">logger</span><span class="p">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s">"GPU </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s"> </span><span class="si">{</span><span class="n">msg</span><span class="si">}</span><span class="s">: </span><span class="si">{</span><span class="n">allocated</span><span class="si">:</span><span class="p">.</span><span class="mi">2</span><span class="n">f</span><span class="si">}</span><span class="s"> GB allocated, </span><span class="si">{</span><span class="n">reserved</span><span class="si">:</span><span class="p">.</span><span class="mi">2</span><span class="n">f</span><span class="si">}</span><span class="s"> GB reserved"</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p>Sample output during training:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>GPU 0 after vLLM: 62.45 GB allocated, 65.00 GB reserved
+GPU 1 after policy: 3.21 GB allocated, 4.50 GB reserved
+GPU 1 after optimizer.step(): 9.45 GB allocated, 12.00 GB reserved
+</code></pre></div></div>
+
+<p><strong>What do “allocated” and “reserved” mean?</strong></p>
+
+<ul>
+  <li><strong>Allocated</strong>: Memory currently holding tensors (model weights, activations, gradients). This is the memory your code is <em>actively using</em>.</li>
+  <li><strong>Reserved</strong>: Memory that PyTorch’s CUDA allocator has claimed from the GPU but isn’t currently in use. PyTorch reserves extra memory as a “pool” to avoid expensive allocation calls—when you need new tensors, it pulls from this pool instead of asking the GPU driver.</li>
+</ul>
+
+<p>The gap between reserved and allocated (e.g., 65 - 62.45 = 2.55 GB on GPU 0) is “free” memory within PyTorch’s pool. If you see OOM errors even when allocated seems low, check reserved—fragmentation can cause PyTorch to reserve more than needed.</p>
+
+<p><strong>Memory Optimization Techniques</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Technique</th>
+      <th>How It Helps</th>
+      <th>Code Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Gradient checkpointing</strong></td>
+      <td>Trades compute for memory by recomputing activations during backprop</td>
+      <td><code class="language-plaintext highlighter-rouge">policy.gradient_checkpointing_enable()</code></td>
+    </tr>
+    <tr>
+      <td><strong>Sequence truncation</strong></td>
+      <td>Limits max context to reduce memory</td>
+      <td><code class="language-plaintext highlighter-rouge">--max-seq-length-train 512</code></td>
+    </tr>
+    <tr>
+      <td><strong>Cache clearing</strong></td>
+      <td>Frees unused memory between steps</td>
+      <td><code class="language-plaintext highlighter-rouge">torch.cuda.empty_cache()</code></td>
+    </tr>
+    <tr>
+      <td><strong>Explicit <code class="language-plaintext highlighter-rouge">del</code></strong></td>
+      <td>Removes tensor references immediately</td>
+      <td><code class="language-plaintext highlighter-rouge">del logits, outputs</code></td>
+    </tr>
+    <tr>
+      <td><strong>Smaller micro-batches</strong></td>
+      <td>Reduces peak memory per step</td>
+      <td><code class="language-plaintext highlighter-rouge">--gradient-accumulation-steps</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Enable gradient checkpointing to reduce memory usage
+</span><span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">policy</span><span class="p">,</span> <span class="s">'gradient_checkpointing_enable'</span><span class="p">):</span>
+    <span class="n">policy</span><span class="p">.</span><span class="n">gradient_checkpointing_enable</span><span class="p">()</span>
+    <span class="n">logger</span><span class="p">.</span><span class="n">info</span><span class="p">(</span><span class="s">"Gradient checkpointing enabled"</span><span class="p">)</span>
+
+<span class="c1"># In the training loop, free memory aggressively
+</span><span class="k">del</span> <span class="n">log_prob_result</span><span class="p">,</span> <span class="n">mb_policy_log_probs</span><span class="p">,</span> <span class="n">loss</span>
+<span class="n">gc</span><span class="p">.</span><span class="n">collect</span><span class="p">()</span>
+<span class="n">torch</span><span class="p">.</span><span class="n">cuda</span><span class="p">.</span><span class="n">empty_cache</span><span class="p">()</span>
+</code></pre></div></div>
+
+<p><strong>The Training Loop</strong></p>
+
+<p>Here’s the step-by-step flow of <code class="language-plaintext highlighter-rouge">grpo_train_loop()</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌─────────────────────────────────────────────────────────────────────┐
+│                    GRPO Training Iteration                          │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  1. Sample batch of prompts from training data                      │
+│     ┌─────────────────────────────────────────┐                     │
+│     │ "What is 2+3?", "Solve x²=4", ...       │                     │
+│     └───────────────────┬─────────────────────┘                     │
+│                         ▼                                           │
+│  2. Generate G rollouts per prompt (vLLM or HF generate)            │
+│     ┌─────────────────────────────────────────┐                     │
+│     │ 8 responses per question                │                     │
+│     │ Total: n_prompts × 8 responses          │                     │
+│     └───────────────────┬─────────────────────┘                     │
+│                         ▼                                           │
+│  3. Score responses with reward function (CPU)                      │
+│     ┌─────────────────────────────────────────┐                     │
+│     │ r1_zero_reward_fn: extracts answer from │                     │
+│     │ text, compares to ground truth → {0, 1} │                     │
+│     │ (string processing, no GPU needed)      │                     │
+│     └───────────────────┬─────────────────────┘                     │
+│                         ▼                                           │
+│  4. Compute group-normalized advantages                             │
+│     ┌─────────────────────────────────────────┐                     │
+│     │ A = (r - group_mean) / (group_std + ε)  │                     │
+│     └───────────────────┬─────────────────────┘                     │
+│                         ▼                                           │
+│  5. Forward pass on policy model                                    │
+│     ┌─────────────────────────────────────────┐                     │
+│     │ Compute log π_θ(token | context)        │                     │
+│     └───────────────────┬─────────────────────┘                     │
+│                         ▼                                           │
+│  6. Compute masked policy gradient loss                             │
+│     ┌─────────────────────────────────────────┐                     │
+│     │ Loss = -A × log π (response tokens only)│                     │
+│     └───────────────────┬─────────────────────┘                     │
+│                         ▼                                           │
+│  7. Backward pass with gradient accumulation                        │
+│     ┌─────────────────────────────────────────┐                     │
+│     │ Accumulate gradients over micro-batches │                     │
+│     └───────────────────┬─────────────────────┘                     │
+│                         ▼                                           │
+│  8. Optimizer step                                                  │
+│     ┌─────────────────────────────────────────┐                     │
+│     │ AdamW update, gradient clipping         │                     │
+│     └─────────────────────────────────────────┘                     │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+</code></pre></div></div>
+
+<h3 id="grpo-experiment-on-lambda-cloud-setup-with-2h100-80gb-sxm5">GRPO Experiment on Lambda Cloud Setup with 2×H100 (80GB SXM5)</h3>
+
+<h4 id="how-two-gpus-work-together-in-a-grpo-training-setup">How Two GPUs Work Together in a GRPO Training Setup?</h4>
+
+<p>The 2-GPU architecture separates concerns:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌─────────────────────────────────────────────────────────────────────┐
+│                   Lambda Cloud 2×H100 Setup                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│   GPU 0 (H100 80GB)              GPU 1 (H100 80GB)                  │
+│   ┌─────────────────┐            ┌─────────────────┐                │
+│   │                 │            │                 │                │
+│   │     vLLM        │            │  Policy Model   │                │
+│   │   (~65 GB)      │            │    (~3 GB)      │                │
+│   │                 │            │                 │                │
+│   │  - Fast batched │   sync     │  - Gradients    │                │
+│   │    inference    │ ◄────────► │  - Optimizer    │                │
+│   │  - KV cache     │  weights   │  - Backprop     │                │
+│   │  - Continuous   │            │                 │                │
+│   │    batching     │            │                 │                │
+│   │                 │            │                 │                │
+│   └─────────────────┘            └─────────────────┘                │
+│                                                                     │
+│   Rollout generation             Policy training                    │
+│   (inference only)               (train mode)                       │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+</code></pre></div></div>
+
+<p><strong>Understanding the hardware:</strong> A Lambda Cloud instance with 2×H100 GPUs also includes a <strong>host CPU</strong> (typically AMD EPYC or Intel Xeon) that orchestrates all work. The GPUs are accelerators—the CPU runs your Python code, loads data, and dispatches compute-heavy operations to the GPUs.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌─────────────────────────────────────────────────────────────────────┐
+│                    Lambda Cloud Instance                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│   ┌──────────────────────────────────────────────────────────────┐  │
+│   │                      CPU (Host)                              │  │
+│   │   • Runs Python/PyTorch orchestration code                   │  │
+│   │   • Reward calculation (string parsing, regex)               │  │
+│   │   • Advantage computation (simple arithmetic)                │  │
+│   │   • Data loading and preprocessing                           │  │
+│   └──────────────────────────────────────────────────────────────┘  │
+│                          │                                          │
+│            ┌─────────────┴─────────────┐                            │
+│            ▼                           ▼                            │
+│   ┌─────────────────┐         ┌─────────────────┐                   │
+│   │    GPU 0        │         │    GPU 1        │                   │
+│   │   (H100 80GB)   │         │   (H100 80GB)   │                   │
+│   │                 │         │                 │                   │
+│   │  vLLM rollouts  │         │ Policy training │                   │
+│   │  (inference)    │         │ (forward/back)  │                   │
+│   └─────────────────┘         └─────────────────┘                   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+</code></pre></div></div>
+
+<p><strong>Where does each step run?</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Step</th>
+      <th>Location</th>
+      <th>What Happens</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Rollout generation</td>
+      <td><strong>GPU 0</strong></td>
+      <td>vLLM generates G responses per question</td>
+    </tr>
+    <tr>
+      <td>Reward calculation</td>
+      <td><strong>CPU</strong></td>
+      <td>String parsing—extract answer, compare to ground truth</td>
+    </tr>
+    <tr>
+      <td>Advantage computation</td>
+      <td><strong>CPU</strong></td>
+      <td>Simple arithmetic: <code class="language-plaintext highlighter-rouge">(r - μ) / (σ + ε)</code></td>
+    </tr>
+    <tr>
+      <td>Policy forward/backward</td>
+      <td><strong>GPU 1</strong></td>
+      <td>Compute log-probs and gradients</td>
+    </tr>
+    <tr>
+      <td>Optimizer step</td>
+      <td><strong>GPU 1</strong></td>
+      <td>Update weights with AdamW</td>
+    </tr>
+    <tr>
+      <td>Weight sync</td>
+      <td><strong>GPU 0 ← GPU 1</strong></td>
+      <td>Copy updated weights to vLLM</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Benefits:</strong></p>
+<ul>
+  <li>No memory contention between inference and training</li>
+  <li>vLLM can use continuous batching without interruption</li>
+  <li>Policy model has dedicated memory for optimizer states</li>
+  <li>Stable training with predictable memory usage</li>
+</ul>
+
+<h4 id="step-by-step-setup">Step-by-Step Setup</h4>
+
+<p><strong>1. Provision Instance</strong></p>
+
+<p>On Lambda Cloud, select an instance with 2+ GPUs:</p>
+<ul>
+  <li>2× A100 (80GB each) - recommended</li>
+  <li>2× H100 (80GB each) - faster, if available</li>
+</ul>
+
+<p><strong>2. SSH and Check GPUs</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ssh ubuntu@&lt;your-instance-ip&gt;
+
+<span class="c"># Verify GPUs are visible</span>
+nvidia-smi <span class="nt">--list-gpus</span>
+<span class="c"># Expected: GPU 0: NVIDIA H100 80GB HBM3</span>
+<span class="c">#           GPU 1: NVIDIA H100 80GB HBM3</span>
+</code></pre></div></div>
+
+<p><strong>3. Install Dependencies</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Install uv package manager</span>
+curl <span class="nt">-LsSf</span> https://astral.sh/uv/install.sh | sh
+
+<span class="c"># Clone and install</span>
+git clone https://github.com/bearbearyu1223/qwen_math_grpo.git
+<span class="nb">cd </span>qwen_math_grpo
+uv <span class="nb">sync</span> <span class="nt">--extra</span> vllm
+</code></pre></div></div>
+
+<p><strong>4. Download Dataset</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv run python scripts/download_dataset.py
+</code></pre></div></div>
+
+<p><strong>5. Run Training</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv run python scripts/run_grpo.py <span class="se">\</span>
+    <span class="nt">--model-name-or-path</span> Qwen/Qwen2.5-Math-1.5B <span class="se">\</span>
+    <span class="nt">--rollout-batch-size</span> 16 <span class="se">\</span>
+    <span class="nt">--train-batch-size</span> 16 <span class="se">\</span>
+    <span class="nt">--gradient-accumulation-steps</span> 8 <span class="se">\</span>
+    <span class="nt">--max-seq-length-train</span> 1024 <span class="se">\</span>
+    <span class="nt">--n-grpo-steps</span> 200 <span class="se">\</span>
+    <span class="nt">--group-size</span> 8 <span class="se">\</span>
+    <span class="nt">--output-dir</span> outputs/grpo_model
+</code></pre></div></div>
+
+<p><strong>Parameter descriptions:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Value</th>
+      <th>What It Does</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--model-name-or-path</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Qwen/Qwen2.5-Math-1.5B</code></td>
+      <td>Base model to fine-tune (downloaded from HuggingFace)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--rollout-batch-size</code></td>
+      <td>16</td>
+      <td>Number of questions sampled per GRPO step</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--train-batch-size</code></td>
+      <td>16</td>
+      <td>Responses processed per gradient accumulation cycle</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--gradient-accumulation-steps</code></td>
+      <td>8</td>
+      <td>Micro-batches accumulated before optimizer update</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--max-seq-length-train</code></td>
+      <td>1024</td>
+      <td>Truncates prompt+response to this many tokens. Sequences longer than this limit are cut off. Lower values save GPU memory (activations scale with sequence length²) but may lose reasoning steps. For math problems, 1024 tokens typically covers the question + full solution.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--n-grpo-steps</code></td>
+      <td>200</td>
+      <td>Total training iterations</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--group-size</code></td>
+      <td>8</td>
+      <td>Responses generated per question (G in the formula)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--output-dir</code></td>
+      <td><code class="language-plaintext highlighter-rouge">outputs/grpo_model</code></td>
+      <td>Where to save checkpoints and logs</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>How these numbers relate:</strong></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Questions per step:     16  (rollout-batch-size)
+                        ×
+Responses per question:  8  (group-size)
+                        ═══
+Total responses:       128  generated per GRPO step
+
+Training processes:     16  (train-batch-size)
+                        ×
+Accumulation steps:      8  (gradient-accumulation-steps)
+                        ═══
+Effective batch:       128  responses per optimizer update
+</code></pre></div></div>
+
+<p>The numbers are chosen so all 128 generated responses are used in exactly one optimizer update. If you reduce <code class="language-plaintext highlighter-rouge">rollout-batch-size</code> or <code class="language-plaintext highlighter-rouge">group-size</code>, reduce the training side proportionally to match.</p>
+
+<p><strong>6. Download Results</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># From your local machine</span>
+scp <span class="nt">-r</span> ubuntu@&lt;your-instance-ip&gt;:~/qwen_math_grpo/outputs ./lambda_outputs
+</code></pre></div></div>
+
+<h4 id="troubleshooting">Troubleshooting</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th>Problem</th>
+      <th>Cause</th>
+      <th>Solution</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>CUDA out of memory</strong></td>
+      <td>Batch size too large</td>
+      <td>Reduce <code class="language-plaintext highlighter-rouge">--rollout-batch-size</code> and <code class="language-plaintext highlighter-rouge">--train-batch-size</code></td>
+    </tr>
+    <tr>
+      <td><strong>Only 1 GPU detected</strong></td>
+      <td>vLLM imported before torch</td>
+      <td>Check import order in code</td>
+    </tr>
+    <tr>
+      <td><strong>OOM after manual termination of the training process</strong></td>
+      <td>Zombie processes holding GPU memory</td>
+      <td>Run <code class="language-plaintext highlighter-rouge">nvidia-smi --query-compute-apps=pid --format=csv,noheader \| xargs -I {} kill -9 {}</code></td>
+    </tr>
+    <tr>
+      <td><strong>vLLM weight load fails</strong></td>
+      <td>Wrong vLLM version</td>
+      <td>Ensure vLLM 0.6.x or 0.7.x (pinned in pyproject.toml)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Memory-saving parameters:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Description</th>
+      <th>Reduce If OOM</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--rollout-batch-size</code></td>
+      <td>Total responses generated per step</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--train-batch-size</code></td>
+      <td>Samples processed per optimizer step</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--gradient-accumulation-steps</code></td>
+      <td>Micro-batch size = train_batch / grad_accum</td>
+      <td>Increase (smaller micro-batches)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--max-seq-length-train</code></td>
+      <td>Truncate long sequences</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--group-size</code></td>
+      <td>Rollouts per question</td>
+      <td>Yes</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="interpreting-training-plots">Interpreting Training Plots</h3>
+
+<p>After training, run <code class="language-plaintext highlighter-rouge">plot_training.py</code> to visualize metrics:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uv run python scripts/plot_training.py <span class="se">\</span>
+    <span class="nt">--input</span> outputs/grpo_model/training_history.json <span class="se">\</span>
+    <span class="nt">--output</span> training_plot.png
+</code></pre></div></div>
+
+<p>Here’s an example from our training run on Lambda Cloud:</p>
+
+<p><img src="/assets/picture/2026-02-08-grpo-math-reasoning-lambda-cloud/training_plot.png" alt="GRPO Training Metrics" /></p>
+
+<p>The plot has four panels. Here’s how to interpret each:</p>
+
+<h4 id="panel-1-average-reward-per-step">Panel 1: Average Reward per Step</h4>
+
+<p><strong>What it shows:</strong> Mean reward across all responses generated at each GRPO step.</p>
+
+<p><strong>Healthy pattern:</strong></p>
+<ul>
+  <li>Gradual upward trend with noise</li>
+  <li>Early steps: reward ~0.1-0.2 (model barely better than random)</li>
+  <li>Later steps: reward ~0.3-0.5 (model learning)</li>
+</ul>
+
+<p><strong>Problematic patterns:</strong></p>
+<ul>
+  <li>Flat line: No learning (check rewards, advantages)</li>
+  <li>Wild oscillations: Learning rate too high</li>
+  <li>Sudden drops: Policy collapse (reduce learning rate or cliprange)</li>
+</ul>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Healthy:                     Problematic (flat):
+   ▲                            ▲
+   │     ....●●●●               │ ●●●●●●●●●●●●●●●●●●●●●●●●
+   │  ...●●                     │
+   │ ●●●                        │
+   └────────────────► step      └────────────────────► step
+</code></pre></div></div>
+
+<h4 id="panel-2-answer-reward-train-vs-val">Panel 2: Answer Reward (Train vs Val)</h4>
+
+<p><strong>What it shows:</strong> Accuracy on training data (green) and validation data (red).</p>
+
+<p><strong>Healthy pattern:</strong></p>
+<ul>
+  <li>Both curves trending upward</li>
+  <li>Validation slightly below training (normal generalization gap)</li>
+  <li>In our run: 6% → 25% accuracy (4× improvement!)</li>
+</ul>
+
+<p><strong>Problematic patterns:</strong></p>
+<ul>
+  <li>Train rising, val flat: Overfitting</li>
+  <li>Both flat: Not learning</li>
+  <li>Val higher than train: Data leakage or evaluation bug</li>
+</ul>
+
+<h4 id="panel-3-policy-gradient-loss">Panel 3: Policy Gradient Loss</h4>
+
+<p><strong>What it shows:</strong> The loss value from the policy gradient objective.</p>
+
+<p><strong>Healthy pattern:</strong></p>
+<ul>
+  <li>Generally decreasing trend with significant noise</li>
+  <li>Fluctuations are normal (policy gradient has high variance)</li>
+  <li>Should stabilize, not diverge</li>
+</ul>
+
+<p><strong>Problematic patterns:</strong></p>
+<ul>
+  <li>NaN values: Numerical instability (reduce learning rate)</li>
+  <li>Steadily increasing: Wrong sign or bug</li>
+  <li>Extremely low variance: Collapsed policy</li>
+</ul>
+
+<h4 id="panel-4-reward-range-minmaxmean">Panel 4: Reward Range (Min/Max/Mean)</h4>
+
+<p><strong>What it shows:</strong> For each training step, this panel plots three values:</p>
+<ul>
+  <li><strong>Max reward</strong> (top of blue area): The best response in the batch (usually 1 = correct)</li>
+  <li><strong>Min reward</strong> (bottom of blue area): The worst response in the batch (usually 0 = wrong)</li>
+  <li><strong>Mean reward</strong> (green line): Average reward across all responses</li>
+</ul>
+
+<p><strong>Why this matters for GRPO:</strong></p>
+
+<p>Remember, GRPO learns by <em>comparing</em> responses within a group. If the model generates 8 responses to a question:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Diverse (good for learning):        Uniform (no learning signal):
+┌─────────────────────────┐         ┌─────────────────────────┐
+│ Response 1: ✓ (r=1)     │         │ Response 1: ✗ (r=0)     │
+│ Response 2: ✗ (r=0)     │         │ Response 2: ✗ (r=0)     │
+│ Response 3: ✓ (r=1)     │         │ Response 3: ✗ (r=0)     │
+│ Response 4: ✗ (r=0)     │         │ Response 4: ✗ (r=0)     │
+│ ...                     │         │ ...                     │
+│ min=0, max=1, mean=0.5  │         │ min=0, max=0, mean=0    │
+│                         │         │                         │
+│ → Advantages exist!     │         │ → All advantages = 0    │
+│ → Model can learn       │         │ → Nothing to learn from │
+└─────────────────────────┘         └─────────────────────────┘
+</code></pre></div></div>
+
+<p><strong>Healthy pattern:</strong></p>
+<ul>
+  <li>Blue shaded area spans from 0 to 1 → Some responses correct, some wrong</li>
+  <li>Mean line gradually rises → Model getting better over time</li>
+  <li>Gap between min and max persists → Model is still exploring, still learning</li>
+</ul>
+
+<p><strong>Problematic patterns:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Pattern</th>
+      <th>What You See</th>
+      <th>What It Means</th>
+      <th>Fix</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Range collapsed to 0</td>
+      <td>Blue area stuck at bottom</td>
+      <td>All responses wrong, no correct examples to reinforce</td>
+      <td>Problems too hard, or temperature too low (model not exploring)</td>
+    </tr>
+    <tr>
+      <td>Range collapsed to 1</td>
+      <td>Blue area stuck at top</td>
+      <td>All responses correct, nothing to discourage</td>
+      <td>Problems too easy, no learning signal</td>
+    </tr>
+    <tr>
+      <td>Mean not rising</td>
+      <td>Green line flat</td>
+      <td>Model not improving despite having diverse responses</td>
+      <td>Check loss function, learning rate, or reward calculation</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="evaluation-results-base-model-vs-grpo-trained">Evaluation Results: Base Model vs GRPO-Trained</h3>
+
+<p>After training, we evaluated both the base Qwen2.5-Math-1.5B model and our GRPO-trained model on 500 math problems from the MATH dataset. Here’s the comparison:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Metric</th>
+      <th>Base Model</th>
+      <th>GRPO Model</th>
+      <th>Change</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Correct answers</strong></td>
+      <td>69 (13.8%)</td>
+      <td>205 (41.0%)</td>
+      <td><strong>+136 (+197%)</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Correct format, wrong answer</strong></td>
+      <td>122 (24.4%)</td>
+      <td>170 (34.0%)</td>
+      <td>+48</td>
+    </tr>
+    <tr>
+      <td><strong>Bad format (couldn’t parse)</strong></td>
+      <td>309 (61.8%)</td>
+      <td>125 (25.0%)</td>
+      <td>-184</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Key improvements:</strong></p>
+
+<ol>
+  <li><strong>3× accuracy improvement</strong> — From 13.8% to 41.0% correct answers</li>
+  <li><strong>Format compliance</strong> — Bad format responses dropped from 61.8% to 25.0%</li>
+  <li><strong>Learning to reason</strong> — The model learned to show work and box final answers</li>
+</ol>
+
+<h4 id="example-improvements">Example improvements</h4>
+
+<p><strong>Problem 1: Polar coordinates</strong></p>
+<blockquote>
+  <p>Convert the point $(0, -3 \sqrt{3}, 3)$ from rectangular to spherical coordinates.</p>
+</blockquote>
+
+<ul>
+  <li><strong>Base model:</strong> <code class="language-plaintext highlighter-rouge">$(6, \frac{2\pi}{3}, \pi)$</code> ❌ (wrong order, unboxed)</li>
+  <li><strong>GRPO model:</strong> <code class="language-plaintext highlighter-rouge">$\boxed{(6, \frac{5\pi}{3}, \frac{2\pi}{3})}$</code> ✓</li>
+</ul>
+
+<p><strong>Problem 2: Double sum</strong></p>
+<blockquote>
+  <p>Compute $\sum_{j = 0}^\infty \sum_{k = 0}^\infty 2^{-3k - j - (k + j)^2}$.</p>
+</blockquote>
+
+<ul>
+  <li><strong>Base model:</strong> <code class="language-plaintext highlighter-rouge">$\frac{4}{3}$</code> ❌ (no work shown, unboxed)</li>
+  <li><strong>GRPO model:</strong> Step-by-step derivation → <code class="language-plaintext highlighter-rouge">$\boxed{\frac{4}{3}}$</code> ✓</li>
+</ul>
+
+<p><strong>Problem 3: Function evaluation</strong></p>
+<blockquote>
+  <p>Given $f(x) = \frac{x^5-1}{3}$, find $f^{-1}(-31/96)$.</p>
+</blockquote>
+
+<ul>
+  <li><strong>Base model:</strong> <code class="language-plaintext highlighter-rouge">$-31/96$</code> ❌ (returned input, not inverse)</li>
+  <li><strong>GRPO model:</strong> Derived inverse function → <code class="language-plaintext highlighter-rouge">$\boxed{\frac{1}{2}}$</code> ✓</li>
+</ul>
+
+<p>These examples show that GRPO training taught the model to:</p>
+<ul>
+  <li>Follow the expected format (<code class="language-plaintext highlighter-rouge">\boxed{}</code> for final answers)</li>
+  <li>Show intermediate reasoning steps</li>
+  <li>Actually compute answers rather than pattern-matching</li>
+</ul>
+
+<h3 id="summary-and-key-takeaways">Summary and Key Takeaways</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Concept</th>
+      <th>Implementation</th>
+      <th>Why It Matters</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Group normalization</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">A = (r - μ) / σ</code> computed per question</td>
+      <td>Natural baseline without value network</td>
+    </tr>
+    <tr>
+      <td><strong>Response masking</strong></td>
+      <td>Loss computed on response tokens only</td>
+      <td>Don’t reinforce the prompt</td>
+    </tr>
+    <tr>
+      <td><strong>2-GPU architecture</strong></td>
+      <td>vLLM on GPU 0, policy on GPU 1</td>
+      <td>Avoid memory contention</td>
+    </tr>
+    <tr>
+      <td><strong>Gradient checkpointing</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">policy.gradient_checkpointing_enable()</code></td>
+      <td>Reduce memory 2-3×</td>
+    </tr>
+    <tr>
+      <td><strong>Off-policy training</strong></td>
+      <td>Multiple gradient steps per rollout batch</td>
+      <td>More efficient data usage</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Quick reference - key hyperparameters:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Default</th>
+      <th>Effect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">group_size</code> (G)</td>
+      <td>8</td>
+      <td>More diversity → better baseline estimates</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">learning_rate</code></td>
+      <td>1e-5</td>
+      <td>Higher → faster but unstable</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cliprange</code> (ε)</td>
+      <td>0.2</td>
+      <td>Higher → more aggressive updates</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">gradient_accumulation_steps</code></td>
+      <td>128</td>
+      <td>Higher → more stable gradients</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">epochs_per_rollout_batch</code></td>
+      <td>1</td>
+      <td>Higher → more off-policy (needs clipping)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Next steps :</strong></p>
+
+<ol>
+  <li><strong>Experiment:</strong> Try different group sizes (4, 8, 16) and compare learning curves</li>
+  <li><strong>Extend:</strong> Add your own reward functions for different tasks</li>
+  <li><strong>Scale up:</strong> Try larger models (7B) with 4-GPU setups — larger models have more capacity to learn complex reasoning patterns and often start with stronger base capabilities. A 7B model needs ~14GB for weights alone, plus ~28GB for optimizer states, so you’ll need 4 GPUs: 2 for vLLM inference (tensor parallelism) and 2 for policy training</li>
+</ol>
+
+<p>The math may seem daunting, but the core ideas are simple: sample multiple responses, compare them to each other, reinforce the good ones and avoid the bad ones. That’s really all there is to GRPO!</p>
+
+<hr />
+
+<p><strong>Resources:</strong></p>
+<ul>
+  <li><a href="https://github.com/bearbearyu1223/qwen_math_grpo">GRPO Training Code (this note’s implementation)</a></li>
+  <li><a href="https://huggingface.co/datasets/hendrycks/competition_math">MATH Dataset on HuggingFace</a> — 12,500 competition math problems</li>
+  <li><a href="https://arxiv.org/abs/2402.03300">DeepSeekMath Paper</a> — Original GRPO formulation</li>
+  <li><a href="https://arxiv.org/abs/2501.12948">DeepSeek-R1 Paper</a> — GRPO at scale</li>
+  <li><a href="https://stanford-cs336.github.io/spring2025/">Stanford CS336: Language Modeling from Scratch</a></li>
+  <li><a href="https://lambda.ai/service/gpu-cloud">Lambda Cloud</a> — GPU instances for training</li>
+</ul>
+
+  </div><a class="u-url" href="/cs336/2026/02/08/grpo-math-reasoning-lambda-cloud.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col">
+        <p class="feed-subscribe">
+          <a href="http://localhost:4000/feed.xml">
+            <svg class="svg-icon orange">
+              <use xlink:href="/assets/minima-social-icons.svg#rss"></use>
+            </svg><span>Subscribe</span>
+          </a>
+        </p>
+      </div>
+      <div class="footer-col">
+        <p>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+</p>
+      </div>
+    </div>
+
+    <div class="social-links"><ul class="social-media-list"></ul>
+</div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>
