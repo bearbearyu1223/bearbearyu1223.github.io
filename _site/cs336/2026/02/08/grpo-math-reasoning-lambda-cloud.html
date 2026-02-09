@@ -954,7 +954,9 @@ GPU 1 after optimizer.step(): 9.45 GB allocated, 12.00 GB reserved
 
 <h4 id="how-two-gpus-work-together-in-a-grpo-training-setup">How Two GPUs Work Together in a GRPO Training Setup?</h4>
 
-<p>The 2-GPU architecture separates concerns:</p>
+<p>The 2-GPU architecture separates concerns. The screenshot below shows actual training logs from our Lambda Cloud run, with key moments annotated: detecting both H100 GPUs, vLLM claiming GPU 0 for fast rollout generation, and the policy model loading onto GPU 1 for training.</p>
+
+<p><img src="/assets/picture/2026-02-08-grpo-math-reasoning-lambda-cloud/grpo_training_2gpu_logs.png" alt="GRPO Training Logs on 2×H100: GPU detection, vLLM on GPU 0, policy training on GPU 1" /></p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌─────────────────────────────────────────────────────────────────────┐
 │                   Lambda Cloud 2×H100 Setup                         │

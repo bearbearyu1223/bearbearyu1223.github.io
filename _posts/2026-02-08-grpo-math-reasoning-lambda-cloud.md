@@ -646,7 +646,9 @@ Here's the step-by-step flow of `grpo_train_loop()`:
 
 #### How Two GPUs Work Together in a GRPO Training Setup?
 
-The 2-GPU architecture separates concerns:
+The 2-GPU architecture separates concerns. The screenshot below shows actual training logs from our Lambda Cloud run, with key moments annotated: detecting both H100 GPUs, vLLM claiming GPU 0 for fast rollout generation, and the policy model loading onto GPU 1 for training.
+
+![GRPO Training Logs on 2×H100: GPU detection, vLLM on GPU 0, policy training on GPU 1](/assets/picture/2026-02-08-grpo-math-reasoning-lambda-cloud/grpo_training_2gpu_logs.png)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐

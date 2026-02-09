@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2026-02-08T16:03:28-08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2026-02-08T16:56:18-08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">🍒 Han’s Generative AI Quest</title><subtitle>I chronicle my captivating journey through Generative AI, sharing insights,  breakthroughs, and learnings from my enthralling side projects in the field. 
 </subtitle><entry><title type="html">Study Notes: Stanford CS336 Language Modeling from Scratch [15]</title><link href="http://localhost:4000/cs336/2026/02/08/grpo-math-reasoning-lambda-cloud.html" rel="alternate" type="text/html" title="Study Notes: Stanford CS336 Language Modeling from Scratch [15]" /><published>2026-02-08T00:00:00-08:00</published><updated>2026-02-08T00:00:00-08:00</updated><id>http://localhost:4000/cs336/2026/02/08/grpo-math-reasoning-lambda-cloud</id><content type="html" xml:base="http://localhost:4000/cs336/2026/02/08/grpo-math-reasoning-lambda-cloud.html"><![CDATA[<h2 id="training-math-reasoning-models-with-grpo-on-lambda-cloud-with-2xh100s">Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s</h2>
 
 <p><a href="https://lambda.ai/service/gpu-cloud"><img src="/assets/picture/2026-02-08-grpo-math-reasoning-lambda-cloud/lambda-labs-logo.svg" alt="Lambda" width="150" style="vertical-align: middle; margin-bottom: 10px;" /></a></p>
@@ -883,7 +883,9 @@ GPU 1 after optimizer.step(): 9.45 GB allocated, 12.00 GB reserved
 
 <h4 id="how-two-gpus-work-together-in-a-grpo-training-setup">How Two GPUs Work Together in a GRPO Training Setup?</h4>
 
-<p>The 2-GPU architecture separates concerns:</p>
+<p>The 2-GPU architecture separates concerns. The screenshot below shows actual training logs from our Lambda Cloud run, with key moments annotated: detecting both H100 GPUs, vLLM claiming GPU 0 for fast rollout generation, and the policy model loading onto GPU 1 for training.</p>
+
+<p><img src="/assets/picture/2026-02-08-grpo-math-reasoning-lambda-cloud/grpo_training_2gpu_logs.png" alt="GRPO Training Logs on 2×H100: GPU detection, vLLM on GPU 0, policy training on GPU 1" /></p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌─────────────────────────────────────────────────────────────────────┐
 │                   Lambda Cloud 2×H100 Setup                         │
