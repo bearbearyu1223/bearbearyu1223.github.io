@@ -6,7 +6,9 @@ author:
 - Han Yu
 ---
 
-## Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s [![Lambda](/assets/picture/2026-02-08-grpo-math-reasoning-lambda-cloud/lambda-labs-logo.svg){: width="120" }](https://lambda.ai/service/gpu-cloud)
+## Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s
+
+<a href="https://lambda.ai/service/gpu-cloud"><img src="/assets/picture/2026-02-08-grpo-math-reasoning-lambda-cloud/lambda-labs-logo.svg" alt="Lambda" width="150" style="vertical-align: middle; margin-bottom: 10px;"></a>
 
 We've all read about GRPO (Group Relative Policy Optimization) and have a rough grasp of the theory. But a practical question often remains: how do you actually train a math reasoning model with GRPO?
 
@@ -25,7 +27,7 @@ The goal is not just to explain what GRPO is, but to show how it behaves end-to-
 *This guide builds on my previous [study notes on reinforcement learning for language models](/cs336/2026/01/25/cs336-reinforcement-learning-for-language-model.html). If terms like "policy gradient" or "advantage" are unfamiliar, start there first.*
 
 ### Table of Contents
-- [Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s {: width="120" }](#training-math-reasoning-models-with-grpo-on-lambda-cloud-with-2xh100s--width120-)
+- [Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s](#training-math-reasoning-models-with-grpo-on-lambda-cloud-with-2xh100s)
   - [Table of Contents](#table-of-contents)
   - [Notation](#notation)
   - [Why GRPO for Math Reasoning?](#why-grpo-for-math-reasoning)
@@ -951,8 +953,8 @@ After training, we evaluated both the base Qwen2.5-Math-1.5B model and our GRPO-
 **Problem 1: Polar coordinates**
 > Convert the point $(0, -3 \sqrt{3}, 3)$ from rectangular to spherical coordinates.
 
-- **Base model:** `$(6, \frac{2\pi}{3}, \pi)$` ❌ (wrong order, unboxed)
-- **GRPO model:** `$\boxed{(6, \frac{5\pi}{3}, \frac{2\pi}{3})}$` ✓
+- **Base model:** `$(6, \frac{2\pi}{3}, \pi)$` ❌ (wrong angles, no `\boxed{}`)
+- **GRPO model:** `$\boxed{(6, \frac{5\pi}{3}, \frac{2\pi}{3})}$` ✓ (correct, properly boxed)
 
 **Problem 2: Double sum**
 > Compute $\sum_{j = 0}^\infty \sum_{k = 0}^\infty 2^{-3k - j - (k + j)^2}$.

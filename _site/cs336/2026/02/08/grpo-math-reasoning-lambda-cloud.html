@@ -70,7 +70,9 @@
   </header>
 
   <div class="post-content e-content" itemprop="articleBody">
-    <h2 id="training-math-reasoning-models-with-grpo-on-lambda-cloud-with-2xh100s-">Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s <a href="https://lambda.ai/service/gpu-cloud"><img src="/assets/picture/2026-02-08-grpo-math-reasoning-lambda-cloud/lambda-labs-logo.svg" alt="Lambda" width="120" /></a></h2>
+    <h2 id="training-math-reasoning-models-with-grpo-on-lambda-cloud-with-2xh100s">Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s</h2>
+
+<p><a href="https://lambda.ai/service/gpu-cloud"><img src="/assets/picture/2026-02-08-grpo-math-reasoning-lambda-cloud/lambda-labs-logo.svg" alt="Lambda" width="150" style="vertical-align: middle; margin-bottom: 10px;" /></a></p>
 
 <p>We’ve all read about GRPO (Group Relative Policy Optimization) and have a rough grasp of the theory. But a practical question often remains: how do you actually train a math reasoning model with GRPO?</p>
 
@@ -96,7 +98,7 @@
 
 <h3 id="table-of-contents">Table of Contents</h3>
 <ul>
-  <li><a href="#training-math-reasoning-models-with-grpo-on-lambda-cloud-with-2xh100s--width120-">Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s {: width=”120” }</a>
+  <li><a href="#training-math-reasoning-models-with-grpo-on-lambda-cloud-with-2xh100s">Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s</a>
     <ul>
       <li><a href="#table-of-contents">Table of Contents</a></li>
       <li><a href="#notation">Notation</a></li>
@@ -1451,8 +1453,8 @@ scp <span class="nt">-r</span> ubuntu@&lt;your-instance-ip&gt;:~/qwen_math_grpo/
 </blockquote>
 
 <ul>
-  <li><strong>Base model:</strong> <code class="language-plaintext highlighter-rouge">$(6, \frac{2\pi}{3}, \pi)$</code> ❌ (wrong order, unboxed)</li>
-  <li><strong>GRPO model:</strong> <code class="language-plaintext highlighter-rouge">$\boxed{(6, \frac{5\pi}{3}, \frac{2\pi}{3})}$</code> ✓</li>
+  <li><strong>Base model:</strong> <code class="language-plaintext highlighter-rouge">$(6, \frac{2\pi}{3}, \pi)$</code> ❌ (wrong angles, no <code class="language-plaintext highlighter-rouge">\boxed{}</code>)</li>
+  <li><strong>GRPO model:</strong> <code class="language-plaintext highlighter-rouge">$\boxed{(6, \frac{5\pi}{3}, \frac{2\pi}{3})}$</code> ✓ (correct, properly boxed)</li>
 </ul>
 
 <p><strong>Problem 2: Double sum</strong></p>
