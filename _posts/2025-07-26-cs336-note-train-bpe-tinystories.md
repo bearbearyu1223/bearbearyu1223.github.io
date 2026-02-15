@@ -1,9 +1,14 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [3]"
-categories: cs336
-author: 
-- Han Yu
+date: 2025-07-26 00:00:00 -0700
+categories: [CS336, Tokenization]
+tags: [cs336, bpe, tokenization, tinystories, compression]
+description: >-
+  Building a BPE tokenizer from scratch and training it on the
+  TinyStories dataset, demonstrating how BPE achieves impressive
+  compression ratios through iterative byte-pair merging.
+redirect_from:
+  - /cs336/2025/07/26/cs336-note-train-bpe-tinystories.html
 ---
 # Building a BPE Tokenizer from Scratch: Train the Tokenizer using TinyStories Dataset
 
@@ -24,7 +29,7 @@ Let's say we have the word "hello" appearing many times in our text:
 - If "l-l" is the most frequent pair, merge it: `h-e-ll-o` (4 tokens)
 - If "e-ll" becomes frequent, merge it: `h-ell-o` (3 tokens)
 
-This process creates a vocabulary that efficiently represents common patterns in your text. Check out [my previous post](https://bearbearyu1223.github.io/cs336/2025/07/22/cs336-note-simple-bpe.html) for a brief introduction. 
+This process creates a vocabulary that efficiently represents common patterns in your text. Check out [my previous post](/posts/cs336-note-simple-bpe/) for a brief introduction. 
 
 ## The TinyStories Dataset
 

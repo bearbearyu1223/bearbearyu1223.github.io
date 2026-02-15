@@ -1,9 +1,17 @@
 ---
-layout: post
-title: "Food QnA Chatbot : Help Answer Food Related Questions from Your Own Cookbook"
-categories: chatbot
-author: 
-- Han Yu
+title: "Food QnA Chatbot: Help Answer Food Related Questions from Your Own Cookbook"
+date: 2023-07-31 00:00:00 -0700
+categories: [GenAI Projects, RAG]
+tags: [rag, chatbot, openai, embeddings, vector-database, langchain, streamlit]
+description: >-
+  Building a Retrieval Augmented Generation (RAG) chatbot that answers
+  food-related questions from a custom cookbook, using OpenAI embeddings
+  and a vector index for relevancy search.
+image:
+  path: /assets/picture/2023_07_31_food_qna_on_server_llm/RAG.png
+  alt: Retrieval Augmented Generation Process
+redirect_from:
+  - /chatbot/2023/07/31/food-qna-on-server-llm.html
 ---
 ## Introduction 
 Retrieval Augmented Generation (RAG) is a powerful technique that allows you to enhance your prompts by retrieving data from external sources and incorporating it into the context. The external data used for augmentation can be gathered from diverse sources such as document repositories, databases, or web search results.

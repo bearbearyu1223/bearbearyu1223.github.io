@@ -1,9 +1,15 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [11]"
-categories: cs336
-author:
-- Han Yu
+date: 2025-11-16 00:00:00 -0800
+categories: [CS336, Training]
+tags: [cs336, tinystories, transformer, end-to-end, text-generation, bpe, training]
+description: >-
+  The complete end-to-end journey — building a Transformer language model
+  from scratch and training it on TinyStories, covering BPE tokenization,
+  multi-head attention, training loop design, and text generation.
+math: true
+redirect_from:
+  - /cs336/2025/11/16/cs336-the-complete-experiment-for-tinystories-transformer.html
 ---
 
 ## End-to-End Transformer Training on TinyStories
@@ -13,16 +19,16 @@ The goal is to provide a clear, practical reference for completing Assignment 1 
 
 | # | Title | Date Created |
 |---|-------|--------------|
-| 1 | [Getting Started with CS336](https://bearbearyu1223.github.io/cs336/2025/07/20/cs336-note-get-started.html) | July 20, 2025 |
-| 2 | [A Simple Byte-Pair Encoding Implementation](https://bearbearyu1223.github.io/cs336/2025/07/22/cs336-note-simple-bpe.html) | July 22, 2025 |
-| 3 | [Training BPE on TinyStories](https://bearbearyu1223.github.io/cs336/2025/07/26/cs336-note-train-bpe-tinystories.html) | July 26, 2025 |
-| 4 | [Understanding GPT-2’s Regex Pretokenizer](https://bearbearyu1223.github.io/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind.html) | Aug 10, 2025 |
-| 5 | [Building a Transformer Language Model](https://bearbearyu1223.github.io/cs336/2025/09/13/cs336-build-a-transformer-language-model.html) | Sep 13, 2025 |
-| 6 | [Transformer Architecture Overview](https://bearbearyu1223.github.io/cs336/2025/09/17/cs336-transformer-architecture-overview.html) | Sep 17, 2025 |
-| 7 | [Understanding the Computational Cost of Transformers](https://bearbearyu1223.github.io/cs336/2025/09/28/cs336-understand-computation-cost-of-transformer-model.html) | Sep 28, 2025 |
-| 8 | [Training a Transformer LM — Part 1](https://bearbearyu1223.github.io/cs336/2025/10/05/cs336-training-a-transformer-lm-part-1.html) | Oct 5, 2025 |
-| 9 | [Implementing Softmax, Log-Softmax, and Cross-Entropy](https://bearbearyu1223.github.io/cs336/2025/10/19/cs336-implement-softmax-log_softmax-cross_entropy.html) | Oct 19, 2025 |
-| 10 | [Building a Complete Training Loop](https://bearbearyu1223.github.io/cs336/2025/11/02/cs336-building-a-complete-training-loop.html) | Nov 2, 2025 |
+| 1 | [Getting Started with CS336](/posts/cs336-note-get-started/) | July 20, 2025 |
+| 2 | [A Simple Byte-Pair Encoding Implementation](/posts/cs336-note-simple-bpe/) | July 22, 2025 |
+| 3 | [Training BPE on TinyStories](/posts/cs336-note-train-bpe-tinystories/) | July 26, 2025 |
+| 4 | [Understanding GPT-2’s Regex Pretokenizer](/posts/cs336-gpt2-regex-for-pretokenization-explaind/) | Aug 10, 2025 |
+| 5 | [Building a Transformer Language Model](/posts/cs336-build-a-transformer-language-model/) | Sep 13, 2025 |
+| 6 | [Transformer Architecture Overview](/posts/cs336-transformer-architecture-overview/) | Sep 17, 2025 |
+| 7 | [Understanding the Computational Cost of Transformers](/posts/cs336-understand-computation-cost-of-transformer-model/) | Sep 28, 2025 |
+| 8 | [Training a Transformer LM — Part 1](/posts/cs336-training-a-transformer-lm-part-1/) | Oct 5, 2025 |
+| 9 | [Implementing Softmax, Log-Softmax, and Cross-Entropy](/posts/cs336-implement-softmax-log_softmax-cross_entropy/) | Oct 19, 2025 |
+| 10 | [Building a Complete Training Loop](/posts/cs336-building-a-complete-training-loop/) | Nov 2, 2025 |
 
 
 The full implementation is shared on GitHub:
@@ -70,7 +76,7 @@ This note will dive deep into each component, explaining not just the "what" but
 
 ### BPE Tokenization: Efficient Subword Encoding {#bpe-tokenization}
 
-Before training a language model, we need to convert text into tokens. The choice of tokenization algorithm significantly impacts model performance, training efficiency, and out-of-vocabulary handling. See my previous notes in [A Simple Byte-Pair Encoding Implementation](https://bearbearyu1223.github.io/cs336/2025/07/22/cs336-note-simple-bpe.html), [Training BPE on TinyStories](https://bearbearyu1223.github.io/cs336/2025/07/26/cs336-note-train-bpe-tinystories.html), and [Understanding GPT-2’s Regex Pretokenizer](https://bearbearyu1223.github.io/cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind.html) as references. 
+Before training a language model, we need to convert text into tokens. The choice of tokenization algorithm significantly impacts model performance, training efficiency, and out-of-vocabulary handling. See my previous notes in [A Simple Byte-Pair Encoding Implementation](/posts/cs336-note-simple-bpe/), [Training BPE on TinyStories](/posts/cs336-note-train-bpe-tinystories/), and [Understanding GPT-2’s Regex Pretokenizer](/posts/cs336-gpt2-regex-for-pretokenization-explaind/) as references. 
 
 #### Why BPE Over Character or Word-Level Tokenization?
 

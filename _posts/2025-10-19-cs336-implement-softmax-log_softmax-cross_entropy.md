@@ -1,9 +1,15 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [9]"
-categories: cs336
-author: 
-- Han Yu
+date: 2025-10-19 00:00:00 -0700
+categories: [CS336, Training]
+tags: [cs336, softmax, cross-entropy, numerical-stability, pytorch]
+description: >-
+  Implementing Softmax, Log-Softmax, and Cross-Entropy from scratch
+  in PyTorch, with key mathematical tricks for numerical stability
+  and essential tensor operations explained.
+math: true
+redirect_from:
+  - /cs336/2025/10/19/cs336-implement-softmax-log_softmax-cross_entropy.html
 ---
 
 ## Understanding Softmax, Log-Softmax, and Cross-Entropy: A Complete Implementation Guide

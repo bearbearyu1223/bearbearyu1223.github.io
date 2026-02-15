@@ -1,9 +1,14 @@
 ---
-layout: post
-title: "Conversation Simulation : Watch AI Buddies Spark Conversations!"
-categories: chatbot
-author: 
-- Han Yu
+title: "Conversation Simulation: Watch AI Buddies Spark Conversations!"
+date: 2023-09-07 00:00:00 -0700
+categories: [GenAI Projects, Multi-Agent]
+tags: [chatbot, llm-agents, conversation-simulation, multi-agent]
+description: >-
+  A conversational simulation environment powered by LLM agents,
+  inspired by ChatArena, where AI agents engage in task-oriented
+  or casual conversations.
+redirect_from:
+  - /chatbot/2023/09/07/conversation-sim.html
 ---
 ### TL;DR
  This project is a demonstration of a simple conversational simulation environment, powered by LLM agents. It takes inspiration from [ChatArena](https://github.com/chatarena/chatarena). The main objective here is to enable conversation simulations through LLM agents (e.g., the converstation can be task-oriented or just a chitchat). To accomplish this, the frameworks and concepts originally developed in ChatArena has been leveraged and tailored specifically for this conversational simulation experiment. 

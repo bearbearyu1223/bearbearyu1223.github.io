@@ -1,9 +1,17 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [15]"
-categories: cs336
-author:
-- Han Yu
+date: 2026-02-08 00:00:00 -0800
+categories: [CS336, Reinforcement Learning]
+tags: [cs336, grpo, reinforcement-learning, math-reasoning, qwen, lambda-cloud, h100]
+description: >-
+  A hands-on guide to training a math reasoning model with GRPO on
+  Lambda Cloud using 2xH100 GPUs — improving Qwen2.5-Math-1.5B
+  accuracy from ~6% to ~25% with practical implementation details.
+math: true
+pin: true
+redirect_from:
+  - /cs336/2026/02/08/cs336-grpo-math-reasoning-lambda-cloud.html
+  - /cs336/2026/02/08/grpo-math-reasoning-lambda-cloud.html
 ---
 
 ## Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s
@@ -24,7 +32,7 @@ Using [Qwen2.5-Math-1.5B](https://huggingface.co/Qwen/Qwen2.5-Math-1.5B) as a co
 
 The goal is not just to explain what GRPO is, but to show how it behaves end-to-end in a real training run—from reward computation, to GPU allocation, to interpreting the final plots.
 
-*This guide builds on my previous [study notes on reinforcement learning for language models](/cs336/2026/01/25/cs336-reinforcement-learning-for-language-model.html). If terms like "policy gradient" or "advantage" are unfamiliar, start there first.*
+*This guide builds on my previous [study notes on reinforcement learning for language models](/posts/cs336-reinforcement-learning-for-language-model/). If terms like "policy gradient" or "advantage" are unfamiliar, start there first.*
 
 ### Table of Contents
 - [Training Math Reasoning Models with GRPO on Lambda Cloud with 2xH100s](#training-math-reasoning-models-with-grpo-on-lambda-cloud-with-2xh100s)

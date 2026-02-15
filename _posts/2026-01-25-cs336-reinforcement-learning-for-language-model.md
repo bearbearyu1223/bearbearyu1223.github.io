@@ -1,9 +1,15 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [14]"
-categories: cs336
-author:
-- Han Yu
+date: 2026-01-25 00:00:00 -0800
+categories: [CS336, Reinforcement Learning]
+tags: [cs336, reinforcement-learning, policy-gradient, rlhf, grpo, ppo]
+description: >-
+  A beginner's guide to reinforcement learning for language models —
+  breaking down policy gradients, baselines, importance sampling,
+  PPO, and GRPO in plain English with step-by-step examples.
+math: true
+redirect_from:
+  - /cs336/2026/01/25/cs336-reinforcement-learning-for-language-model.html
 ---
 
 ## A Beginner's Guide to Reinforcement Learning for Language Models

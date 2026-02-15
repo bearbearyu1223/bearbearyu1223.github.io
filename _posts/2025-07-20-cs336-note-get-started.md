@@ -1,9 +1,14 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [1]"
-categories: cs336
-author: 
-- Han Yu
+date: 2025-07-20 00:00:00 -0700
+categories: [CS336, Getting Started]
+tags: [cs336, setup, development-environment, python, uv]
+description: >-
+  Getting started with Stanford CS336 — setting up the local development
+  environment and kicking off a self-paced journey through language
+  modeling from scratch with one hour of study per day.
+redirect_from:
+  - /cs336/2025/07/20/cs336-note-get-started.html
 ---
 
 ## Introduction

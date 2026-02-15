@@ -1,9 +1,15 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [8]"
-categories: cs336
-author: 
-- Han Yu
+date: 2025-10-05 00:00:00 -0700
+categories: [CS336, Training]
+tags: [cs336, cross-entropy, perplexity, adamw, optimizer, memory, training]
+description: >-
+  Planning LLM training — deep dive into cross-entropy loss, perplexity,
+  SGD vs AdamW optimizers, memory requirements, computational cost
+  estimation, learning rate schedules, and gradient clipping.
+math: true
+redirect_from:
+  - /cs336/2025/10/05/cs336-training-a-transformer-lm-part-1.html
 ---
 ## Planning LLM Training: Cross-Entropy Loss, Optimizers, Memory and Computational Cost, and other practical levers
 

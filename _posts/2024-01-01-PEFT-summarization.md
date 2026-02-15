@@ -1,9 +1,17 @@
 ---
-layout: post
-title: "Supercharge Message Summarization Experience: Parameter-Efficient Fine-Tuning and LLM Assisted Evaluation"
-categories: Parameter-Efficient-Fine-Tuning
-author: 
-- Han Yu
+title: "Supercharge Message Summarization: Parameter-Efficient Fine-Tuning and LLM Assisted Evaluation"
+date: 2024-01-01 00:00:00 -0800
+categories: [GenAI Projects, Fine-Tuning]
+tags: [peft, qlora, lora, fine-tuning, falcon-7b, summarization, llm-evaluation]
+description: >-
+  Using QLoRA and HuggingFace PEFT to fine-tune Falcon-7B for message
+  summarization on SamSum dataset, with GPT-3.5-turbo as an automated
+  evaluator for generated summaries.
+image:
+  path: /assets/picture/2024_01_01_PEFT_summarization/cover.png
+  alt: PEFT Summarization Pipeline
+redirect_from:
+  - /parameter-efficient-fine-tuning/2024/01/01/PEFT-summarization.html
 ---
 <center>
 <img src="/assets/picture/2024_01_01_PEFT_summarization/cover.png" width="900" height="500">

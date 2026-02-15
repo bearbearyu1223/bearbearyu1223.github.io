@@ -1,9 +1,14 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [6]"
-categories: cs336
-author: 
-- Han Yu
+date: 2025-09-17 00:00:00 -0700
+categories: [CS336, Transformers]
+tags: [cs336, transformer, encoder-decoder, gpt, bert, t5, llama, architecture]
+description: >-
+  A survey of popular Transformer architectures — comparing encoder-decoder,
+  decoder-only, and encoder-only designs across GPT, BERT, T5, LLaMA,
+  and modern trends in the field.
+redirect_from:
+  - /cs336/2025/09/17/cs336-transformer-architecture-overview.html
 ---
 ## An Overview of Popular Transformer Architectures
 

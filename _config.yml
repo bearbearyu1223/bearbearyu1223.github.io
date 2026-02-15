@@ -1,52 +1,114 @@
-title:  🍒 Han's Generative AI Quest
-# The `>` after `description:` means to ignore line-breaks until next key.
-# If you want to omit the line-break after the end of text, use `>-` instead.
-description: >
-  I chronicle my captivating journey through Generative AI, sharing insights, 
-  breakthroughs, and learnings from my enthralling side projects in the field. 
+# The Site Settings
+theme: jekyll-theme-chirpy
+
+lang: en
+
+timezone: America/Los_Angeles
+
+# Site identity
+title: "Han's Generative AI Quest"
+tagline: "Chronicling my journey through language models, from scratch."
+description: >-
+  Study notes and hands-on projects covering Stanford CS336,
+  transformers, BPE tokenization, RLHF/GRPO, RAG, and more.
+
+url: "https://bearbearyu1223.github.io"
+
+github:
+  username: bearbearyu1223
+
+social:
+  name: Han Yu
+  email: ""
+  links:
+    - https://github.com/bearbearyu1223
+    - https://www.linkedin.com/in/han-yu-goirish/
+    - https://scholar.google.com/citations?user=h5LUDKYAAAAJ
+
+# Display preferences
+theme_mode: # leave empty for auto with toggle
+
+avatar: "/assets/img/avatar.png"
+
+toc: true
+
+# Comments (can enable giscus later)
+comments:
+  provider: false
+
+# Analytics
+analytics:
+  google:
+    id: # fill in GA measurement ID if desired
+
+# Pagination
+paginate: 10
 
 # Build settings
+kramdown:
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    css_class: highlight
+    span:
+      line_numbers: false
+    block:
+      line_numbers: true
+      start_line: 1
 
-theme: minima
+collections:
+  tabs:
+    output: true
+    sort_by: order
+
+defaults:
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: post
+      comments: false
+      toc: true
+      permalink: /posts/:title/
+  - scope:
+      path: ""
+      type: tabs
+    values:
+      layout: page
+      permalink: /:title/
+
+sass:
+  style: compressed
+
+compress_html:
+  clippings: all
+  comments: all
+  endings: all
+  profile: false
+  blanklines: false
+  ignore:
+    envs: [development]
+
+exclude:
+  - "*.gem"
+  - "*.gemspec"
+  - docs
+  - tools
+  - README.md
+  - LICENSE
+  - "*.config.js"
+  - package*.json
+
+jekyll-archives:
+  enabled: [categories, tags]
+  layouts:
+    category: category
+    tag: tag
+  permalinks:
+    tag: /tags/:name/
+    category: /categories/:name/
 
 plugins:
   - jekyll-feed
   - jekyll-seo-tag
-
-# Theme-specific settings
-
-minima:
-  skin: solarized-light
-  # Minima date format.
-  # Refer to https://shopify.github.io/liquid/filters/date/ if you want to customize this.
-  #
-  # date_format: "%b %-d, %Y"
-
-  # Generate social links in footer.
-  #
-  # social_links:
-  #   - { platform: devto,          user_url: "https://dev.to/jekyll" }
-  #   - { platform: dribbble,       user_url: "https://dribbble.com/jekyll" }
-  #   - { platform: facebook,       user_url: "https://www.facebook.com/jekyll" }
-  #   - { platform: flickr,         user_url: "https://www.flickr.com/photos/jekyll" }
-  #   - { platform: github,         user_url: "https://github.com/bearbearyu1223" }
-  #   - { platform: google_scholar, user_url: "https://scholar.google.com/citations?hl=en&tzom=420&user=h5LUDKYAAAAJ" }
-  #   - { platform: instagram,      user_url: "https://www.instagram.com/jekyll" }
-  #   - { platform: keybase,        user_url: "https://keybase.io/jekyll" }
-  #   - { platform: linkedin,       user_url: "https://www.linkedin.com/in/han-yu-goirish/" }
-  #   - { platform: microdotblog,   user_url: "https://micro.blog/jekyll" }
-  #   - { platform: pinterest,      user_url: "https://www.pinterest.com/jekyll" }
-  #   - { platform: stackoverflow,  user_url: "https://stackoverflow.com/users/1234567/jekyll" }
-  #   - { platform: telegram,       user_url: "https://t.me/jekyll" }
-  #   - { platform: twitter,        user_url: "https://twitter.com/jekyllrb" }
-  #   - { platform: youtube,        user_url: "https://www.youtube.com/jekyll" }
-
-# If you want to link only specific pages in your header, uncomment this and add the path to the pages in
-# order as they should show up.
-#
-# header_pages:
-#   - about.md
-
-# Set to `true` to show excerpts on the homepage.
-#
-# show_excerpts: false
+  - jekyll-archives
+  - jekyll-redirect-from

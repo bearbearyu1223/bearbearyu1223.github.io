@@ -1,9 +1,14 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [2]"
-categories: cs336
-author: 
-- Han Yu
+date: 2025-07-22 00:00:00 -0700
+categories: [CS336, Tokenization]
+tags: [cs336, bpe, tokenization, unicode, utf-8, byte-pair-encoding]
+description: >-
+  A concise walkthrough of Byte Pair Encoding (BPE) tokenization,
+  covering Unicode, UTF-8 encoding, and how BPE builds a vocabulary
+  by iteratively merging the most frequent byte pairs.
+redirect_from:
+  - /cs336/2025/07/22/cs336-note-simple-bpe.html
 ---
 # Byte Pair Encoding (BPE) Tokenizer in a Nutshell
 ## Key Terms

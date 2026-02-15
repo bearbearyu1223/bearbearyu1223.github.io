@@ -1,9 +1,15 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [13]"
-categories: cs336
-author:
-- Han Yu
+date: 2026-01-19 00:00:00 -0800
+categories: [CS336, Fine-Tuning]
+tags: [cs336, sft, qwen, math-reasoning, lambda-labs, fine-tuning]
+description: >-
+  Fine-tuning Qwen3-1.7B on the MATH dataset using supervised
+  fine-tuning (SFT) on Lambda Labs, bridging the gap from local
+  MacBook development to cloud GPU training.
+math: true
+redirect_from:
+  - /cs336/2026/01/19/cs336-sft-qwen3-for-math-reasoning.html
 ---
 
 ## Fine-Tuning Qwen3-1.7B on Lambda Labs for Math Reasoning

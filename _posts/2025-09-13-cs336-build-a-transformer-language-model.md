@@ -1,9 +1,14 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [5]"
-categories: cs336
-author: 
-- Han Yu
+date: 2025-09-13 00:00:00 -0700
+categories: [CS336, Transformers]
+tags: [cs336, transformer, attention, pytorch, language-model, swiglu, rope]
+description: >-
+  Building a Transformer language model from scratch in PyTorch —
+  covering every component from multi-head attention and RoPE
+  embeddings to SwiGLU activations and the complete model assembly.
+redirect_from:
+  - /cs336/2025/09/13/cs336-build-a-transformer-language-model.html
 ---
 ## Building a Transformer Language Model: A Complete Guide
 

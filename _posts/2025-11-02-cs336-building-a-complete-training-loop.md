@@ -1,9 +1,15 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [10]"
-categories: cs336
-author:
-- Han Yu
+date: 2025-11-02 00:00:00 -0700
+categories: [CS336, Training]
+tags: [cs336, training-loop, adamw, learning-rate, checkpointing, data-loading]
+description: >-
+  Assembling a complete training pipeline for Transformer LMs — from
+  AdamW optimizer and learning rate scheduling to memory-efficient
+  data loading, checkpointing, and decoding strategies.
+math: true
+redirect_from:
+  - /cs336/2025/11/02/cs336-building-a-complete-training-loop.html
 ---
 
 ## Building a Complete Training Loop

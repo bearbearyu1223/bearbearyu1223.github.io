@@ -1,9 +1,14 @@
 ---
-layout: post
 title: "Build On-Device QnA with LangChain and Llama2"
-categories: chatbot
-author: 
-- Han Yu
+date: 2023-08-14 00:00:00 -0700
+categories: [GenAI Projects, On-Device LLM]
+tags: [rag, chatbot, llama2, on-device, langchain, faiss, quantization, apple-silicon]
+description: >-
+  Running a quantized Llama2 model on Apple M1 Pro for on-device
+  question answering, with LangChain and FAISS for local RAG
+  without relying on cloud APIs.
+redirect_from:
+  - /chatbot/2023/08/14/food-qna-on-device-llm.html
 ---
 ### TL;DR
 This post involves creating a Question and Answering system using the LLM model hosted on Apple M1 Pro. The key building blocks include the LLM model ([llama-2-7b-chat.ggmlv3.q8_0.bin](https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGML)), an embedding model ([sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)), and an on-device vector database ([FAISS](https://github.com/facebookresearch/faiss)). The app is built using the "LangChain" framework. All components are open source, eliminating the need for OpenAI services. The system's performance is similar to OpenAI but with 10x longer latency (around 60s/query vs 5s/query) due to on-device model inference.
@@ -13,7 +18,7 @@ Third-party commercial large language model (LLM) providers, such as OpenAI's GP
 
 However, certain scenarios, driven by an increasing emphasis on safeguarding data privacy and adhering to stringent regulatory compliance standards, highlight the necessity of deploying LLMs on private hardware devices instead of on any of those third-party owned servers. In such instances, **maintaining sensitive information within the confines of the user's hardware** not only mitigates the risks associated with data breaches and unauthorized access but also aligns with the evolving landscape of privacy-conscious technical practices. This approach **fosters a sense of trust among users who are becoming more attuned to the importance of maintaining their personal information within their own environments**.
 
-In this post, our focus lies in exploring the execution of quantized variants of open-source Llama2 models on local devices to achieve Retrieval Augmented Generation (RAG). For RAG powered by server-side LLMs, you can find more info in [my previous post](https://bearbearyu1223.github.io/chatbot/2023/07/31/food-qna-on-server-llm.html). 
+In this post, our focus lies in exploring the execution of quantized variants of open-source Llama2 models on local devices to achieve Retrieval Augmented Generation (RAG). For RAG powered by server-side LLMs, you can find more info in [my previous post](/posts/food-qna-on-server-llm/). 
 
 ### Llama2 and Its variants 
 [Llama 2](https://ai.meta.com/resources/models-and-libraries/llama/), launched by Meta in July 2023, has been pretrained on publicly available online data sources, encompassing a staggering **2 trillion tokens with a context length of 4096**. The subsequent supervised fine-tuned iteration of this model, known as Llama-2-chat, underwent meticulous refinement through the integration of over *1 million human annotations* to cater specifically to **chat-oriented use cases**. Meta has extended the accessibility of Llama 2 to a wide spectrum of users, ranging from individual developers and content creators to researchers and businesses. This strategic open-source initiative is aimed at fostering an ecosystem conducive to [Responsible AI experimentation](https://ai.meta.com/static-resource/responsible-use-guide/), innovation, and the scalable implementation of a diverse array of ideas, thus further **democratizing Generative AI**.
@@ -38,7 +43,7 @@ poetry add ctransformers
 
 ### Retrieval Augmented Generation
 Retrieval Augmented Generation (RAG) represents a technique wherein data is retrieved from external sources to enhance and expand the prompts used in model generation. This method is not only a cost-effective alternative but also proves to be an efficient approach in comparison to the traditional methods of pre-training or fine-tuning foundation models.
-See the previous post at [Food QnA Chatbot : Help Answer Food Related Questions from Your Own Cookbook](https://bearbearyu1223.github.io/chatbot/2023/07/31/food-qna-on-server-llm.html) as a brief into to RAG. 
+See the previous post at [Food QnA Chatbot : Help Answer Food Related Questions from Your Own Cookbook](/posts/food-qna-on-server-llm/) as a brief into to RAG. 
 
 ### An Example Project 
 The source code for the example project can be found on [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/bearbearyu1223/langchain_playground/tree/main/food_qna_on_device). The project directory should look like below:

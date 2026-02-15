@@ -1,9 +1,15 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [7]"
-categories: cs336
-author: 
-- Han Yu
+date: 2025-09-28 00:00:00 -0700
+categories: [CS336, Transformers]
+tags: [cs336, transformer, flops, computation, gpt-2, scaling-laws, optimization]
+description: >-
+  Dissecting the computational anatomy of GPT-2 models — understanding
+  where FLOPs go during inference, how scaling changes the picture,
+  and which optimization techniques matter most.
+math: true
+redirect_from:
+  - /cs336/2025/09/28/cs336-understand-computation-cost-of-transformer-model.html
 ---
 ## Understanding where the computation really goes in transformer language models*
 

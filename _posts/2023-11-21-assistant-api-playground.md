@@ -1,16 +1,24 @@
 ---
-layout: post
-title: "Craft Your Own Kitchen Companion: Leveraging OpenAI Assistant, Image Generation, and Text-to-Speech for a Revolutionary Cooking Experience"
-categories: chatbot
-author: 
-- Han Yu
+title: "Craft Your Own Kitchen Companion: Leveraging OpenAI Assistant, Image Generation, and Text-to-Speech"
+date: 2023-11-21 00:00:00 -0800
+categories: [GenAI Projects, Assistants]
+tags: [openai, assistant-api, text-to-speech, image-generation, chatbot]
+description: >-
+  Building a kitchen companion using OpenAI's Assistant API with
+  text-to-speech and image generation, showcasing a holistic approach
+  to conversational AI with just a few lines of code.
+image:
+  path: /assets/picture/2023_11_21_assistant_api_playground/cropped_image.png
+  alt: Kitchen Companion powered by OpenAI Assistant API
+redirect_from:
+  - /chatbot/2023/11/21/assistant-api-playground.html
 ---
 ## TL;DR
 ![page_cover](/assets/picture/2023_11_21_assistant_api_playground/cropped_image.png)
 
  OpenAI unveiled its [Assistant API](https://platform.openai.com/docs/assistants/overview) during its very first developer conference-[OpenAI DevDay](https://devday.openai.com/). This marked a significant addition to the suite of tools and models available for building conversational AI, a domain in which I've been actively engaged. 
  
- Although I have used other frameworks, tools and models to build customized Assistant in the past (check out my previous posts  [Food QnA Chatbot : Help Answer Food Related Questions from Your Own Cookbook](https://bearbearyu1223.github.io/chatbot/2023/07/31/food-qna-on-server-llm.html) and [Build On-Device QnA with LangChain and Llama2](https://bearbearyu1223.github.io/chatbot/2023/08/14/food-qna-on-device-llm.html)), intrigued by the new capabilities of the Assistant API, I decided to integrate it into a new project. This sample project is a refreshed demonstration of a simple Cooking Assistant, leveraging not only the Assistant API but also incorporating additional functionalities such as [Text-to-Speech](https://platform.openai.com/docs/guides/text-to-speech) and [Image Generation](https://platform.openai.com/docs/guides/images?context=node), showcasing a holistic approach to building conversational AI systems with only a few lines of code. 
+ Although I have used other frameworks, tools and models to build customized Assistant in the past (check out my previous posts  [Food QnA Chatbot : Help Answer Food Related Questions from Your Own Cookbook](/posts/food-qna-on-server-llm/) and [Build On-Device QnA with LangChain and Llama2](/posts/food-qna-on-device-llm/)), intrigued by the new capabilities of the Assistant API, I decided to integrate it into a new project. This sample project is a refreshed demonstration of a simple Cooking Assistant, leveraging not only the Assistant API but also incorporating additional functionalities such as [Text-to-Speech](https://platform.openai.com/docs/guides/text-to-speech) and [Image Generation](https://platform.openai.com/docs/guides/images?context=node), showcasing a holistic approach to building conversational AI systems with only a few lines of code. 
  
 Get inspired by the latest from Open AI DevDay with my project on [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/bearbearyu1223/assistant_api_playground)? Ready to unleash your creativity? Start building your own generative AI-powered experience today, join the forefront of AI innovation, and let us make AI for everyone! 
 

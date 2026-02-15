@@ -1,9 +1,14 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [4]"
-categories: cs336
-author: 
-- Han Yu
+date: 2025-08-10 00:00:00 -0700
+categories: [CS336, Tokenization]
+tags: [cs336, bpe, pretokenization, regex, gpt-2, multilingual]
+description: >-
+  Demystifying GPT-2's pre-tokenization regex pattern — how one
+  carefully crafted regex handles text from multiple languages,
+  scripts, and symbol sets for BPE tokenization.
+redirect_from:
+  - /cs336/2025/08/10/cs336-gpt2-regex-for-pretokenization-explaind.html
 ---
 ## Demystifying GPT-2's Pre-Tokenization: How One Regex Pattern Handles the World's Languages
 

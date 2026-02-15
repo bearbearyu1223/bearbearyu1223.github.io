@@ -1,9 +1,14 @@
 ---
-layout: post
 title: "Study Notes: Stanford CS336 Language Modeling from Scratch [12]"
-categories: cs336
-author:
-- Han Yu
+date: 2026-01-11 00:00:00 -0800
+categories: [CS336, Infrastructure]
+tags: [cs336, sft, cloud-training, colab, lambda-labs, apple-silicon, cuda]
+description: >-
+  A practical guide to developing ML training code on a MacBook with
+  Apple Silicon, then seamlessly deploying to Google Colab or
+  multi-GPU cloud instances like Lambda Labs.
+redirect_from:
+  - /cs336/2026/01/11/cs336-local-to-cloud-training.html
 ---
 
 ## From MacBook to Cloud: A Practical Guide to Developing and Scaling LLM Training Code
