@@ -127,7 +127,7 @@ Local (stdio)                    Remote (HTTP/SSE)
 Claude Code ──► local binary     Claude Desktop ──► hosted URL
                 │                                    │
           runs on your                         runs on a server
-          machine                              (you or a service)
+          machine                              (a service)
 
 Best for:                        Best for:
 - Personal automation            - Shared team tools
