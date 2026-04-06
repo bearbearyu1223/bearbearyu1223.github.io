@@ -7,9 +7,6 @@ description: >-
   Applying Anthropic's Contextual Retrieval technique to personal photo libraries —
   where the notion of a "chunk" is a photo, not a paragraph.
 pin: true
-image:
-  path: /assets/picture/2026-04-05-contextual-retrieval-for-photo-albums/thumbnail.png
-  alt: "Photo Album RAG — natural language search over a personal photo library using contextual retrieval"
 ---
 
 Applying Anthropic's Contextual Retrieval technique to personal photo libraries —
