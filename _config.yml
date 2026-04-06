@@ -108,7 +108,6 @@ jekyll-archives:
     category: /categories/:name/
 
 plugins:
-  - jekyll-feed
   - jekyll-seo-tag
   - jekyll-archives
   - jekyll-redirect-from

@@ -545,7 +545,7 @@ Claude calls `publish_content` again with `visibility: 公开可见`.
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Agent Session Flow                          │
 │                                                                 │
-│  User                Claude Code              xiaohongshu-mcp  │
+│  User                Claude Code              xiaohongshu-mcp   │
 │   │                      │                          │           │
 │   │  "share my photos    │                          │           │
 │   │   on xiaohongshu"    │                          │           │
