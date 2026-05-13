@@ -836,39 +836,101 @@ The same table can be both: `pages` is a child of `episodes` *and* a parent of `
 
 Here's how those four roles play out across this schema's tables. Each arrow points from a child to its parent (the direction the foreign key references):
 
-```
-                          ┌──────────────────┐
-                          │     episodes     │
-                          │     (PARENT)     │
-                          └─────────┬────────┘
-                                    │
-        ┌──────────────┬────────────┼──────────────┬───────────────────┐
-        │              │            │              │                   │
-        ▼              ▼            ▼              ▼                   ▼
-   ┌────────┐  ┌──────────────┐ ┌───────────────┐ ┌───────────────────┐
-   │ pages  │  │ chat_sessions│ │ commentary_   │ │    characters     │
-   │        │  │              │ │ notes         │ │                   │
-   │(CHILD +│  │  (CHILD +    │ │ (CHILD, leaf) │ │ (optional CHILD + │
-   │ parent)│  │   parent)    │ │               │ │  parent)          │
-   └───┬────┘  └──────┬───────┘ └───────────────┘ └─────────┬─────────┘
-       │              │                                      │
-       │              ▼                                      │
-       │     ┌───────────────┐                               │
-       │     │ chat_messages │                               │
-       │     │ (CHILD, leaf) │                               │
-       │     └───────────────┘                               │
-       │                                                     │
-       │     ┌───────────────────────────────────┐           │
-       └────►│         page_characters           │◄──────────┘
-             │             (JOIN)                │
-             └───────────────────────────────────┘
+<div style="margin: 1.5rem 0; overflow-x: auto;">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 640" role="img"
+     aria-label="Foreign-key diagram of the eight schema tables, showing parent, child, join, and standalone roles."
+     style="display: block; width: 100%; height: auto; max-width: 900px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;">
+  <defs>
+    <marker id="fk-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+  </defs>
 
+  <!-- Foreign-key arrows: each points from a CHILD up to its PARENT -->
+  <!-- pages.episode_id -> episodes.id (CASCADE) -->
+  <line x1="105" y1="180" x2="420" y2="104" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
+  <!-- chat_sessions.episode_id -> episodes.id (CASCADE) -->
+  <line x1="295" y1="180" x2="440" y2="104" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
+  <!-- commentary_notes.episode_id -> episodes.id (CASCADE) -->
+  <line x1="515" y1="180" x2="470" y2="104" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
+  <!-- characters.first_appearance_episode_id -> episodes.id (SET NULL) -->
+  <line x1="735" y1="180" x2="490" y2="104" stroke="#6b7280" stroke-width="1.5"
+        stroke-dasharray="6,4" marker-end="url(#fk-arrow)"/>
+  <!-- chat_messages.session_id -> chat_sessions.id (CASCADE) -->
+  <line x1="295" y1="320" x2="295" y2="244" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
+  <!-- page_characters.page_id -> pages.id (CASCADE) -->
+  <line x1="365" y1="460" x2="135" y2="244" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
+  <!-- page_characters.character_id -> characters.id (CASCADE) -->
+  <line x1="515" y1="460" x2="710" y2="244" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
 
-         ┌──────────────────┐
-         │  wiki_articles   │
-         │   (STANDALONE)   │
-         └──────────────────┘
-```
+  <!-- episodes (PARENT) -->
+  <g>
+    <rect x="370" y="42" width="160" height="62" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="450" y="70" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">episodes</text>
+    <text x="450" y="90" text-anchor="middle" font-size="11" fill="#92400e" font-weight="600">PARENT</text>
+  </g>
+
+  <!-- pages (CHILD + parent) -->
+  <g>
+    <rect x="40" y="182" width="130" height="62" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="105" y="210" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">pages</text>
+    <text x="105" y="230" text-anchor="middle" font-size="11" fill="#1e40af" font-weight="600">CHILD + parent</text>
+  </g>
+
+  <!-- chat_sessions (CHILD + parent) -->
+  <g>
+    <rect x="210" y="182" width="170" height="62" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="295" y="210" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">chat_sessions</text>
+    <text x="295" y="230" text-anchor="middle" font-size="11" fill="#1e40af" font-weight="600">CHILD + parent</text>
+  </g>
+
+  <!-- commentary_notes (CHILD, leaf) -->
+  <g>
+    <rect x="420" y="182" width="190" height="62" rx="8" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+    <text x="515" y="210" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">commentary_notes</text>
+    <text x="515" y="230" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">CHILD, leaf</text>
+  </g>
+
+  <!-- characters (optional CHILD + parent) -->
+  <g>
+    <rect x="650" y="182" width="170" height="62" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="735" y="205" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">characters</text>
+    <text x="735" y="223" text-anchor="middle" font-size="11" fill="#1e40af" font-weight="600">optional CHILD</text>
+    <text x="735" y="237" text-anchor="middle" font-size="11" fill="#1e40af" font-weight="600">+ parent</text>
+  </g>
+
+  <!-- chat_messages (CHILD, leaf) -->
+  <g>
+    <rect x="210" y="322" width="170" height="62" rx="8" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+    <text x="295" y="350" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">chat_messages</text>
+    <text x="295" y="370" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">CHILD, leaf</text>
+  </g>
+
+  <!-- page_characters (JOIN) -->
+  <g>
+    <rect x="320" y="460" width="240" height="62" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+    <text x="440" y="488" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">page_characters</text>
+    <text x="440" y="508" text-anchor="middle" font-size="11" fill="#065f46" font-weight="600">JOIN</text>
+  </g>
+
+  <!-- wiki_articles (STANDALONE) -->
+  <g>
+    <rect x="680" y="460" width="170" height="62" rx="8" fill="#f3f4f6" stroke="#9ca3af" stroke-width="1.5"/>
+    <text x="765" y="488" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">wiki_articles</text>
+    <text x="765" y="508" text-anchor="middle" font-size="11" fill="#4b5563" font-weight="600">STANDALONE</text>
+  </g>
+
+  <!-- Legend -->
+  <g>
+    <line x1="40" y1="572" x2="86" y2="572" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
+    <text x="96" y="576" font-size="11" fill="#4b5563">solid arrow = FK with ondelete="CASCADE"</text>
+    <line x1="40" y1="596" x2="86" y2="596" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="6,4" marker-end="url(#fk-arrow)"/>
+    <text x="96" y="600" font-size="11" fill="#4b5563">dashed arrow = FK with ondelete="SET NULL"</text>
+    <text x="450" y="625" text-anchor="middle" font-size="11" fill="#6b7280" font-style="italic">Each arrow points from a child to its parent (the direction the foreign key references).</text>
+  </g>
+</svg>
+</div>
 
 Reading the diagram:
 
@@ -921,6 +983,20 @@ Three things to notice:
 - **`_uuid_pk()` and `_timestamp_now()`** are small helpers. Every row in this schema has a UUID primary key and most have a `created_at` / `ingested_at` timestamp. Factoring those out keeps each model class focused on the columns that actually differ.
 
 The next three sections show three representative model classes — `Episode`, `Page`, `ChatMessage` — each connecting directly to a design decision from earlier in the post.
+
+### The full schema, every column
+
+The role diagram above grouped tables by structural role. This one drops a level: every column, type, key, default, and FK target on all ten tables — including `world_entities` and `world_relationships`, which the role diagram skips because they're introduced later in the series.
+
+<iframe src="{{ '/assets/embed/peppercarrot_data_model_erd.html' | relative_url }}" loading="lazy" style="width: 100%; height: 780px; border: 1px solid rgba(115, 114, 108, 0.18); border-radius: 6px; display: block; margin: 1rem 0;" title="Pepper & Carrot data model ERD (interactive — drag to pan, use ± to zoom)"></iframe>
+
+A few patterns worth noticing once everything is in one frame:
+
+- **Every table has a UUID primary key with `default uuid4()`** — the `_uuid_pk()` helper above is the single line of code those ten `id` columns share.
+- **Every FK in the schema is one of two flavors:** `ON DELETE CASCADE` (children disappear with the parent) or `ON DELETE SET NULL` (children survive, pointer is cleared). There's no `RESTRICT` and no orphan rows.
+- **JSONB and `text[]` appear only on `pages`, `chat_messages` (and `characters.aliases`).** Everywhere else, the schema is plain typed columns — JSONB is reserved for genuinely open-ended payloads (raw image EXIF, per-page mood lists, retrieval doc-id traces, model token counts), not used as a substitute for proper columns.
+- **`world_entities` and `world_relationships`** carry their own `created_at` + `updated_at` because, unlike the read-mostly ingestion tables, they're edited by hand as the world graph evolves — the `updated_at` with `onupdate=func.now()` makes that auditable.
+- **`world_relationships` is the only self-referential table:** both `source_id` and `target_id` point at `world_entities`, which is how the graph in Post 9 encodes edges like "Pepper is a member of Hippiah Coven."
 
 ### `Episode` — a parent table
 

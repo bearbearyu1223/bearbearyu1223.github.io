@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pepper &amp; Carrot — Data Model ERD</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: transparent; overflow: hidden; }
+  body {
+    font-family: "Anthropic Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    color: #3d3d3a;
+    display: flex;
+    flex-direction: column;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #c2c0b6; }
+    .hint { color: #9c9a92; }
+  }
+  .hint {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: #73726c;
+    border-bottom: 1px solid rgba(115, 114, 108, 0.18);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+  .hint kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    background: rgba(115, 114, 108, 0.12);
+    border-radius: 3px;
+  }
+  #erd {
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  #erd svg.erDiagram {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  #erd svg.erDiagram .divider path { stroke-opacity: 0.5; }
+  #erd svg.erDiagram .row-rect-odd path,
+  #erd svg.erDiagram .row-rect-odd rect,
+  #erd svg.erDiagram .row-rect-even path,
+  #erd svg.erDiagram .row-rect-even rect { stroke: none !important; }
+</style>
+</head>
+<body>
+<div class="hint">
+  <span><strong>Drag</strong> to pan · <strong>double-click</strong> or <strong>+</strong> to zoom in · <strong>−</strong> to zoom out · <strong>⌂</strong> to reset</span>
+  <span style="opacity: .7;">touch: pinch to zoom</span>
+</div>
+<h2 class="sr-only" style="position:absolute;left:-9999px;">Entity relationship diagram for the Pepper and Carrot companion app data model, showing episodes as the parent table with pages, commentary_notes, and chat_sessions as children; characters joined to pages via page_characters; and world_entities with self-referencing world_relationships.</h2>
+<div id="erd"></div>
+<script type="module">
+import mermaid from 'https://esm.sh/mermaid@11/dist/mermaid.esm.min.mjs';
+import svgPanZoom from 'https://esm.sh/svg-pan-zoom@3.6.1';
+
+const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+await document.fonts.ready;
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'base',
+  fontFamily: '"Anthropic Sans", sans-serif',
+  themeVariables: {
+    darkMode: dark,
+    fontSize: '13px',
+    fontFamily: '"Anthropic Sans", sans-serif',
+    lineColor: dark ? '#9c9a92' : '#73726c',
+    textColor: dark ? '#c2c0b6' : '#3d3d3a',
+  },
+});
+const { svg } = await mermaid.render('erd-svg', `erDiagram
+  episodes ||--o{ pages : "has"
+  episodes ||--o{ commentary_notes : "has"
+  episodes ||--o{ chat_sessions : "has"
+  episodes |o--o{ characters : "first appearance"
+  chat_sessions ||--o{ chat_messages : "has"
+  pages }o--o{ characters : "via page_characters"
+  pages ||--o{ page_characters : ""
+  characters ||--o{ page_characters : ""
+  characters |o--o| world_entities : "optional link"
+  world_entities ||--o{ world_relationships : "source"
+  world_entities ||--o{ world_relationships : "target"
+  episodes {
+    uuid id PK
+    string slug UK
+    string title
+    int episode_number
+    string language
+    text plot_summary
+    timestamp published_at
+  }
+  pages {
+    uuid id PK
+    uuid episode_id FK
+    int page_number
+    text image_url
+    text ocr_text
+    text visual_description
+    array mood_tags
+    jsonb image_metadata
+  }
+  characters {
+    uuid id PK
+    string name UK
+    array aliases
+    text bio
+    uuid first_appearance_episode_id FK
+  }
+  page_characters {
+    uuid page_id "PK, FK"
+    uuid character_id "PK, FK"
+  }
+  commentary_notes {
+    uuid id PK
+    uuid episode_id FK
+    int page_number_hint
+    text content
+  }
+  chat_sessions {
+    uuid id PK
+    string user_id
+    uuid episode_id FK
+    int current_page
+    timestamp created_at
+  }
+  chat_messages {
+    uuid id PK
+    uuid session_id FK
+    string role
+    string mode
+    text content
+    jsonb retrieved_doc_ids
+    int latency_ms
+  }
+  world_entities {
+    uuid id PK
+    string slug UK
+    string name
+    string kind
+    int episode_debut
+    float layout_x
+    float layout_y
+    uuid character_id FK
+  }
+  world_relationships {
+    uuid id PK
+    uuid source_id FK
+    uuid target_id FK
+    string kind
+    text summary
+  }
+  wiki_articles {
+    uuid id PK
+    string slug UK
+    string title
+    text content
+    string category
+  }`);
+document.getElementById('erd').innerHTML = svg;
+
+document.querySelectorAll('#erd svg.erDiagram .node').forEach(node => {
+  const firstPath = node.querySelector('path[d]');
+  if (!firstPath) return;
+  const d = firstPath.getAttribute('d');
+  const nums = d.match(/-?[\d.]+/g)?.map(Number);
+  if (!nums || nums.length < 8) return;
+  const xs = [nums[0], nums[2], nums[4], nums[6]];
+  const ys = [nums[1], nums[3], nums[5], nums[7]];
+  const x = Math.min(...xs), y = Math.min(...ys);
+  const w = Math.max(...xs) - x, h = Math.max(...ys) - y;
+  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rect.setAttribute('x', x); rect.setAttribute('y', y);
+  rect.setAttribute('width', w); rect.setAttribute('height', h);
+  rect.setAttribute('rx', '8');
+  for (const a of ['fill', 'stroke', 'stroke-width', 'class', 'style']) {
+    if (firstPath.hasAttribute(a)) rect.setAttribute(a, firstPath.getAttribute(a));
+  }
+  firstPath.replaceWith(rect);
+});
+
+document.querySelectorAll('#erd svg.erDiagram .row-rect-odd path, #erd svg.erDiagram .row-rect-even path').forEach(p => {
+  p.setAttribute('stroke', 'none');
+});
+
+const svgEl = document.querySelector('#erd svg.erDiagram');
+if (svgEl) {
+  svgEl.removeAttribute('style');
+  svgEl.setAttribute('width', '100%');
+  svgEl.setAttribute('height', '100%');
+  svgEl.style.maxWidth = 'none';
+  svgEl.style.display = 'block';
+
+  svgPanZoom(svgEl, {
+    zoomEnabled: true,
+    controlIconsEnabled: true,
+    fit: true,
+    center: true,
+    minZoom: 0.3,
+    maxZoom: 10,
+    zoomScaleSensitivity: 0.35,
+    mouseWheelZoomEnabled: false,
+    dblClickZoomEnabled: true,
+    panEnabled: true,
+  });
+}
+</script>
+</body>
+</html>
