@@ -834,6 +834,52 @@ The section headings below — and the annotations on each model — lean on thr
 
 The same table can be both: `pages` is a child of `episodes` *and* a parent of `page_characters`. Trace the foreign-key arrows — arrows pointing *into* a table mean it's playing a parent role; arrows pointing *out* mean it's a child or part of a join. Most tables in a real schema have both.
 
+Here's how those four roles play out across this schema's tables. Each arrow points from a child to its parent (the direction the foreign key references):
+
+```
+                          ┌──────────────────┐
+                          │     episodes     │
+                          │     (PARENT)     │
+                          └─────────┬────────┘
+                                    │
+        ┌──────────────┬────────────┼──────────────┬───────────────────┐
+        │              │            │              │                   │
+        ▼              ▼            ▼              ▼                   ▼
+   ┌────────┐  ┌──────────────┐ ┌───────────────┐ ┌───────────────────┐
+   │ pages  │  │ chat_sessions│ │ commentary_   │ │    characters     │
+   │        │  │              │ │ notes         │ │                   │
+   │(CHILD +│  │  (CHILD +    │ │ (CHILD, leaf) │ │ (optional CHILD + │
+   │ parent)│  │   parent)    │ │               │ │  parent)          │
+   └───┬────┘  └──────┬───────┘ └───────────────┘ └─────────┬─────────┘
+       │              │                                      │
+       │              ▼                                      │
+       │     ┌───────────────┐                               │
+       │     │ chat_messages │                               │
+       │     │ (CHILD, leaf) │                               │
+       │     └───────────────┘                               │
+       │                                                     │
+       │     ┌───────────────────────────────────┐           │
+       └────►│         page_characters           │◄──────────┘
+             │             (JOIN)                │
+             └───────────────────────────────────┘
+
+
+         ┌──────────────────┐
+         │  wiki_articles   │
+         │   (STANDALONE)   │
+         └──────────────────┘
+```
+
+Reading the diagram:
+
+- **`(PARENT)`** — nothing FKs out of it. `episodes` is the only pure parent in this schema.
+- **`(CHILD + parent)`** — has a foreign key out *and* something else FKs into it. `pages`, `chat_sessions`, and `characters` are all in this dual role.
+- **`(CHILD, leaf)`** — has a FK out but nothing points at it. `commentary_notes` and `chat_messages` sit at the ends of their chains.
+- **`(JOIN)`** — two FKs out, no other data. `page_characters` is the only one — it links `pages` ↔ `characters` for the many-to-many.
+- **`(STANDALONE)`** — no FK in or out. `wiki_articles` is the floor of the schema's complexity, sitting off to the side.
+
+One nuance the diagram glosses over for simplicity: the `characters → episodes` arrow is `first_appearance_episode_id`, which uses `ondelete="SET NULL"` rather than the `CASCADE` used by every other arrow. So deleting an episode doesn't delete the characters who first appeared in it — it just clears their "first appearance" pointer. The `PageCharacter` annotation later in this appendix has the full discussion of `CASCADE` vs `SET NULL`.
+
 ### The imports and a couple of helpers
 
 Every model lives in `models.py`. These lines appear once at the top of the file:
