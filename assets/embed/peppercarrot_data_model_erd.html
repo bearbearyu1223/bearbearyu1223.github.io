@@ -95,26 +95,32 @@ const { svg } = await mermaid.render('erd-svg', `erDiagram
     string slug UK
     string title
     int episode_number
-    string language
-    text plot_summary
-    timestamp published_at
+    string language "default 'en'"
+    text cover_image_url "null OK"
+    text plot_summary "null OK"
+    text credits_url "null OK"
+    timestamp published_at "null OK"
+    timestamp ingested_at "server default now()"
   }
   pages {
     uuid id PK
     uuid episode_id FK
-    int page_number
+    int page_number "uq with episode_id"
     text image_url
-    text ocr_text
-    text visual_description
-    array mood_tags
-    jsonb image_metadata
+    text thumbnail_url "null OK"
+    text original_url "null OK"
+    text ocr_text "null OK"
+    text visual_description "null OK"
+    string_array mood_tags "default []"
+    jsonb image_metadata "default {}"
   }
   characters {
     uuid id PK
     string name UK
-    array aliases
-    text bio
-    uuid first_appearance_episode_id FK
+    string_array aliases "default []"
+    text bio "null OK"
+    uuid first_appearance_episode_id FK "null OK, ON DELETE SET NULL"
+    text image_url "null OK"
   }
   page_characters {
     uuid page_id "PK, FK"
@@ -123,48 +129,61 @@ const { svg } = await mermaid.render('erd-svg', `erDiagram
   commentary_notes {
     uuid id PK
     uuid episode_id FK
-    int page_number_hint
+    int page_number_hint "null OK"
+    text source_url "null OK"
     text content
   }
   chat_sessions {
     uuid id PK
-    string user_id
+    string user_id "null OK"
     uuid episode_id FK
-    int current_page
-    timestamp created_at
+    int current_page "default 1"
+    timestamp created_at "server default now()"
   }
   chat_messages {
     uuid id PK
     uuid session_id FK
-    string role
-    string mode
+    string role "user or assistant"
+    string mode "null OK, page or wiki"
     text content
-    jsonb retrieved_doc_ids
-    int latency_ms
+    jsonb retrieved_doc_ids "default []"
+    int latency_ms "null OK"
+    jsonb token_counts "default {}"
+    timestamp created_at "server default now(), indexed with session_id"
   }
   world_entities {
     uuid id PK
     string slug UK
     string name
     string kind
+    text summary "null OK"
+    text image_url "null OK"
     int episode_debut
+    int page_debut
     float layout_x
     float layout_y
-    uuid character_id FK
+    uuid character_id FK "null OK, ON DELETE SET NULL"
+    timestamp created_at "server default now()"
+    timestamp updated_at "on update now()"
   }
   world_relationships {
     uuid id PK
     uuid source_id FK
     uuid target_id FK
-    string kind
-    text summary
+    string kind "uq with source_id, target_id"
+    text summary "null OK"
+    int episode_debut
+    int page_debut
+    timestamp created_at "server default now()"
+    timestamp updated_at "on update now()"
   }
   wiki_articles {
     uuid id PK
     string slug UK
     string title
     text content
-    string category
+    string category "null OK"
+    text source_url "null OK"
   }`);
 document.getElementById('erd').innerHTML = svg;
 
