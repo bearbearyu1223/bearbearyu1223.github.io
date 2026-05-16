@@ -780,7 +780,7 @@ class OllamaEmbeddingClient:
         await self._client.aclose()
 ```
 
-(The `dimension` property and a lazy-probe helper are omitted from the snippet for brevity — see [`backend/app/clients/embedding.py`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/backend/app/clients/embedding.py) in the workshop starter. The probe issues one short embed call on first access if the dimension hasn't been observed yet, then caches it forever.)
+(The `dimension` property and its lazy-probe helper are omitted from this snippet for brevity — the [follow-on aside above](#seam-embedding) walks through their full bodies and the three caller paths they handle. The file on disk is [`backend/app/clients/embedding.py`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/backend/app/clients/embedding.py) in the workshop starter.)
 
 Six things worth pausing on:
 
