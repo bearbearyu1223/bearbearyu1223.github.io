@@ -101,15 +101,16 @@ free- and low-cost cloud services. The audience I had in mind: someone
 who has read about RAG and "AI agents" but hasn't yet built a full-stack
 app where the AI is a *feature*, not the whole product.
 
-> **A note on the source code and live demo.** This is the first post in
-> a ten-part series I'm publishing one post at a time, not all at once.
-> Both the public GitHub repository and a live-demo URL will go up
-> alongside [the final post](#the-series) — the deploy guide — once it
-> lands. I'd rather share them when the full deploy story is written up
-> than drop a half-explained URL here, so the two appear together with
-> the walkthrough that produces them. Until then, every published post
-> stands on its own, with the code inline and screenshots / GIFs of the
-> running app.
+> **A note on the source code and live demo.** Code lands in two
+> repos. A **workshop starter** at
+> <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>
+> reproduces [Post 2](#the-series) (the setup) and [Post 3](#the-series)
+> (the provider abstractions) end-to-end — published alongside those
+> posts. The **full project repository** plus a live-demo URL go up
+> alongside [the final post](#the-series), the deploy guide, so the
+> full source and the cloud walkthrough land together rather than as a
+> half-explained skeleton. Each post in between is self-contained, with
+> the code inline and screenshots / GIFs of the running app.
 
 ---
 
@@ -503,10 +504,11 @@ the first Alembic migration, and download the first episode of the comic
 into `data/raw/`. By the end of that post you'll have the same workshop I
 built every subsequent layer on top of.
 
-The full source repository and a public live-demo URL will go up with
+The **workshop starter** for Posts 2–3 is at
+<https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>.
+The **full source repository** and a public live-demo URL go up with
 [the final post of this series](#the-series) — the deploy guide — once
-it's published. The series publishes post by post; until that final piece
-lands, each published post is self-contained.
+it's published. Each post in between is self-contained.
 
 Pepper & Carrot is © [David Revoy](https://www.davidrevoy.com/), licensed
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). All credit to
