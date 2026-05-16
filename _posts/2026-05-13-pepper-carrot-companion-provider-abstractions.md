@@ -905,6 +905,58 @@ class ChatClient(Protocol):
 
 > *Plain-English aside: what's an [async generator](https://peps.python.org/pep-0525/)?* An async generator is a function that produces a sequence of values *asynchronously* — you write it with `async def` and `yield`, and the caller consumes it with `async for`. We use it here because the model returns tokens one at a time over a streaming HTTP connection, and we want to surface each token to the frontend (over [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events)) as it arrives, rather than waiting for the full response. The Protocol declares `stream(...) -> AsyncIterator[str]` (sync function returning an async iterator) because calling an async-generator function returns the generator object directly — the body doesn't start running until `async for` is invoked. [PEP 525](https://peps.python.org/pep-0525/) has the full mechanics if this trips you up.
 
+> *Follow-on aside: but if implementations use `async def`, why doesn't the Protocol?* This is one of the most genuinely confusing corners of Python's async typing. The short answer: **`async def` and "a function that returns something to `await`" aren't the same thing**, and `stream` is the second case.
+>
+> There are two kinds of "async function" in Python, and they have *different* call-site signatures:
+>
+> | Form | What calling it returns | How callers consume it |
+> |---|---|---|
+> | `async def f(...) -> T:` *(no `yield`)* | a coroutine | `value = await f(...)` |
+> | `async def f(...) -> AsyncIterator[T]:` *(contains `yield`)* | an `AsyncIterator[T]` **directly** | `async for x in f(...)` |
+>
+> The second form is an **async generator function**. The presence of `yield` in the body changes what Python types the function as. The keyword `async def` is still there, but calling it doesn't return a coroutine you `await` — it returns the iterator immediately, and you use `async for` to step through. You can prove this in a REPL in three lines:
+>
+> ```python
+> from typing import AsyncIterator
+>
+> async def tokens() -> AsyncIterator[str]:
+>     yield "hello"
+>     yield "world"
+>
+> result = tokens()              # ← no `await` — call returns the iterator directly
+> print(type(result))            # → <class 'async_generator'>
+>
+> # Consume it:
+> async def main() -> None:
+>     async for tok in tokens():
+>         print(tok)
+> # await main()  →  prints "hello" then "world"
+> ```
+>
+> You never wrote `await tokens()`. The function is declared `async def`, but the call site uses `async for`, not `await`. So the **call signature** of `tokens` is `() -> AsyncIterator[str]`, not `() -> Awaitable[AsyncIterator[str]]`.
+>
+> That's why the `ChatClient` Protocol declares `stream` as a plain `def`:
+>
+> ```python
+> class ChatClient(Protocol):
+>     def stream(self, ...) -> AsyncIterator[str]: ...   # ← plain def, not async def
+> ```
+>
+> The Protocol describes **what `client.stream(...)` returns** — and what it returns is an `AsyncIterator[str]`, not a coroutine that resolves to one. If we wrote the Protocol with `async def`, mypy would expect this two-step call shape instead:
+>
+> ```python
+> # Hypothetical Protocol — wrong shape for our implementations
+> class ChatClient(Protocol):
+>     async def stream(self, ...) -> AsyncIterator[str]: ...
+>
+> # Every caller would need an extra await step:
+> iterator = await client.stream(...)   # ← extra step that doesn't actually exist
+> async for token in iterator:
+>     ...
+> ```
+>
+> Two-step. Mypy would *reject* the actual `async def stream(...): yield ...` implementations against that Protocol because their signatures don't match — they return an iterator directly, not a coroutine. So the Protocol is forced into the `def`-not-`async def` shape by what calling the implementations actually produces. Once you accept "the function call returns the iterator directly; no `await` needed at the call site," everything lines up.
+
 Two interface choices worth flagging:
 
 **`stream` *and* `complete`, not just `stream`.** Streaming is the main act — the page-mode and wiki-mode chat answers stream token-by-token. But the project also generates two follow-up "suggestion chips" after every answer (you saw these in [Post 1's walkthrough]({% post_url 2026-05-09-pepper-carrot-companion-trailer %})). Those don't need streaming — they're tiny, the frontend shows them all at once at the end, streaming would buy nothing. So `complete()` is a one-shot non-streaming call. The two methods cleanly cover both use cases without trying to make `stream()` pretend to be a one-shot via "collect all tokens into a string."
