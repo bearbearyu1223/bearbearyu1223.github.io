@@ -239,16 +239,29 @@ Two new ideas here worth a line each:
 - **`depends_on: - postgres`** tells Compose to start the `postgres` service *before* `pgadmin`. By default this only waits for the container to start, not for the healthcheck to pass — fine here because pgAdmin happily retries its own database connection until it succeeds.
 - **`5050:80`** maps the container's port 80 (where pgAdmin's web server listens) to `localhost:5050` on your laptop.
 
-After `docker compose up -d`, browse to [http://localhost:5050](http://localhost:5050) and log in with `admin@local.dev` / `admin`. Then add a new server pointing at:
+After `docker compose up -d`, browse to [http://localhost:5050](http://localhost:5050) and log in with `admin@local.dev` / `admin`. The dashboard is empty until you tell pgAdmin where Postgres is. Click **Add New Server** (or right-click **Servers** → **Register** → **Server…**), give it any name on the **General** tab, then on the **Connection** tab:
 
 | Field | Value |
 |---|---|
 | Host name / address | `postgres` *(the service name — Compose resolves it to the postgres container's IP on the shared internal network)* |
 | Port | `5432` |
+| Maintenance database | `peppercarrot` |
 | Username | `peppercarrot` |
 | Password | `peppercarrot_dev` |
 
-You'll get a tree view of every table, a query editor, and a row browser. Skip it if you're comfortable in `psql`; turn it on if you want to *see* the rows you're inserting in the next section.
+> ⚠️ **pgAdmin does not strip whitespace from these fields.** Copy `peppercarrot ` with a trailing space and the connection fails with `FATAL: password authentication failed for user "peppercarrot "` — Postgres echoes the username back verbatim and treats the two as different users. Select-all and retype each field if in doubt.
+
+Once registered, your tables live under **Servers → *(your name)* → Databases → peppercarrot → Schemas → public → Tables**. Right-click any table → **View/Edit Data** → **All Rows** for a spreadsheet view, or **Tools** → **Query Tool** (with `peppercarrot` selected in the tree) for SQL — **F5** runs. If the Tables list is empty, you haven't applied the migration yet — that's the section a few headings down.
+
+The useful "what's actually populated?" check while the schema is fresh — most tables stay empty until ingestion in Post 4:
+
+```sql
+SELECT relname AS table_name, n_live_tup AS row_count
+FROM pg_stat_user_tables
+ORDER BY n_live_tup DESC, relname;
+```
+
+Skip the whole pgAdmin section if you're comfortable in `psql`; turn it on if you want to *see* the rows fill in as later posts build on top.
 
 ### Start it
 
