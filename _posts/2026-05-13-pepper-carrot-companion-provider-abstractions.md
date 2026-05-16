@@ -805,7 +805,7 @@ The same call site — `async for token in client.stream(system, messages, max_t
 
 ## The Factory in `clients/__init__.py` {#factory}
 
-We have three Protocols and (counting) five implementations. The last piece is the wiring: how does the rest of the codebase get the *right* implementation for the current configuration?
+We have three Protocols and six implementations (one of them a stub). The last piece is the wiring: how does the rest of the codebase get the *right* implementation for the current configuration?
 
 There is exactly one place that knows this: `backend/app/clients/__init__.py`.
 
