@@ -681,6 +681,51 @@ A method and two read-only properties. Three small design notes:
   > ```
   >
   > Properties fit values that are conceptually *facts* (not actions), that might be cached or computed on demand, and that callers shouldn't *set* directly. `dimension` ticks all three boxes: it's a fact about the embedding model (1024 for bge-m3, always), it's cached after the first probe, and `client.dimension = 768` would be nonsense — the model is what determines the number, not the caller. By contrast, `embed_batch` stays a method because it's an *action*: it takes arguments, does work, and the answer depends on what you ask. Methods get parentheses; properties don't.
+
+  > *Follow-on aside: how does `OllamaEmbeddingClient` actually compute these two properties?* `model_name` is trivial — `return self._model`, where `self._model` is the string passed into `__init__` (e.g., `"bge-m3"`). No I/O, no caching needed. `dimension` is the interesting one because different models have different sizes (bge-m3 → 1024, [nomic-embed-text](https://ollama.com/library/nomic-embed-text) → 768, [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) → 384), the constructor shouldn't fire a network call, and `@property` can't `await`. Lazy-detect-on-first-use is the only design that fits all three constraints:
+  >
+  > ```python
+  > @property
+  > def dimension(self) -> int:
+  >     if self._dimension is None:
+  >         try:
+  >             loop = asyncio.get_running_loop()
+  >         except RuntimeError:
+  >             loop = None
+  >         if loop is not None:
+  >             raise RuntimeError(
+  >                 "OllamaEmbeddingClient.dimension accessed before any "
+  >                 "embed_batch call from inside a running event loop; "
+  >                 "call `await embed_batch([...])` first."
+  >             )
+  >         asyncio.run(self._probe_dimension())   # tiny throwaway embed
+  >     assert self._dimension is not None
+  >     return self._dimension
+  >
+  > async def _probe_dimension(self) -> None:
+  >     vecs = await self._embed(["dim probe"])
+  >     self._dimension = len(vecs[0])
+  > ```
+  >
+  > Three paths a caller can hit, in rough order of likelihood:
+  >
+  > 1. **`embed_batch` was called first (the common case).** `embed_batch` already caches `len(vectors[0])` into `self._dimension` as a side effect on the first real embed. Subsequent `client.dimension` reads just return the cached integer — zero I/O.
+  > 2. **`dimension` was read first, from synchronous code.** `self._dimension` is `None`, so the property falls back to `asyncio.run(self._probe_dimension())` — spins up a temporary event loop, sends one throwaway embed for the string `"dim probe"`, caches `len(vec[0])`, exits.
+  > 3. **Same as path 2 but the caller is already inside a running event loop.** `asyncio.run()` can't be called from inside a running loop — it would crash with a confusing built-in error. The `get_running_loop()` check catches this and raises a clearer `"call \`await embed_batch([...])\` first"` message instead. It's a "you're holding it wrong" guide rather than a stack trace.
+  >
+  > Compare to `SentenceTransformersEmbeddingClient`, where `dimension` reads the answer directly off the in-memory PyTorch model — no network, no event loop, no probe:
+  >
+  > ```python
+  > @property
+  > def dimension(self) -> int:
+  >     if self._dimension is None:
+  >         self._ensure_model()      # blocks while loading once (~2GB first time)
+  >     assert self._dimension is not None
+  >     return self._dimension
+  > ```
+  >
+  > Same `EmbeddingClient.dimension` Protocol method, two very different implementation bodies — one waits on HTTP, the other on PyTorch — but the caller sees the same shape: `int = client.dimension`. That's the Protocol earning its keep at the seam.
+
 - **`model_name` exists so ChromaDB can tag collections.** If you re-ingest with a different embedding model, you don't want the new vectors silently mixed in with the old ones — they're [literally incompatible](https://github.com/chroma-core/chroma/blob/main/docs/docs/architecture/embeddings.md) (different dimensions, different similarity structure). Collections in Chroma are named like `pages_v1_bge-m3`; flipping models means flipping the version suffix, which forces a full re-embed.
 
 ### `OllamaEmbeddingClient` — the project default
