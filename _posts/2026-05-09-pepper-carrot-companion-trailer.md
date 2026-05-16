@@ -107,7 +107,7 @@ app where the AI is a *feature*, not the whole product.
 > reproduces [Post 2](#the-series) (the setup) and [Post 3](#the-series)
 > (the provider abstractions) end-to-end — published alongside those
 > posts. The **full project repository** plus a live-demo URL go up
-> alongside [the final post](#the-series), the deploy guide, so the
+> alongside the final post, the deploy guide, so the
 > full source and the cloud walkthrough land together rather than as a
 > half-explained skeleton. Each post in between is self-contained, with
 > the code inline and screenshots / GIFs of the running app.
@@ -116,8 +116,8 @@ app where the AI is a *feature*, not the whole product.
 
 ## See It Running {#see-it-running}
 
-The live demo URL will go up alongside [Post 10](#the-series), the deploy
-guide — once that post is published, this section will get the public link
+The live demo URL will go up alongside Post 10, the deploy guide — once
+that post is published, this section will get the public link
 to a running instance you can play with. For now, here's a 20-second
 walkthrough of the same app running locally:
 
@@ -352,8 +352,7 @@ The model couldn't spoil a future page if it tried — that data isn't in
 its prompt. This pattern (push correctness-critical filters down to the
 data layer; let the prompt focus on tone and synthesis) is one of the most
 broadly useful lessons from the project, and it shows up in
-[Post 6](#the-series) for chat retrieval and [Post 9](#the-series) for the
-world graph.
+Post 6 for chat retrieval and Post 9 for the world graph.
 
 ---
 
@@ -507,8 +506,8 @@ built every subsequent layer on top of.
 The **workshop starter** for Posts 2–3 is at
 <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>.
 The **full source repository** and a public live-demo URL go up with
-[the final post of this series](#the-series) — the deploy guide — once
-it's published. Each post in between is self-contained.
+the final post of this series — the deploy guide — once it's published.
+Each post in between is self-contained.
 
 Pepper & Carrot is © [David Revoy](https://www.davidrevoy.com/), licensed
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). All credit to

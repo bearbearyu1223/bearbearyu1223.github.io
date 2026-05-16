@@ -108,7 +108,7 @@ You might want local embeddings (cheap, no rate limits, runs while you sleep ing
 
 **3. Tests stop touching the network.**
 
-When the only place SDKs are imported is `clients/`, every other module can be tested with a stub that implements the Protocol in five lines. The integration tests in [Post 6](#) (retrieval) and [Post 8](#) (prompt assembly) will use this — neither one hits a real model. The pattern: pass the test a `FakeChatClient` whose `stream()` yields pre-recorded tokens, and assert on the prompt assembly. Zero network, deterministic, runs in milliseconds.
+When the only place SDKs are imported is `clients/`, every other module can be tested with a stub that implements the Protocol in five lines. The integration tests in Post 6 (retrieval) and Post 8 (prompt assembly) will use this — neither one hits a real model. The pattern: pass the test a `FakeChatClient` whose `stream()` yields pre-recorded tokens, and assert on the prompt assembly. Zero network, deterministic, runs in milliseconds.
 
 A worked example, since this comes up often enough to be worth pinning:
 
@@ -271,7 +271,7 @@ Three things worth noticing in the picture:
 
 - **All the SDK imports happen on the bottom row.** `anthropic`, `httpx`, `aiofiles`, `boto3`, `sentence-transformers` — these names appear *only* inside the leaf implementations in `backend/app/clients/`. Routes and services see Protocols.
 - **The factory is the only code that knows which leaves exist.** `clients/__init__.py` reads `Settings` and instantiates one of the leaves. Every other caller asks the factory for a `Storage` or a `ChatClient` and gets back an opaque object whose type is the Protocol.
-- **Today there's a hole on the bottom-left.** `R2Storage` is a stub that raises `NotImplementedError` — we fill it in for the cloud deploy in [Post 10](#). The fact that we can ship Post 4–9 with that stub raising is itself a small piece of evidence the abstraction is working: nobody outside `clients/` knows or cares which storage backend is mounted.
+- **Today there's a hole on the bottom-left.** `R2Storage` is a stub that raises `NotImplementedError` — we fill it in for the cloud deploy in Post 10. The fact that we can ship Post 4–9 with that stub raising is itself a small piece of evidence the abstraction is working: nobody outside `clients/` knows or cares which storage backend is mounted.
 
 Let's build each seam in turn.
 
@@ -958,7 +958,7 @@ These rules sound restrictive on paper. In practice the codebase has barely felt
 
 Next up: **Post 4 — Claude Skills as an Ingestion Tool: When the Best Vision Model Is the One Driving Your Editor.** We use Claude Code itself as a one-shot batch vision processor: a `.claude/skills/ingest-from-images/SKILL.md` file walks Claude through reading each page of episode 1 and writing a structured `PageDescription` JSON next to the image on disk. Then `JsonFileVisionClient` — the fourth Protocol implementation, also living in `backend/app/clients/`, also obeying the rule we just built — picks those JSONs up. By the end of that post, episode 1 is fully ingested: images in `LocalStorage`, descriptions in Postgres, embeddings in ChromaDB. The chat layer doesn't run a vision model in production; that's the whole point.
 
-The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>. The **full source repository** and a public live-demo URL go up alongside [Post 10 of this series]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}#the-series) — the deploy guide — once it's published.
+The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>. The **full source repository** and a public live-demo URL go up alongside Post 10 of this series — the deploy guide — once it's published.
 
 *Pepper & Carrot* is © [David Revoy](https://www.davidrevoy.com/), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). All credit to him for the source material that made this project possible.
 
