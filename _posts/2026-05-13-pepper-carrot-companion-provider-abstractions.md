@@ -764,7 +764,7 @@ Two interface choices worth flagging:
 
 The Anthropic implementation ignores `json_format` (Claude is reliable enough at JSON formatting from prompt instructions alone). Same call site; different implementation behavior. The abstraction *accommodates the union of provider capabilities*, and provider-specific knobs are exposed via optional parameters that other implementations are free to no-op.
 
-Both [`OllamaChatClient`](#) and [`AnthropicChatClient`](#) live in `backend/app/clients/chat.py`. We won't walk through them line by line in this post — too much detail for a part that isn't yet wired up — but they're worth a brief tour now:
+Both [`OllamaChatClient`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/backend/app/clients/chat.py) and [`AnthropicChatClient`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/backend/app/clients/chat.py) live in `backend/app/clients/chat.py`. We won't walk through them line by line in this post — too much detail for a part that isn't yet wired up — but they're worth a brief tour now:
 
 - `OllamaChatClient.stream` POSTs to [`/api/chat`](https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion) with `stream: true` and iterates the response as newline-delimited JSON, yielding `chunk["message"]["content"]` per token.
 - `AnthropicChatClient.stream` uses [`anthropic.AsyncAnthropic().messages.stream(...)`](https://github.com/anthropics/anthropic-sdk-python) — and additionally turns on [prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) via `cache_control={"type": "ephemeral"}`, which ~90%-discounts repeat tokens across multi-turn chat. (Post 8 explains why this is load-bearing for the cost story.)
