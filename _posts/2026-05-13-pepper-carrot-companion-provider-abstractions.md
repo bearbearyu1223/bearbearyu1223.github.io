@@ -321,7 +321,36 @@ Three methods, each chosen because *both* backends need to do them and *neither*
 - **`url_for` is async even though `LocalStorage` doesn't need to await anything.** R2's [signed URLs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/ShareObjectPreSignedURL.html) require a network call or at least async-friendly crypto in some configurations; making the whole Protocol async keeps the door open. Async is contagious — fix the contagion at the interface level, not the call site level.
 - **`exists` exists.** It's not strictly required for writes (we could just always `put`) — but the ingestion pipeline (Post 4) uses it to skip re-uploading variants that are already in place. R2 round-trips are slower than disk reads; a cheap `HEAD` check is worth defining.
 
-> *Why Protocols and not a base class?* You'll see codebases that use `class LocalStorage(BaseStorage):` with `BaseStorage` as an ABC. That works too. The reason Protocols are nicer for this is: implementations don't need to import the Protocol at all. `LocalStorage` doesn't say `class LocalStorage(Storage):` anywhere — it just has the right methods. The dependency only flows in one direction: the *factory* imports the Protocol to typehint its return value; the implementations don't. That's a cleaner one-way arrow when you draw the import graph.
+> *Why Protocols and not an Abstract Base Class? An aside for readers new to Python typing.*
+>
+> If you've seen this pattern before in a Python codebase, it was probably done with an [**Abstract Base Class (ABC)**](https://docs.python.org/3/library/abc.html) instead. An ABC is "a class you can't instantiate directly; it exists to declare a contract that subclasses must implement." The Python idiom looks like this:
+>
+> ```python
+> from abc import ABC, abstractmethod
+>
+> class BaseStorage(ABC):                       # ← the contract
+>     @abstractmethod
+>     async def put(self, key: str, content: bytes, content_type: str) -> None: ...
+>     @abstractmethod
+>     async def url_for(self, key: str) -> str: ...
+>     @abstractmethod
+>     async def exists(self, key: str) -> bool: ...
+>
+> class LocalStorage(BaseStorage):              # ← implementations must inherit
+>     async def put(self, key, content, content_type): ...
+>     async def url_for(self, key): ...
+>     async def exists(self, key): ...
+> ```
+>
+> The Protocol version achieves the same effect — declare the three methods every storage backend must support, get static-type-checking that catches mismatched signatures — but does it differently. Three concrete differences tip the choice toward `Protocol` here.
+>
+> **1. ABCs are *nominal*; Protocols are *structural*.** A nominal type system says "you ARE a `BaseStorage` only if you explicitly inherit from `BaseStorage`." A structural one says "you ARE a `Storage` if you happen to have these methods, regardless of your ancestry." Concretely, `LocalStorage` in this codebase does **not** start with `class LocalStorage(Storage):` — it just defines the three methods, and [`mypy --strict`](https://mypy-lang.org/) recognises it as a `Storage` automatically. A test double can satisfy the Protocol in five lines without inheriting from anything (this is the `FakeChatClient` shape from earlier in this post). The same idea exists in other languages: [Go interfaces](https://go.dev/tour/methods/9) are structural, [TypeScript interfaces](https://www.typescriptlang.org/docs/handbook/2/objects.html) are structural, [Java interfaces](https://docs.oracle.com/javase/tutorial/java/concepts/interface.html) are nominal — Python's `Protocol` is the structural option.
+>
+> **2. Imports flow only one way.** With an ABC, every implementation has to `import BaseStorage` to inherit from it. With a Protocol, **only the factory** (`clients/__init__.py`, which constructs instances and typehints the return value) imports `Storage`. The implementations don't. If you ever rename or delete the Protocol, only the factory breaks; the implementation files are untouched. That's a cleaner one-way arrow on the import graph, and it shows up as faster mypy runs (fewer files to recheck when the Protocol changes) and easier refactors.
+>
+> **3. Adapting third-party classes is free.** Suppose you wanted to use an existing third-party class — say a `boto3.S3.Bucket` instance — wherever your code expects a `Storage`. With an ABC, you'd have to write an adapter class that inherits from `BaseStorage` and delegates each call. With a Protocol, you don't strictly need a wrapper: if the third-party class already has matching method names, it *is* a `Storage` for type-checking purposes. (In practice, our `R2Storage` is still its own class because the method names and signatures don't align perfectly with `boto3` — but the type system isn't what forces that.)
+>
+> **When you'd still pick an ABC.** When the interface needs **shared implementation** — concrete default methods, shared `__init__` logic, validation code that every subclass should run. Protocols are pure shape; they can't ship executable method bodies. None of the Protocols in this project need shared behavior — every implementation's body is genuinely different (HTTP for Ollama, in-process PyTorch for sentence-transformers; filesystem for `LocalStorage`, S3 API for `R2Storage`). So Protocol wins. If a future Protocol needs shared helpers, the move is to add a separate mixin class or a free function, not to convert to an ABC.
 
 ### `LocalStorage`, with every line justified
 
