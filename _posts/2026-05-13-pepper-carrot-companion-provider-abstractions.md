@@ -661,6 +661,26 @@ A method and two read-only properties. Three small design notes:
 
 - **Batch by default.** `embed_batch(texts: list[str])` not `embed(text: str)`. Embedding models are *much* faster on a batch than on `N` single calls — the GPU/CPU spends most of its time on per-call overhead otherwise. Even Ollama's HTTP endpoint accepts a batch. We don't expose a single-text convenience method on the Protocol; if you only have one string, pass `[text]` and unpack the single result. One method, no overlap.
 - **`dimension` is a property, not a method.** It's a static fact about the model, not a question that needs an `await`. Implementations cache it after first probe.
+
+  > *Plain-English aside: what's `@property`?* `@property` is a [decorator](https://docs.python.org/3/glossary.html#term-decorator) that turns a method into something callers read like an attribute — **no parentheses needed at the call site**. The same getter code runs underneath; the call just looks like a plain field access. Quick example:
+  >
+  > ```python
+  > class Page:
+  >     def __init__(self, width: int, height: int) -> None:
+  >         self.width = width
+  >         self.height = height
+  >
+  >     @property
+  >     def aspect_ratio(self) -> float:
+  >         return self.width / self.height
+  >
+  > page = Page(width=1920, height=1080)
+  > page.aspect_ratio         # → 1.777...   (no parens — that's the point)
+  > page.width                # → 1920       (a regular attribute)
+  > page.aspect_ratio()       # → TypeError: 'float' object is not callable
+  > ```
+  >
+  > Properties fit values that are conceptually *facts* (not actions), that might be cached or computed on demand, and that callers shouldn't *set* directly. `dimension` ticks all three boxes: it's a fact about the embedding model (1024 for bge-m3, always), it's cached after the first probe, and `client.dimension = 768` would be nonsense — the model is what determines the number, not the caller. By contrast, `embed_batch` stays a method because it's an *action*: it takes arguments, does work, and the answer depends on what you ask. Methods get parentheses; properties don't.
 - **`model_name` exists so ChromaDB can tag collections.** If you re-ingest with a different embedding model, you don't want the new vectors silently mixed in with the old ones — they're [literally incompatible](https://github.com/chroma-core/chroma/blob/main/docs/docs/architecture/embeddings.md) (different dimensions, different similarity structure). Collections in Chroma are named like `pages_v1_bge-m3`; flipping models means flipping the version suffix, which forces a full re-embed.
 
 ### `OllamaEmbeddingClient` — the project default
