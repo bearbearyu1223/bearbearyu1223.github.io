@@ -54,7 +54,7 @@ seams.
 
 ## The Rule, in One Sentence {#the-rule}
 
-The project's [`CLAUDE.md`](https://docs.claude.com/en/docs/claude-code/memory) — the file every contributor (human or AI) reads first — states the rule plainly:
+The project's [`CLAUDE.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/CLAUDE.md) — the file every contributor (human or AI) reads first — states the rule plainly:
 
 > **Never import `anthropic`, `openai`, `chromadb`, `boto3`, or `ollama` SDKs directly outside of `backend/app/clients/`. Every external service goes through an interface. This is what makes local→cloud migration trivial.**
 
@@ -899,7 +899,7 @@ And the storage smoke test you ran earlier — `curl http://localhost:8000/image
 
 ## The Discipline That Makes This Work {#discipline}
 
-The abstraction is cheap to write. Keeping it cheap to *use* across the rest of the project requires a small amount of ongoing discipline. Four rules that the project's [`CLAUDE.md`](https://docs.claude.com/en/docs/claude-code/memory) captures explicitly, and which I'd suggest stealing for your own work:
+The abstraction is cheap to write. Keeping it cheap to *use* across the rest of the project requires a small amount of ongoing discipline. Four rules that the project's [`CLAUDE.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/CLAUDE.md) captures explicitly, and which I'd suggest stealing for your own work:
 
 **1. SDK imports stay in `clients/`.** No `import anthropic` in a route handler. No `import httpx` outside `clients/` *unless* it's for something genuinely client-agnostic (like a webhook caller). If a route needs Anthropic-specific behavior, extend the `ChatClient` Protocol with an optional parameter and have the Ollama side no-op it. The instinct to reach for the SDK directly when a feature seems specific to one provider is the bug — every such case is an invitation to extend the Protocol.
 
