@@ -360,7 +360,49 @@ Three methods, each chosen because *both* backends need to do them and *neither*
 >
 > **When you'd still pick an ABC.** When the interface needs **shared implementation** — concrete default methods, shared `__init__` logic, validation code that every subclass should run. Protocols are pure shape; they can't ship executable method bodies. None of the Protocols in this project need shared behavior — every implementation's body is genuinely different (HTTP for Ollama, in-process PyTorch for sentence-transformers; filesystem for `LocalStorage`, S3 API for `R2Storage`). So Protocol wins. If a future Protocol needs shared helpers, the move is to add a separate **mixin** class or a free function, not to convert to an ABC.
 >
-> *Mixin in one paragraph.* A **mixin** is a small class designed to be inherited *alongside* a "main" class purely to add one or two reusable methods — no contract to enforce, no instances of its own, often no `__init__`. It's a Python idiom for "I have helper methods I want to share across these three classes; let me bundle them into a class they can all inherit from." A concrete example from this codebase that *would* fit: both `OllamaChatClient` and `AnthropicChatClient` have a similar "fetch an image URL, return base64 bytes" helper (`_image_url_to_b64` and `_image_url_to_b64_source`). If those grew enough to be worth sharing, the move would be `class Base64ImageMixin: async def _fetch_image_b64(...): ...`, then `class OllamaChatClient(Base64ImageMixin): ...` and `class AnthropicChatClient(Base64ImageMixin): ...`. The `ChatClient` Protocol itself wouldn't change — the mixin is for *implementations to share code*, not for *callers to depend on*. Today the duplication is small enough that it's not worth it; the point is just that the option exists and doesn't require flipping to an ABC.
+> *Mixin in one paragraph.* A **mixin** is a small class designed to be inherited *alongside* a "main" class purely to add one or two reusable methods — no contract to enforce, no instances of its own, often no `__init__`. It's a Python idiom for "I have helper methods I want to share across these three classes; let me bundle them into a class they can all inherit from."
+>
+> Here's the shape, using a small example loosely sketched from this codebase. Both `OllamaChatClient` and `AnthropicChatClient` need to fetch image bytes from a URL and base64-encode them for the model's wire format. If we wanted to share that helper instead of duplicating it, we'd write a mixin:
+>
+> ```python
+> import base64
+> import httpx
+>
+> class Base64ImageMixin:
+>     """A pure-helper class. Never instantiated on its own —
+>     only inherited alongside another class to share this one method."""
+>
+>     async def _fetch_image_b64(
+>         self, url: str, http: httpx.AsyncClient
+>     ) -> str:
+>         response = await http.get(url)
+>         response.raise_for_status()
+>         return base64.b64encode(response.content).decode("ascii")
+>
+>
+> class OllamaChatClient(Base64ImageMixin):          # inherits _fetch_image_b64
+>     async def stream(self, system, messages, max_tokens=1024):
+>         async with httpx.AsyncClient() as http:
+>             ...
+>             b64 = await self._fetch_image_b64(image_url, http)  # ← shared
+>             ...
+>
+>
+> class AnthropicChatClient(Base64ImageMixin):       # also inherits it
+>     async def stream(self, system, messages, max_tokens=1024):
+>         async with httpx.AsyncClient() as http:
+>             ...
+>             b64 = await self._fetch_image_b64(image_url, http)  # ← same shared
+>             ...
+> ```
+>
+> Three things to notice:
+>
+> - **`Base64ImageMixin` has no `__init__` and isn't a Protocol or ABC.** It's just a class with one method. You never write `Base64ImageMixin()` to construct one — it exists only to be a parent.
+> - **Both clients inherit from it,** so `self._fetch_image_b64(...)` is available inside either client's methods. The underscore prefix is a Python convention for "this is for internal use" — the mixin is sharing *implementation*, not *public API*.
+> - **The `ChatClient` Protocol doesn't change.** Callers still see a `ChatClient` with `stream()` and `complete()`. Whether an implementation got `_fetch_image_b64` via inheritance, copy-paste, or magic is not the caller's business. *Mixin shares code among implementations; Protocol declares contract to callers.* Different jobs.
+>
+> Today the actual codebase duplicates the helper (it's small, the two clients diverge enough that combining them would muddy more than it shares) — but if the helper ever grew, the mixin is the right escape hatch. **The point is that "use a mixin" is a much smaller, more focused move than "convert the Protocol to an ABC and add a default method body."**
 
 ### `LocalStorage`, with every line justified
 
