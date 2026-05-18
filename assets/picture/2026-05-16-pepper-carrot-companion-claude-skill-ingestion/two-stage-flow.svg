@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 580" role="img"
+     aria-label="Two-stage ingestion flow. Stage 1: image goes into a Claude Code session with the ingest-from-images skill loaded; Claude reads the image and writes a sibling JSON file. Stage 2: the Python pipeline (ingest.py) reads both the image and the JSON, then writes to LocalStorage, Postgres, and ChromaDB."
+     style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;">
+  <defs>
+    <marker id="ing-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <!-- White background so it looks right on dark themes / opened standalone -->
+  <rect width="960" height="580" fill="#ffffff"/>
+
+  <!-- Stage labels -->
+  <text x="220" y="30" text-anchor="middle" font-size="13" font-weight="700" fill="#475569" letter-spacing="0.05em">STAGE 1</text>
+  <text x="220" y="48" text-anchor="middle" font-size="11" fill="#94a3b8" font-style="italic">interactive Claude Code session · ~5–15 min · $0</text>
+  <text x="730" y="30" text-anchor="middle" font-size="13" font-weight="700" fill="#475569" letter-spacing="0.05em">STAGE 2</text>
+  <text x="730" y="48" text-anchor="middle" font-size="11" fill="#94a3b8" font-style="italic">Python script · ~30–60 sec · $0</text>
+
+  <line x1="475" y1="20" x2="475" y2="540" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="4,4"/>
+
+  <!-- Stage 1 box -->
+  <g>
+    <rect x="80" y="70" width="280" height="68" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="220" y="95" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">page_001.jpg on disk</text>
+    <text x="220" y="115" text-anchor="middle" font-size="10" fill="#475569" font-style="italic"
+          font-family="ui-monospace, 'SF Mono', Menlo, Monaco, monospace">data/raw/ep01-potion-of-flight/pages/</text>
+    <text x="220" y="129" text-anchor="middle" font-size="10" fill="#94a3b8" font-style="italic">(downloaded by acquire.py, Post 2)</text>
+  </g>
+
+  <!-- Arrow down to Claude session -->
+  <line x1="220" y1="138" x2="220" y2="178" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ing-arrow)"/>
+  <text x="230" y="162" font-size="10" fill="#475569"
+        font-family="ui-monospace, 'SF Mono', Menlo, Monaco, monospace">Read tool</text>
+
+  <!-- Claude Code session box -->
+  <g>
+    <rect x="60" y="180" width="320" height="120" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="220" y="204" text-anchor="middle" font-size="14" font-weight="600" fill="#1f2937">Claude Code session</text>
+    <text x="220" y="222" text-anchor="middle" font-size="11" fill="#1e40af">+ ingest-from-images skill loaded</text>
+    <text x="220" y="244" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">Claude reads the image,</text>
+    <text x="220" y="258" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">composes a `PageDescription` matching</text>
+    <text x="220" y="272" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">the strict schema, repeats per page.</text>
+    <text x="220" y="290" text-anchor="middle" font-size="10" fill="#94a3b8" font-style="italic">Same model as Anthropic vision API.</text>
+  </g>
+
+  <!-- Arrow down to JSON -->
+  <line x1="220" y1="300" x2="220" y2="340" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ing-arrow)"/>
+  <text x="230" y="324" font-size="10" fill="#475569"
+        font-family="ui-monospace, 'SF Mono', Menlo, Monaco, monospace">Write tool</text>
+
+  <!-- JSON file box -->
+  <g>
+    <rect x="80" y="342" width="280" height="68" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+    <text x="220" y="367" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">page_001.json on disk</text>
+    <text x="220" y="387" text-anchor="middle" font-size="10" fill="#065f46" font-style="italic">structured PageDescription</text>
+    <text x="220" y="401" text-anchor="middle" font-size="10" fill="#475569"
+          font-style="italic" font-family="ui-monospace, 'SF Mono', Menlo, Monaco, monospace">(sibling of page_001.jpg)</text>
+  </g>
+
+  <!-- Stage 1 → Stage 2 hand-off arrow (curves right) -->
+  <path d="M 360 376 Q 475 376 475 305 Q 475 235 590 235" stroke="#6b7280" stroke-width="1.5" fill="none" stroke-dasharray="6,4" marker-end="url(#ing-arrow)"/>
+  <text x="475" y="265" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">JSON + JPG</text>
+  <text x="475" y="278" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">both on disk</text>
+
+  <!-- Stage 2 box: ingest.py -->
+  <g>
+    <rect x="590" y="180" width="320" height="160" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="750" y="204" text-anchor="middle" font-size="14" font-weight="600" fill="#1f2937">ingestion/ingest.py</text>
+    <text x="750" y="222" text-anchor="middle" font-size="11" fill="#1e40af">Python pipeline · per-page loop</text>
+    <text x="750" y="246" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">1. Pillow image variants (1600 / 300 / orig)</text>
+    <text x="750" y="260" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">2. storage.put → display / thumb / original keys</text>
+    <text x="750" y="274" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">3. JsonFileVisionClient reads sibling .json</text>
+    <text x="750" y="288" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">4. upsert_page() + link_page_characters()</text>
+    <text x="750" y="302" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">5. commit (per-page)</text>
+    <text x="750" y="320" text-anchor="middle" font-size="10" fill="#94a3b8" font-style="italic">After loop: plot_summary + Chroma embeds</text>
+  </g>
+
+  <!-- Three output arrows fanning out from Stage 2 -->
+  <line x1="640" y1="340" x2="610" y2="408" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ing-arrow)"/>
+  <line x1="750" y1="340" x2="750" y2="408" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ing-arrow)"/>
+  <line x1="860" y1="340" x2="890" y2="408" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ing-arrow)"/>
+
+  <!-- Output 1: LocalStorage -->
+  <g>
+    <rect x="510" y="410" width="180" height="72" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="600" y="434" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2937">LocalStorage</text>
+    <text x="600" y="452" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">data/images/episodes/…</text>
+    <text x="600" y="468" text-anchor="middle" font-size="10" fill="#92400e">display / thumb / original</text>
+  </g>
+
+  <!-- Output 2: Postgres -->
+  <g>
+    <rect x="660" y="410" width="180" height="72" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="750" y="434" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2937">PostgreSQL</text>
+    <text x="750" y="452" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">pages · page_characters</text>
+    <text x="750" y="468" text-anchor="middle" font-size="10" fill="#92400e">+ episodes.plot_summary</text>
+  </g>
+
+  <!-- Output 3: ChromaDB -->
+  <g>
+    <rect x="810" y="410" width="140" height="72" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="880" y="434" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2937">ChromaDB</text>
+    <text x="880" y="452" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">pages_v1 collection</text>
+    <text x="880" y="468" text-anchor="middle" font-size="10" fill="#92400e">N embedded chunks</text>
+  </g>
+
+  <!-- Legend -->
+  <g>
+    <rect x="80" y="510" width="16" height="14" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+    <text x="104" y="522" font-size="11" fill="#4b5563">on disk / external store</text>
+    <rect x="270" y="510" width="16" height="14" fill="#dbeafe" stroke="#2563eb" stroke-width="1"/>
+    <text x="294" y="522" font-size="11" fill="#4b5563">code · process</text>
+    <rect x="430" y="510" width="16" height="14" fill="#d1fae5" stroke="#059669" stroke-width="1"/>
+    <text x="454" y="522" font-size="11" fill="#4b5563">artifact produced by Stage 1</text>
+    <line x1="660" y1="517" x2="710" y2="517" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="6,4"/>
+    <text x="718" y="522" font-size="11" fill="#4b5563">handoff between stages</text>
+  </g>
+</svg>
