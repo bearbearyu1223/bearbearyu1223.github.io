@@ -106,7 +106,7 @@ All four should print a version string. If any errors, fix that one before movin
 Before any `cd backend` or `cp .env.example .env`, a one-screen orientation to what's on disk. From the next section onward, the post will start `cd`-ing into specific subdirectories and editing specific files — and that's a lot less confusing once you've seen the whole layout once.
 
 ```
-peppercarrot-companion/
+pepper-carrot-companion-workshop/
 ├── docker-compose.yml            ← Postgres container definition (this post)
 ├── .env.example                  ← copy to .env, fill in (this post)
 ├── README.md                     ← human-facing setup guide

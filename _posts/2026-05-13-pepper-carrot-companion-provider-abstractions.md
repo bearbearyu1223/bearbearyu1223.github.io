@@ -34,6 +34,8 @@ seams.
 > - The workshop from [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}) up and green: Postgres healthy in Docker, `ollama serve` running with `qwen2.5:7b` and `bge-m3` pulled, `uv run mypy app/` and `uv run ruff check app/` both clean, and a copy of `.env.example` sitting at `.env`.
 > - No new tools to install. We're spending this post entirely inside `backend/app/clients/`.
 
+> **About the repo URL.** The code in this post lives in the same workshop starter that backs [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}): <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>. The three Protocols (`backend/app/clients/storage.py`, `embedding.py`, `chat.py`), the factory in `backend/app/clients/__init__.py`, the typed `Settings` in `backend/app/config.py`, and the smoke tests in `backend/tests/` are all there — clone it once and every command in this post resolves against the same tree. (The starter also includes `vision.py`, the fourth Protocol, used by [Post 4]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %})'s skill-based ingestion path.) The full project repository — frontend, chat orchestrator, world-graph overlay, cloud deploy — goes up alongside the deploy guide in Post 10.
+
 ---
 
 ## Table of Contents
