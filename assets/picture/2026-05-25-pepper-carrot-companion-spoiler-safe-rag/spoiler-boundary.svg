@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 560" role="img"
+     aria-label="The spoiler boundary. The user message flows into the EmbeddingClient to become a query vector — it decides what gets ranked. The session's current_page flows into RetrievalService._spoiler_filter to become a Chroma where clause — it decides what is allowed to come back. Both meet at the ChromaDB pages_v1 query; the where clause gates candidates to pages the reader has already read before cosine ranking. Chroma returns only those ids, which the orchestrator turns into text from Postgres, a prompt, and a model answer. The message can change the ranking but never the eligible set."
+     style="display: block; width: 100%; height: auto; max-width: 1180px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;">
+  <defs>
+    <marker id="rag-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <!-- Punchline -->
+  <text x="590" y="26" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">The message decides what gets ranked.</text>
+  <text x="590" y="46" text-anchor="middle" font-size="13" font-weight="600" fill="#b45309">The reader's saved position decides what's allowed back.</text>
+
+  <!-- Message path -->
+  <g>
+    <rect x="40" y="78" width="230" height="84" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="155" y="106" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">User message</text>
+    <text x="155" y="126" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">"…the ending?"</text>
+    <text x="155" y="147" text-anchor="middle" font-size="9" fill="#94a3b8"
+          font-family="ui-monospace, 'SF Mono', Menlo, Monaco, monospace">POST /sessions/{id}/messages</text>
+  </g>
+
+  <line x1="270" y1="120" x2="358" y2="120" stroke="#6b7280" stroke-width="1.5" marker-end="url(#rag-arrow)"/>
+
+  <g>
+    <rect x="360" y="78" width="210" height="84" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+    <text x="465" y="106" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">EmbeddingClient</text>
+    <text x="465" y="126" text-anchor="middle" font-size="10" fill="#065f46" font-style="italic">embed_batch(message)</text>
+    <text x="465" y="147" text-anchor="middle" font-size="10" fill="#475569"
+          font-family="ui-monospace, 'SF Mono', Menlo, Monaco, monospace">→ query vector</text>
+  </g>
+
+  <line x1="570" y1="130" x2="658" y2="210" stroke="#6b7280" stroke-width="1.5" marker-end="url(#rag-arrow)"/>
+
+  <!-- Boundary path -->
+  <g>
+    <rect x="40" y="392" width="230" height="92" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="155" y="420" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">chat_sessions</text>
+    <text x="155" y="441" text-anchor="middle" font-size="10" fill="#92400e"
+          font-family="ui-monospace, 'SF Mono', Menlo, Monaco, monospace">current_page = 3</text>
+    <text x="155" y="462" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">server-side reading progress</text>
+  </g>
+
+  <line x1="270" y1="438" x2="358" y2="438" stroke="#6b7280" stroke-width="1.5" marker-end="url(#rag-arrow)"/>
+
+  <g>
+    <rect x="360" y="392" width="210" height="92" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="465" y="420" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2937">_spoiler_filter()</text>
+    <text x="465" y="441" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">builds the where clause</text>
+    <text x="465" y="462" text-anchor="middle" font-size="9" fill="#1e40af"
+          font-family="ui-monospace, 'SF Mono', Menlo, Monaco, monospace">ep&lt;E ∨ (ep=E ∧ pg&lt;P)</text>
+  </g>
+
+  <line x1="570" y1="430" x2="658" y2="330" stroke="#6b7280" stroke-width="1.5" marker-end="url(#rag-arrow)"/>
+
+  <!-- Chroma -->
+  <g>
+    <rect x="660" y="190" width="250" height="170" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="785" y="220" text-anchor="middle" font-size="14" font-weight="600" fill="#1f2937">ChromaDB · pages_v1</text>
+    <text x="785" y="246" text-anchor="middle" font-size="10" fill="#475569"
+          font-family="ui-monospace, 'SF Mono', Menlo, Monaco, monospace">collection.query(</text>
+    <text x="785" y="264" text-anchor="middle" font-size="10" fill="#475569"
+          font-family="ui-monospace, 'SF Mono', Menlo, Monaco, monospace">  query_embeddings=[vec],</text>
+    <text x="785" y="282" text-anchor="middle" font-size="10" fill="#475569"
+          font-family="ui-monospace, 'SF Mono', Menlo, Monaco, monospace">  where=clause)</text>
+    <text x="785" y="312" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">cosine top-k, gated by where</text>
+    <text x="785" y="336" text-anchor="middle" font-size="11" font-weight="600" fill="#92400e">→ only pages already read</text>
+  </g>
+
+  <line x1="910" y1="265" x2="968" y2="265" stroke="#6b7280" stroke-width="1.5" marker-end="url(#rag-arrow)"/>
+  <text x="939" y="253" text-anchor="middle" font-size="9" fill="#94a3b8" font-style="italic">ids</text>
+
+  <!-- Orchestrator tail -->
+  <g>
+    <rect x="970" y="198" width="180" height="134" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="1060" y="224" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2937">ChatOrchestrator</text>
+    <text x="1060" y="250" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">fetch text from Postgres</text>
+    <text x="1060" y="270" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">assemble the prompt</text>
+    <text x="1060" y="290" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">ChatClient.complete()</text>
+    <text x="1060" y="314" text-anchor="middle" font-size="11" font-weight="600" fill="#1e40af">→ grounded answer</text>
+  </g>
+
+  <!-- Legend -->
+  <g>
+    <rect x="40" y="508" width="14" height="12" fill="#dbeafe" stroke="#2563eb" stroke-width="1"/>
+    <text x="60" y="519" font-size="11" fill="#4b5563">code / process</text>
+    <rect x="210" y="508" width="14" height="12" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+    <text x="230" y="519" font-size="11" fill="#4b5563">on disk / external store</text>
+    <rect x="420" y="508" width="14" height="12" fill="#d1fae5" stroke="#059669" stroke-width="1"/>
+    <text x="440" y="519" font-size="11" fill="#4b5563">provider abstraction (Protocol)</text>
+  </g>
+</svg>
