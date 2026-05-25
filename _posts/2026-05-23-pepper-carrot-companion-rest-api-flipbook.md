@@ -31,6 +31,8 @@ Post 5 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pep
 > - No new external services. Everything in this post runs against the same local stack you already have.
 
 > **About the repo URL.** The backend additions (`backend/app/api/episodes.py`, the response models, the smoke tests) plus the entire `frontend/` directory live in the same workshop starter that backed [Posts 2–4](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop). Pull the latest to pick up Post 5's additions. The full project repository — chat orchestrator, world-graph overlay, cloud deploy — still goes up alongside the deploy guide in Post 10.
+>
+> **Checking out the code.** This post's end-state is tagged [`post-5`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/tree/post-5) — `git checkout post-5` gives you exactly this checkpoint. Each later post adds its own tag (`post-6`, `post-7`, …); see the README's [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series).
 
 ---
 

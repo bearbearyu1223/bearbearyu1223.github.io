@@ -35,6 +35,8 @@ seams.
 > - No new tools to install. We're spending this post entirely inside `backend/app/clients/`.
 
 > **About the repo URL.** The code in this post lives in the same workshop starter that backs [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}): <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>. The three Protocols (`backend/app/clients/storage.py`, `embedding.py`, `chat.py`), the factory in `backend/app/clients/__init__.py`, the typed `Settings` in `backend/app/config.py`, and the smoke tests in `backend/tests/` are all there — clone it once and every command in this post resolves against the same tree. (The starter also includes `vision.py`, the fourth Protocol, used by [Post 4]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %})'s skill-based ingestion path.) The full project repository — frontend, chat orchestrator, world-graph overlay, cloud deploy — goes up alongside the deploy guide in Post 10.
+>
+> **Checking out the code.** The workshop is tagged from Post 5 onward; Posts 1–4 build toward that first checkpoint. To get a complete, working tree for everything through Post 5, run `git checkout post-5`. Each later post then adds its own tag (`post-6`, `post-7`, …) — see the README's [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series).
 
 ---
 

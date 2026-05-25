@@ -111,6 +111,12 @@ app where the AI is a *feature*, not the whole product.
 > full source and the cloud walkthrough land together rather than as a
 > half-explained skeleton. Each post in between is self-contained, with
 > the code inline and screenshots / GIFs of the running app.
+>
+> **Checking out the code.** The workshop starter is tagged from Post 5
+> onward; Posts 1–4 build toward that first checkpoint. `git checkout post-5`
+> gives you a complete, working tree for everything through Post 5, and each
+> later post adds its own tag (`post-6`, `post-7`, …). See the README's
+> [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series).
 
 ---
 

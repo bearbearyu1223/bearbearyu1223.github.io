@@ -151,6 +151,8 @@ Two things to take away from that tree:
 - **`data/` is gitignored — it's not part of the source.** It's a working directory each developer creates as they run the workshop. By the end of this post you'll have `./data/postgres/` (live Postgres data files), `./data/raw/ep01-potion-of-flight/` (one downloaded episode of comic source), and a placeholder for `./data/chroma/` that gets populated in Post 4.
 
 > **About the repo URL.** The code that backs this post (and Post 3) is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop> — a deliberately scoped workshop starter. Clone it and the tree above is exactly what you'll find on disk. The full project repository (frontend, chat orchestrator, world-graph, cloud deploy) goes up alongside the deploy guide in Post 10. Until then, the file paths in every later command (`backend/app/clients/`, `backend/app/db/models.py`, etc.) are the same paths in both the starter and the eventual full repo.
+>
+> **Checking out the code.** The workshop is tagged from Post 5 onward; Posts 1–4 build toward that first checkpoint. To get a complete, working tree for everything through Post 5, run `git checkout post-5`. Each later post then adds its own tag (`post-6`, `post-7`, …) — see the README's [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series).
 
 ---
 

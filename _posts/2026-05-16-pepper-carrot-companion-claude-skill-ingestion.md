@@ -32,6 +32,8 @@ Post 4 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pep
 > - Ollama running locally with `qwen2.5:7b` and `bge-m3` pulled (Post 2 step 2) — used by Stage 2 for the embeddings and the plot-summary call.
 
 > **About the repo URL.** The code in this post — the `ingest-from-images` skill at `.claude/skills/ingest-from-images/`, the Stage 2 pipeline at `ingestion/ingest.py`, and the `JsonFileVisionClient` at `backend/app/clients/vision.py` — lives in the same workshop starter that backed [Posts 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}) and [3]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}): <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>. Pull the latest to pick up Post 4's additions. The full project repository — frontend, chat orchestrator, world-graph overlay, cloud deploy — lands alongside the deploy guide in Post 10.
+>
+> **Checking out the code.** The workshop is tagged from Post 5 onward; Posts 1–4 build toward that first checkpoint. To get a complete, working tree for everything through Post 5, run `git checkout post-5`. Each later post then adds its own tag (`post-6`, `post-7`, …) — see the README's [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series).
 
 ---
 
