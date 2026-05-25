@@ -107,7 +107,7 @@ uv run uvicorn app.main:app --reload
 SID=$(curl -s -X POST localhost:8000/api/sessions \
   -H 'content-type: application/json' \
   -d '{"episode_slug":"ep01-potion-of-flight"}' \
-  | python -c 'import sys, json; print(json.load(sys.stdin)["session_id"])')
+  | python3 -c 'import sys, json; print(json.load(sys.stdin)["session_id"])')
 
 # Tell the server the reader has flipped to page 3:
 curl -s -X PATCH localhost:8000/api/sessions/$SID \
@@ -118,7 +118,7 @@ curl -s -X PATCH localhost:8000/api/sessions/$SID \
 curl -s -X POST localhost:8000/api/sessions/$SID/messages \
   -H 'content-type: application/json' \
   -d '{"message":"who is on this page and what are they doing?"}' \
-  | python -m json.tool
+  | python3 -m json.tool
 ```
 
 The answer comes back as JSON — text plus an audit trail of which chunks grounded it:

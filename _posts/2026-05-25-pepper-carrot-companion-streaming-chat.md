@@ -122,7 +122,7 @@ Prefer the terminal? The same endpoint is Server-Sent Events — `-N` keeps `cur
 ```bash
 SID=$(curl -s -X POST localhost:8000/api/sessions -H 'content-type: application/json' \
   -d '{"episode_slug":"ep01-potion-of-flight"}' \
-  | python -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
 curl -s -X PATCH localhost:8000/api/sessions/$SID -H 'content-type: application/json' \
   -d '{"current_page":3}'
 curl -N -X POST localhost:8000/api/sessions/$SID/messages -H 'content-type: application/json' \
@@ -145,7 +145,7 @@ It's also an **audit trail you can inspect**, which is how you verify the dual-c
 # Reusing $SID from above (still on page 3), capture just the `done` frame:
 curl -sN -X POST localhost:8000/api/sessions/$SID/messages -H 'content-type: application/json' \
   -d '{"mode":"page","message":"who is on this page and what are they doing?"}' \
-  | grep '^data: {"message_id"' | sed 's/^data: //' | python -m json.tool
+  | grep '^data: {"message_id"' | sed 's/^data: //' | python3 -m json.tool
 # {
 #   "message_id": "…",
 #   "retrieved_doc_ids": ["b97f2dc6-…", "7a586360-…"],
