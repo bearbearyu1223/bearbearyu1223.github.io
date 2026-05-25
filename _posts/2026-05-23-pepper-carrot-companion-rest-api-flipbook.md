@@ -51,7 +51,8 @@ Post 5 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pep
 13. [The Request, End to End](#end-to-end-diagram)
 14. [Running It on Your Laptop](#running-it)
 15. [Key Takeaways](#key-takeaways)
-16. [Appendix: How `Settings` Reads Your `.env`](#appendix-settings)
+16. [Appendix: A Tour of `selectinload` and `scalar_one_or_none()`](#appendix-sqlalchemy)
+17. [Appendix: How `Settings` Reads Your `.env`](#appendix-settings)
 
 ---
 
@@ -622,7 +623,7 @@ async def get_episode(slug: str, db: SessionDep, storage: StorageDep) -> Episode
 
 A few last points worth pulling out before we leave the backend:
 
-- **`selectinload(Episode.pages).selectinload(Page.characters)` is intentional.** Without it, SQLAlchemy's default async session would lazy-load `episode.pages` and `page.characters` mid-serialization, raising `MissingGreenlet` on the async path. Chained `selectinload` issues two extra `IN (...)` queries — one for the pages of the matched episode, one for the characters of those pages — eagerly, in the same database round-trip cycle as the parent. Three queries total instead of one-plus-N. The [SQLAlchemy docs](https://docs.sqlalchemy.org/en/20/orm/queryguide/relationships.html#sqlalchemy.orm.selectinload) cover the trade-offs against `joinedload` (which uses `LEFT OUTER JOIN`s and can balloon the result set on deep relationships); for one-to-many like this, `selectinload` is usually cheaper.
+- **`selectinload(Episode.pages).selectinload(Page.characters)` is intentional.** Without it, SQLAlchemy's default async session would lazy-load `episode.pages` and `page.characters` mid-serialization, raising `MissingGreenlet` on the async path. Chained `selectinload` issues two extra `IN (...)` queries — one for the pages of the matched episode, one for the characters of those pages — eagerly, in the same database round-trip cycle as the parent. Three queries total instead of one-plus-N. The [SQLAlchemy docs](https://docs.sqlalchemy.org/en/20/orm/queryguide/relationships.html#sqlalchemy.orm.selectinload) cover the trade-offs against `joinedload` (which uses `LEFT OUTER JOIN`s and can balloon the result set on deep relationships); for one-to-many like this, `selectinload` is usually cheaper. The whole N+1-problem story plus the `scalar_one_or_none()` companion call below is walked through from first principles in [§ Appendix: A Tour of `selectinload` and `scalar_one_or_none()`](#appendix-sqlalchemy) at the end of the post.
 - **The 404 path is explicit.** FastAPI doesn't infer "this might 404" from your code; you have to raise it. The error message is intentionally specific — passing the unknown slug back to the client makes debugging in the browser console less of a guessing game.
 - **The character roster is computed in Python, not SQL.** It would be marginally faster as a single CTE-with-DISTINCT — but at ≤10 characters per episode, the Python dedup loop is unambiguous to read in a code review and produces stable, alphabetized output for free.
 - **The mount path is `/api/episodes`, set in `main.py`** via `app.include_router(episodes.router, prefix="/api/episodes", tags=["episodes"])`. Inside the router file, route paths are written as `""` (list) and `"/{slug}"` (detail) — the prefix lives in one place, not duplicated on every decorator.
@@ -1264,6 +1265,200 @@ The **workshop starter** that backs this post is at <https://github.com/bearbear
 *Pepper & Carrot* is © [David Revoy](https://www.davidrevoy.com/), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). All credit to him for the source material that made this project possible.
 
 **All opinions expressed are my own.**
+
+---
+
+## Appendix: A Tour of `selectinload` and `scalar_one_or_none()` {#appendix-sqlalchemy}
+
+The `get_episode` handler walked past two SQLAlchemy idioms with one-line explanations in the main flow:
+
+- `selectinload(Episode.pages).selectinload(Page.characters)` — eager loading, chained two levels deep.
+- `(await db.execute(stmt)).scalar_one_or_none()` — extracting a single ORM object from the result.
+
+Both deserve more depth than a single bullet, because both are the right answer to questions that come up in every async-SQLAlchemy app. This appendix walks each one from first principles, then circles back to the exact line in `get_episode` so the connection is visible.
+
+### The N+1 problem (and why `selectinload` is the antidote)
+
+Suppose you fetch an episode and want to list its pages, with no eager-loading hint:
+
+```python
+result = await db.execute(select(Episode).where(Episode.slug == slug))
+episode = result.scalar_one_or_none()
+for page in episode.pages:     # ← what happens here?
+    print(page.page_number)
+```
+
+By default, SQLAlchemy is **lazy**: when you wrote `select(Episode)`, it ran one query for the episode. The `pages` relationship was not loaded. The moment your code touches `episode.pages`, SQLAlchemy thinks *"oh, you want pages now"* and fires another query: `SELECT * FROM pages WHERE episode_id = ?`.
+
+That's 2 queries for one episode. Annoying, but manageable. Now add characters:
+
+```python
+for page in episode.pages:            # 1 extra query to load pages
+    for char in page.characters:      # ← 1 extra query PER PAGE for characters
+        print(char.name)
+```
+
+If the episode has 10 pages, that's:
+
+- 1 query for the episode
+- 1 query for all the pages
+- **10 queries — one per page — for the characters**
+
+12 queries for one API request. Scale to 50 pages → 52 queries. **This is the N+1 problem**: 1 initial query, then N extra queries, one per parent row.
+
+In async mode it's even worse: SQLAlchemy's default lazy loading actually **raises an error** in an async session, because the implicit query would block the event loop. So you'd see a crash, not just slowness — which is the `MissingGreenlet` traceback a beginner hits the first time they reach for `episode.pages` inside an async handler without thinking about eager loading.
+
+`selectinload` tells SQLAlchemy: *"when you load these episodes, also load their pages — in a separate but bulk query."*
+
+```python
+stmt = select(Episode).options(selectinload(Episode.pages))
+```
+
+SQLAlchemy now runs:
+
+```sql
+-- Query 1: get the episode
+SELECT * FROM episodes WHERE slug = 'ep01-potion-of-flight';
+
+-- Query 2: get ALL pages for those episodes in one shot
+SELECT * FROM pages WHERE episode_id IN (<episode_id>);
+```
+
+**Two queries total, no matter how many pages.** The pages are pre-loaded and attached to `episode.pages` before your code ever touches them. No more lazy loading, no surprises. The name is literal: it loads related objects using a `SELECT … IN (…)` query.
+
+### Chaining for nested relationships
+
+Our handler has two levels of relationships: `Episode → Pages → Characters`. Pre-loading just pages isn't enough — characters would still N+1. So we chain:
+
+```python
+.options(selectinload(Episode.pages).selectinload(Page.characters))
+```
+
+Read this left-to-right: *"when loading episodes, eagerly load pages; **and** when loading those pages, eagerly load characters."*
+
+SQLAlchemy now runs **three queries total**:
+
+```sql
+-- Query 1: the episode
+SELECT * FROM episodes WHERE slug = 'ep01-potion-of-flight';
+
+-- Query 2: all pages for the episode
+SELECT * FROM pages WHERE episode_id IN (?);
+
+-- Query 3: all characters across all those pages
+SELECT * FROM characters
+JOIN page_characters ON ...
+WHERE page_characters.page_id IN (?, ?, ?, …);
+```
+
+Three queries instead of fifty-something. By the time your handler reaches `for page in episode.pages: for char in page.characters: …`, everything is already in memory. No more queries fire.
+
+### Why not just `JOIN` everything?
+
+There's a sibling strategy called `joinedload` that *does* use a SQL JOIN:
+
+```python
+.options(joinedload(Episode.pages))
+```
+
+This pulls episode + pages in one query with a `JOIN`. Sounds better, right? Fewer queries! But JOINs have a problem for collections: if an episode has 10 pages, the JOIN duplicates the episode row 10 times in the result set. With a second JOIN to characters, you get a **cartesian explosion** — 10 pages × 5 characters each = 50 rows where many fields repeat. SQLAlchemy deduplicates in Python, but you've still paid to transfer the redundant bytes over the wire.
+
+`selectinload` avoids this. Each table is queried separately and cleanly, with no row multiplication. For one-to-many and many-to-many relationships (like `Episode → Pages` and `Page ↔ Characters`), it's usually the right default.
+
+The rule of thumb:
+
+| Strategy | Best for | What it does |
+|---|---|---|
+| **`joinedload`** | `*-to-one` relationships (e.g., `Page → Episode`, where each page has exactly one episode) | One JOIN, no row duplication. |
+| **`selectinload`** | `*-to-many` relationships (e.g., `Episode → Pages`) | One extra `SELECT … IN (…)` per relationship level. Avoids cartesian blow-up. |
+
+Our handler uses `selectinload` for both hops because both are to-many: an episode has many pages, a page has many characters. (Reference: [SQLAlchemy loader-strategy docs](https://docs.sqlalchemy.org/en/20/orm/queryguide/relationships.html).)
+
+### What `scalar_one_or_none()` actually does
+
+The other piece of the handler:
+
+```python
+episode = (await db.execute(stmt)).scalar_one_or_none()
+```
+
+This method does three things at once: **pick the first column, expect at most one row, return `None` if there isn't one**. Let's unpack each.
+
+**`execute()` returns a `Result`, not the data.** When you run `await db.execute(stmt)`, you don't get rows directly — you get a `Result` object. Think of it as a cursor or iterator over the rows the database sent back. You then call a method on it to extract what you actually want:
+
+```python
+result = await db.execute(stmt)           # a Result object, not data
+episode = result.scalar_one_or_none()     # now you have the episode (or None)
+```
+
+Our code just chains these together: `(await db.execute(stmt)).scalar_one_or_none()`. Same thing, inline.
+
+**Decoding the name piece by piece.** The method name reads like three modifiers stacked together:
+
+- **`scalar`** — return just the *first column* of each row, not the whole row tuple. When you write `select(Episode)`, the result rows are technically tuples like `(Episode,)` — a one-element tuple containing the ORM object. `scalar` unwraps that tuple and gives you just the `Episode` directly. Without it you'd have to write `row[0]` everywhere.
+- **`one`** — expect *exactly one* row. If there are zero or many, raise an error.
+- **`or_none`** — modify "one" to allow zero. So now: expect zero or one row. Multiple rows still raise.
+
+Combine them and you get: *"give me the first column of the single row, or `None` if there's no row, but blow up if there are multiple rows."*
+
+### The whole `Result` method family
+
+SQLAlchemy has a matrix of these methods. The pattern is easier to remember once you see them together:
+
+| Method | Returns | Zero rows | One row | Many rows |
+|---|---|---|---|---|
+| `.scalar_one()` | the value | raises `NoResultFound` | returns it | raises `MultipleResultsFound` |
+| `.scalar_one_or_none()` | the value or `None` | returns `None` | returns it | raises `MultipleResultsFound` |
+| `.scalar()` | the value or `None` | returns `None` | returns it | returns the first (silently ignores the rest) |
+| `.scalars().all()` | `list` of values | `[]` | `[value]` | `[v1, v2, …]` |
+| `.scalars().first()` | the value or `None` | `None` | returns it | returns the first (silently ignores the rest) |
+| `.one()` | a `Row` tuple | raises | returns it | raises |
+| `.all()` | `list` of `Row` tuples | `[]` | one-element list | full list |
+
+Three distinctions worth flagging because they're the ones that catch beginners:
+
+- **`scalar_one_or_none` vs `scalar`** — both return `None` for zero rows, but `scalar_one_or_none` *raises* on multiple rows while `scalar` silently picks the first. The `_one` version is safer because it catches bugs (a `WHERE slug = ?` lookup should never return two rows; if it does, you want to know).
+- **`scalar_one_or_none` vs `scalar_one`** — the `_or_none` suffix turns "must exist" into "may not exist." Use `_or_none` when missing is a valid outcome (lookup by slug → 404 is fine). Use `scalar_one` when missing means something is broken (loading a record you just created and know exists).
+- **`scalar_one_or_none` vs `scalars().first()`** — both return one item or `None`, but `first()` silently truncates if there are many. `scalar_one_or_none` raises. Same safety story.
+
+### Why it's the right choice in `get_episode`
+
+```python
+stmt = (
+    select(Episode)
+    .where(Episode.slug == slug)
+    .options(selectinload(Episode.pages).selectinload(Page.characters))
+)
+episode = (await db.execute(stmt)).scalar_one_or_none()
+if episode is None:
+    raise HTTPException(status_code=404, detail=f"Episode '{slug}' not found")
+```
+
+The logic decomposes neatly:
+
+1. A slug lookup should return **at most one** episode. The `episodes.slug` column has a unique constraint (see [`docs/data-model.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/docs/data-model.md)), so two matches would be a data-integrity violation. `scalar_one_or_none` raises `MultipleResultsFound` if that ever happens — loud failure, easy to debug.
+2. Zero matches is **normal**. The user might request a slug that doesn't exist. That's a `404`, not a `500`. `_or_none` returns `None` instead of raising, and the next line handles it with a clean `HTTPException`.
+3. You want the **ORM object, not a tuple**. The `scalar` prefix unwraps `(Episode,)` to just `Episode`, so `episode.pages` works directly without `row[0].pages`.
+
+All three concerns are addressed by that one method call. **It's the precise tool for "look up a single record by a unique key."**
+
+### Mental model
+
+Lazy loading is like ordering food one bite at a time: ask for the salad, eat it, ask for the soup, eat it, ask for the main course. Many trips to the kitchen.
+
+`selectinload` is telling the waiter at the start: *"I want the full meal — bring it all out together."* A couple of trips to the kitchen at the start, then you eat at your own pace without interruption.
+
+For a web request that knows what data it needs, the second pattern is almost always what you want.
+
+And for `scalar_one_or_none` and its siblings, the mental model is just **say what you expect, and SQLAlchemy will enforce it**:
+
+| You expect... | Use |
+|---|---|
+| Exactly one row, must exist | `scalar_one()` |
+| Zero or one row, missing is OK | `scalar_one_or_none()` ← what `get_episode` does |
+| A list of rows | `scalars().all()` |
+
+Pick the method that matches your real expectation about the data, and SQLAlchemy will enforce it for you. Code that says what it means is code that fails loudly when the world doesn't match — which is exactly the kind of failure you want.
 
 ---
 
