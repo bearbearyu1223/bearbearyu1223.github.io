@@ -51,9 +51,10 @@ Post 5 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pep
 13. [The Request, End to End](#end-to-end-diagram)
 14. [Running It on Your Laptop](#running-it)
 15. [Key Takeaways](#key-takeaways)
-16. [Appendix: The `list_episodes` Query, Built Up Step by Step](#appendix-list-query)
-17. [Appendix: The `get_episode` Query — `selectinload` and `scalar_one_or_none()`](#appendix-sqlalchemy)
-18. [Appendix: How `Settings` Reads Your `.env`](#appendix-settings)
+16. [Appendix: Going Deeper](#appendix)
+    - [The `list_episodes` Query, Built Up Step by Step](#appendix-list-query)
+    - [The `get_episode` Query — `selectinload` and `scalar_one_or_none()`](#appendix-sqlalchemy)
+    - [How `Settings` Reads Your `.env`](#appendix-settings)
 
 ---
 
@@ -1269,7 +1270,11 @@ The **workshop starter** that backs this post is at <https://github.com/bearbear
 
 ---
 
-## Appendix: The `list_episodes` Query, Built Up Step by Step {#appendix-list-query}
+## Appendix: Going Deeper {#appendix}
+
+Three pieces of the code the main flow walked past with one-line bullets are worth a deeper look — two SQLAlchemy idioms (one per route handler) and the pydantic-settings machinery that loads `.env`. Each subsection below builds the concept from first principles, then circles back to the exact line in the workshop starter so the connection is visible.
+
+### The `list_episodes` Query, Built Up Step by Step {#appendix-list-query}
 
 The `list_episodes` handler builds one SQL statement that returns every episode along with how many pages each one has, sorted by episode number. The interesting part is *how* it computes the page count efficiently — using a subquery, an outer join, and `COALESCE` together. This appendix builds the query up the way the code does, then explains why it's shaped that way instead of a naive single-join.
 
@@ -1289,7 +1294,7 @@ stmt = (
 rows = (await db.execute(stmt)).all()
 ```
 
-### Stage 1: the subquery (counting pages per episode)
+#### Stage 1: the subquery (counting pages per episode)
 
 ```python
 page_counts = (
@@ -1325,7 +1330,7 @@ The result, conceptually, is a temporary table that looks like:
 
 Note one thing: **episodes with zero pages don't appear here at all.** If no `Page` row references an episode, that `episode_id` never enters the `GROUP BY`. This matters in a moment.
 
-### Stage 2: the main query (joining episodes against the counts)
+#### Stage 2: the main query (joining episodes against the counts)
 
 ```python
 stmt = (
@@ -1350,7 +1355,7 @@ ORDER BY episodes.episode_number ASC;
 
 Three things are happening here.
 
-#### The `outerjoin`
+##### The `outerjoin`
 
 ```python
 .outerjoin(page_counts, Episode.id == page_counts.c.episode_id)
@@ -1367,7 +1372,7 @@ The picker UI wants to show **all** episodes — including any that were just cr
 
 The `.c` in `page_counts.c.episode_id` means *"columns of this subquery."* When you turn a `select` into a subquery, you access its columns through `.c.<name>`.
 
-#### The `coalesce`
+##### The `coalesce`
 
 ```python
 func.coalesce(page_counts.c.page_count, 0).label("page_count")
@@ -1381,7 +1386,7 @@ Why this is needed: the outer join leaves `page_count` as `NULL` for any episode
 
 **The pair works together**: outer join keeps every episode in the result, `coalesce` converts the resulting `NULL`s to zeros.
 
-#### The `order_by`
+##### The `order_by`
 
 ```python
 .order_by(Episode.episode_number.asc())
@@ -1389,7 +1394,7 @@ Why this is needed: the outer join leaves `page_count` as `NULL` for any episode
 
 Sort the final result by `episode_number` ascending. Episode 1 first, then 2, then 3. Without this, the database can return rows in any order it likes — usually whatever's convenient for the storage engine. For a UI that displays episodes in narrative order, you need an explicit sort.
 
-### Stage 3: executing and unpacking
+#### Stage 3: executing and unpacking
 
 ```python
 rows = (await db.execute(stmt)).all()
@@ -1404,7 +1409,7 @@ for episode, page_count in rows:
 
 The tuple unpacking works because each `Row` behaves like a tuple. `episode` gets the full `Episode` ORM object (all its columns mapped to attributes), `page_count` gets the integer count.
 
-### Why a subquery instead of just joining `pages` directly?
+#### Why a subquery instead of just joining `pages` directly?
 
 This is the subtle bit. A natural-looking alternative would be:
 
@@ -1425,7 +1430,7 @@ This seems simpler — one query, no subquery. And it would work. But it has two
 
 The subquery approach computes the per-episode counts first (small result: one row per episode), then joins that compact summary to the `episodes` table. **Cleaner SQL, cleaner planner work**, and the main `select(Episode, ...)` doesn't need a `GROUP BY` at all because the join is one-to-one — each episode matches at most one row in `page_counts`.
 
-### The whole picture, in one mental snapshot
+#### The whole picture, in one mental snapshot
 
 ```text
 ┌─────────────────────────┐
@@ -1454,13 +1459,13 @@ The subquery approach computes the per-episode counts first (small result: one r
 
 One round trip to the database, all episodes returned with their page counts, zero counts handled correctly, results sorted.
 
-### The one-sentence version
+#### The one-sentence version
 
 Build a small `episode_id → page count` table with a `GROUP BY` subquery, left-join it onto `episodes` so every episode appears (even with zero pages), use `COALESCE` to turn the `NULL`s from that join into zeros, and order the result by episode number — all in one query.
 
 ---
 
-## Appendix: The `get_episode` Query — `selectinload` and `scalar_one_or_none()` {#appendix-sqlalchemy}
+### The `get_episode` Query — `selectinload` and `scalar_one_or_none()` {#appendix-sqlalchemy}
 
 The `get_episode` handler walked past two SQLAlchemy idioms with one-line explanations in the main flow:
 
@@ -1469,7 +1474,7 @@ The `get_episode` handler walked past two SQLAlchemy idioms with one-line explan
 
 Both deserve more depth than a single bullet, because both are the right answer to questions that come up in every async-SQLAlchemy app. This appendix walks each one from first principles, then circles back to the exact line in `get_episode` so the connection is visible.
 
-### The N+1 problem (and why `selectinload` is the antidote)
+#### The N+1 problem (and why `selectinload` is the antidote)
 
 Suppose you fetch an episode and want to list its pages, with no eager-loading hint:
 
@@ -1518,7 +1523,7 @@ SELECT * FROM pages WHERE episode_id IN (<episode_id>);
 
 **Two queries total, no matter how many pages.** The pages are pre-loaded and attached to `episode.pages` before your code ever touches them. No more lazy loading, no surprises. The name is literal: it loads related objects using a `SELECT … IN (…)` query.
 
-### Chaining for nested relationships
+#### Chaining for nested relationships
 
 Our handler has two levels of relationships: `Episode → Pages → Characters`. Pre-loading just pages isn't enough — characters would still N+1. So we chain:
 
@@ -1545,7 +1550,7 @@ WHERE page_characters.page_id IN (?, ?, ?, …);
 
 Three queries instead of fifty-something. By the time your handler reaches `for page in episode.pages: for char in page.characters: …`, everything is already in memory. No more queries fire.
 
-### Why not just `JOIN` everything?
+#### Why not just `JOIN` everything?
 
 There's a sibling strategy called `joinedload` that *does* use a SQL JOIN:
 
@@ -1566,7 +1571,7 @@ The rule of thumb:
 
 Our handler uses `selectinload` for both hops because both are to-many: an episode has many pages, a page has many characters. (Reference: [SQLAlchemy loader-strategy docs](https://docs.sqlalchemy.org/en/20/orm/queryguide/relationships.html).)
 
-### What `scalar_one_or_none()` actually does
+#### What `scalar_one_or_none()` actually does
 
 The other piece of the handler:
 
@@ -1593,7 +1598,7 @@ Our code just chains these together: `(await db.execute(stmt)).scalar_one_or_non
 
 Combine them and you get: *"give me the first column of the single row, or `None` if there's no row, but blow up if there are multiple rows."*
 
-### The whole `Result` method family
+#### The whole `Result` method family
 
 SQLAlchemy has a matrix of these methods. The pattern is easier to remember once you see them together:
 
@@ -1613,7 +1618,7 @@ Three distinctions worth flagging because they're the ones that catch beginners:
 - **`scalar_one_or_none` vs `scalar_one`** — the `_or_none` suffix turns "must exist" into "may not exist." Use `_or_none` when missing is a valid outcome (lookup by slug → 404 is fine). Use `scalar_one` when missing means something is broken (loading a record you just created and know exists).
 - **`scalar_one_or_none` vs `scalars().first()`** — both return one item or `None`, but `first()` silently truncates if there are many. `scalar_one_or_none` raises. Same safety story.
 
-### Why it's the right choice in `get_episode`
+#### Why it's the right choice in `get_episode`
 
 ```python
 stmt = (
@@ -1634,7 +1639,7 @@ The logic decomposes neatly:
 
 All three concerns are addressed by that one method call. **It's the precise tool for "look up a single record by a unique key."**
 
-### Mental model
+#### Mental model
 
 Lazy loading is like ordering food one bite at a time: ask for the salad, eat it, ask for the soup, eat it, ask for the main course. Many trips to the kitchen.
 
@@ -1654,11 +1659,11 @@ Pick the method that matches your real expectation about the data, and SQLAlchem
 
 ---
 
-## Appendix: How `Settings` Reads Your `.env` {#appendix-settings}
+### How `Settings` Reads Your `.env` {#appendix-settings}
 
 If you've been wondering how `settings.cors_origins` in `backend/app/main.py` ends up containing `["http://localhost:5173"]` without anyone explicitly opening a file or parsing anything, this appendix walks the chain. It's optional reading — every other post in the series uses `Settings` without needing this depth — but if you're new to [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) the magic can feel like, well, magic. The same questions resurface when an env-var change doesn't seem to take effect or when you want to know exactly what overrides what.
 
-### The class definition
+#### The class definition
 
 Here's the relevant excerpt from [`backend/app/config.py`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/backend/app/config.py):
 
@@ -1695,7 +1700,7 @@ Three things to notice before we get to the four `SettingsConfigDict` arguments:
 2. **`model_config` is a magic attribute name.** Pydantic v2's metaclass reads any class attribute named `model_config` at class-definition time to configure model behavior. **You never reference it from application code.** It's pydantic v2's replacement for the older `class Config:` inner class you might have seen in v1 tutorials — same idea, cleaner syntax.
 3. **Every field has a default.** That means `Settings()` works even with no `.env` file at all — it falls back to the in-code defaults. The `.env` file is an *override*, not a requirement. This is what lets a brand-new contributor `git clone` the repo and run `pytest` without touching anything.
 
-### The four `SettingsConfigDict` arguments, one by one
+#### The four `SettingsConfigDict` arguments, one by one
 
 Each argument configures one piece of load behavior. Removing any one of them breaks a specific thing — the table below pairs each with the concrete symptom of its absence.
 
@@ -1720,7 +1725,7 @@ print('postgres_host =', s.postgres_host)
 
 Flip back to `case_sensitive=False` and the value becomes `postgres` again.
 
-### Why the `_PROJECT_ROOT` anchoring matters
+#### Why the `_PROJECT_ROOT` anchoring matters
 
 This is subtle but important. `_PROJECT_ROOT = Path(__file__).resolve().parents[2]` computes the repo root from `config.py`'s own filesystem location — not from the current working directory. **The same code is imported from multiple working directories:**
 
@@ -1730,7 +1735,7 @@ This is subtle but important. `_PROJECT_ROOT = Path(__file__).resolve().parents[
 
 Without anchoring — i.e., if `env_file=".env"` were passed as a plain relative path — pydantic-settings would resolve it against whichever CWD was active when the process launched. Three different CWDs → three different effective `.env` paths → "why does the backend find my `.env` but the ingestion script doesn't?" three months from now. **Anchoring to `__file__`-derived path solves this once.** Every consumer of `Settings` sees the same single file.
 
-### The precedence chain
+#### The precedence chain
 
 When you call `Settings()` (or, more commonly, `get_settings()` which caches the result), pydantic-settings walks a fixed precedence order from highest to lowest:
 
@@ -1749,11 +1754,11 @@ POSTGRES_HOST=other-host uv run uvicorn app.main:app
 
 **The same chain governs production**, but the *source* shifts — rank 2 (`os.environ`) becomes where everything comes from, because containers don't typically ship a `.env` file. The next subsection unpacks that.
 
-### Where the values come from in production (Docker, Fly, Modal) {#prod-env-vars}
+#### Where the values come from in production (Docker, Fly, Modal) {#prod-env-vars}
 
 In local dev, `Settings` reads from your `.env` file at rank 3. In any containerized deployment, it usually doesn't — and the question that always comes up the first time you deploy is *"how does the container even get those env vars set?"* This subsection answers that.
 
-#### Two unrelated files share the name `.env`
+##### Two unrelated files share the name `.env`
 
 Before anything else: there are **two completely different `.env` mechanisms** in the world. They share a filename and nothing else.
 
@@ -1764,7 +1769,7 @@ Before anything else: there are **two completely different `.env` mechanisms** i
 
 These are unrelated. They sometimes contain different keys. People mix them up all the time. **For the rest of this subsection, `.env` means the pydantic-settings one.**
 
-#### How env vars get into a container
+##### How env vars get into a container
 
 Every Linux process inherits an `environ` block — a list of `KEY=VALUE` strings — from its parent. Docker is the parent of your container's main process (uvicorn for us), and it sets that block based on whichever mechanism you ask for:
 
@@ -1776,7 +1781,7 @@ Every Linux process inherits an `environ` block — a list of `KEY=VALUE` string
 
 All five end up in the same place: **`os.environ` inside the container**. From there, pydantic-settings finds them at rank 2 of the precedence chain.
 
-#### What goes inside the image, and what doesn't
+##### What goes inside the image, and what doesn't
 
 A reasonable production Dockerfile for this project looks roughly like:
 
@@ -1810,7 +1815,7 @@ The chain, redrawn for the two scenarios side by side:
 
 Same code, two different fill paths. That's the property that makes a `STORAGE_BACKEND=r2` change in one environment work without recompiling anything in another.
 
-#### Concrete example: this project on Fly.io
+##### Concrete example: this project on Fly.io
 
 When Post 10 sets up the Fly deploy (forthcoming — that post lands at the end of the series), the relevant ritual is roughly:
 
@@ -1837,11 +1842,11 @@ Fly stores those encrypted, and on every container boot it injects them as env v
 
 **No code in the workshop changes between dev and prod.** Only the *origin* of the values does. That's the property the [Post 3]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) `Storage` Protocol was designed to land cleanly.
 
-#### One non-obvious gotcha
+##### One non-obvious gotcha
 
 If you mistakenly `COPY .env /app/.env` into the production image *and* your orchestrator sets the same keys via secrets, both happen — but `os.environ` wins (rank 2 > rank 3 in the precedence chain). So nothing visibly breaks. But you've leaked the dev secrets into the image regardless, which is the real cost. **Pin the lesson: never bake secrets into an image layer. Use the orchestrator's secret-injection path instead.**
 
-### Inspecting a loaded `Settings` instance
+#### Inspecting a loaded `Settings` instance
 
 When you're debugging "why isn't my env var taking effect?", the fastest tool is `model_dump_json`:
 
@@ -1854,7 +1859,7 @@ print(get_settings().model_dump_json(indent=2))
 
 That dumps every field on `Settings` with its currently-loaded value, regardless of whether the value came from `.env`, an env var, or the in-code default. **If the value you see isn't what you expect, the env var didn't make it through one of the four layers above** — and looking at the precedence chain usually tells you which.
 
-### Where this shows up in the workshop
+#### Where this shows up in the workshop
 
 `get_settings()` is called in three places in the workshop starter:
 
