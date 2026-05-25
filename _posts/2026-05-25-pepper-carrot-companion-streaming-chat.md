@@ -107,44 +107,52 @@ cd frontend && npm install && npm run dev
 
 Open <http://localhost:5173>, pick Episode 1, and a **chat panel** sits beside the flipbook. Ask "who is on this page?" and the answer streams in word by word. Click **Ask the wiki** (or a wiki suggestion chip) to ask about Hereva's lore instead. Flip a page and the companion's context follows you.
 
-![Live recording of the reading companion: Episode 1 open on a two-page spread, asking "who is on this page and what are they doing?", with the answer streaming in token by token — covering both visible pages — followed by two mode-tagged suggestion chips. Click to enlarge.](/assets/picture/2026-05-25-pepper-carrot-companion-streaming-chat/chat-demo.gif){: width="720" .shadow }
-*The streaming chat panel, end to end. Tokens arrive live; the answer describes both pages of the visible spread (note the "On Page 2…" paragraph — that's the spread fix at work); and two follow-up chips, one page and one wiki, render below, each routing the next question through its own pipeline. (Click to enlarge.)*
+![Live recording of the reading companion. On the pages 1-2 spread the reader asks who's on both pages and the answer streams in with a section for each; then they flip to page 3 and ask "why is the cat flying?", and the answer explains the cause by drawing on the earlier pages. Click to enlarge.](/assets/picture/2026-05-25-pepper-carrot-companion-streaming-chat/chat-demo.gif){: width="720" .shadow }
+*The streaming chat panel, end to end. First on the two-page spread — the answer has an "On Page 1…" section and an "On Page 2…" section, because both are on screen. Then on page 3, "why is the cat flying?" reaches back to the earlier pages to explain the cause. Tokens arrive live; follow-up chips render below each answer. (Click to enlarge.)*
 
-The page-3 moment near the end of that clip is worth pausing on. The reader has flipped to page 3 — Carrot mid-race, a glowing flying cat — and asks who's on the page and what they're doing. A system that looked at page 3 alone could describe the scene, but this one explains *why* Carrot is suddenly airborne: he splashed himself with the potion of flight a couple of pages earlier. It can make that connection because the answer is grounded in **two kinds of context at once**:
+Two moments in that clip show the whole grounding design between them.
 
-- **The current page, fed directly.** Whatever the reader is looking at — a single page, or both pages of a spread — goes into the prompt verbatim. It isn't retrieved; it's simply *there*, because it's on screen.
-- **Earlier pages, retrieved.** The retrieval layer pulls the most relevant pages the reader has *already passed* — here, the brewing on page 1 and the splash on page 2 — and adds them under a "Reference context" heading. That's what lets the answer tie cause (the splash) to effect (the flight) without the reader spelling it out.
+**On the spread, the answer covers both pages.** The reader is on the pages 1-2 spread and asks who's on both pages; the reply streams back with a distinct *"On Page 1…"* section and an *"On Page 2…"* section. That's the spread behavior — whatever the reader can see goes into the prompt, so a two-page spread is described as two pages, not one.
 
-The model's reply reflects exactly that blend — it narrates page 3 ("a luminous flying cat, streaking ahead… *Happy?!*") while explaining the cause it could only know from the earlier pages ("he has accidentally splashed himself with a potion of flight during the race"). And the retrieved half stays **spoiler-bounded**: on page 3 it can reach pages 1–2, never page 4 and beyond. The current page is in the prompt because it's visible; the earlier pages are in the prompt because they're relevant *and* already read; future pages simply aren't in the candidate set. The boundary from [Post 6]({% post_url 2026-05-25-pepper-carrot-companion-spoiler-safe-rag %}) is still doing its job underneath the stream.
+**On page 3, the answer reaches back.** The reader flips to page 3 — Carrot now a glowing flying cat — and asks simply *"why is the cat flying?"* Page 3 alone can't answer that; the *cause* is two pages earlier. The reply explains it anyway, and it's explicit about where each piece comes from — it cites a *"Page 1 Context"* (Pepper brewing the potion), a *"Page 2 Context"* (Carrot splashing into the cauldron), and the *"Current Page (Page 3)"* (the flight itself). That's **two kinds of context working together**:
 
-Prefer the terminal? The same endpoint is Server-Sent Events — `-N` keeps `curl` from buffering, so you see the frames arrive:
+- **The current page, fed directly.** Whatever the reader is looking at — one page, or both pages of a spread — goes into the prompt verbatim. It isn't retrieved; it's simply *there*, because it's on screen.
+- **Earlier pages, retrieved.** The retrieval layer pulls the most relevant pages the reader has *already passed* — here, the brewing and the splash — and adds them under a "Reference context" heading, so the answer can tie cause to effect without the reader spelling it out.
+
+And the retrieved half stays **spoiler-bounded**: on page 3 it can reach pages 1-2, never page 4 and beyond. Future pages simply aren't in the candidate set — the boundary from [Post 6]({% post_url 2026-05-25-pepper-carrot-companion-spoiler-safe-rag %}) is still doing its job underneath the stream.
+
+### Validate it from the terminal
+
+You don't have to take the GIF's word for any of this. The chat endpoint is plain Server-Sent Events, so you can reproduce both moments with `curl` and then check exactly what grounded each answer with a couple of CLI tools. (`-N` stops `curl` buffering, so you watch the frames stream in.)
 
 ```bash
+# Open a session (it starts at page 1) and capture its id.
+# (No python? `... | jq -r .session_id` works too.)
 SID=$(curl -s -X POST localhost:8000/api/sessions -H 'content-type: application/json' \
   -d '{"episode_slug":"ep01-potion-of-flight"}' \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
+
+# Moment 1 — the two-page spread. spread:true tells the server both pages are
+# on screen, so the streamed answer has an "On Page 1:" and an "On Page 2:" part.
+curl -N -X POST localhost:8000/api/sessions/$SID/messages -H 'content-type: application/json' \
+  -d '{"mode":"page","spread":true,"message":"who is on page 1 and page 2 and what are they doing?"}'
+
+# Moment 2 — flip to page 3, then ask the "why" question.
 curl -s -X PATCH localhost:8000/api/sessions/$SID -H 'content-type: application/json' \
   -d '{"current_page":3}'
 curl -N -X POST localhost:8000/api/sessions/$SID/messages -H 'content-type: application/json' \
-  -d '{"mode":"page","message":"who is on this page?"}'
-# event: token
-# data: {"text": "On"}
-#
-# event: token
-# data: {"text": " this"}
-# ...
-# event: done
-# data: {"message_id": "...", "retrieved_doc_ids": ["..."], "suggestions": [{"mode": "page", ...}, {"mode": "wiki", ...}]}
+  -d '{"mode":"page","message":"why is the cat flying?"}'
+# event: token   data: {"text": "The"}
+# … the answer cites Page 1 / Page 2 / Current Page (Page 3) as it streams …
+# event: done    data: {"message_id":"…","retrieved_doc_ids":[…],"suggestions":[…]}
 ```
 
-That `done` frame is the whole post in miniature: the token stream finishes, and a separate `suggestions` payload — schema-checked on the server — comes back attached to it.
-
-It's also an **audit trail you can inspect**, which is how you verify the dual-context claim above without guessing. The `done` frame's `retrieved_doc_ids` are the exact chunks retrieval fed in as "Reference context"; pull them out and map them back to page numbers:
+That `done` frame is also an **audit trail**: its `retrieved_doc_ids` are the exact chunks retrieval fed in as "Reference context." To check what really grounded the page-3 answer — without taking the model's "Page 1 / Page 2" labels on faith — capture just that frame and map the ids back to page numbers:
 
 ```bash
-# Reusing $SID from above (still on page 3), capture just the `done` frame:
+# Reusing $SID (still on page 3), capture just the `done` frame:
 curl -sN -X POST localhost:8000/api/sessions/$SID/messages -H 'content-type: application/json' \
-  -d '{"mode":"page","message":"who is on this page and what are they doing?"}' \
+  -d '{"mode":"page","message":"why is the cat flying?"}' \
   | grep '^data: {"message_id"' | sed 's/^data: //' | python3 -m json.tool
 # {
 #   "message_id": "…",
