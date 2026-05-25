@@ -51,8 +51,9 @@ Post 5 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pep
 13. [The Request, End to End](#end-to-end-diagram)
 14. [Running It on Your Laptop](#running-it)
 15. [Key Takeaways](#key-takeaways)
-16. [Appendix: A Tour of `selectinload` and `scalar_one_or_none()`](#appendix-sqlalchemy)
-17. [Appendix: How `Settings` Reads Your `.env`](#appendix-settings)
+16. [Appendix: The `list_episodes` Query, Built Up Step by Step](#appendix-list-query)
+17. [Appendix: The `get_episode` Query — `selectinload` and `scalar_one_or_none()`](#appendix-sqlalchemy)
+18. [Appendix: How `Settings` Reads Your `.env`](#appendix-settings)
 
 ---
 
@@ -543,7 +544,7 @@ A few things to notice — and a couple are foundational enough that they deserv
 
 **The `Storage` Protocol is injected, not constructed.** The route's `storage` parameter is typed as `Storage` — the Protocol from `backend/app/clients/storage.py` — not as `LocalStorage`. The implementation is wired up by `get_storage_client`, which is itself a FastAPI dependency that reads `Settings` and asks the factory from [Post 3]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) for the configured backend. The handler never imports either concrete class. **The flip from local to R2 is, structurally, a single environment variable.** No code in this file changes.
 
-**The single SQL query computes `page_count` in the database.** A naive implementation would fetch episodes first, then loop `len(episode.pages)` — but that's an N+1 (one query for the episode list, one per episode to load pages). The `outerjoin + group_by + func.count(Page.id)` subquery produces one SQL statement that returns `(Episode, page_count)` tuples. For three episodes this is invisible; for 40 it's the difference between one query and 41.
+**The single SQL query computes `page_count` in the database.** A naive implementation would fetch episodes first, then loop `len(episode.pages)` — but that's an N+1 (one query for the episode list, one per episode to load pages). The `outerjoin + group_by + func.count(Page.id)` subquery produces one SQL statement that returns `(Episode, page_count)` tuples. For three episodes this is invisible; for 40 it's the difference between one query and 41. The full step-by-step of how the subquery, outer join, and `COALESCE` work together — and why a single direct join would have been worse — is in [§ Appendix: The `list_episodes` Query, Built Up Step by Step](#appendix-list-query).
 
 **The `Annotated[..., Depends(...)]` alias pattern.** This one needs unpacking if you haven't seen `Annotated` before, because it's load-bearing for the rest of the file.
 
@@ -1268,7 +1269,198 @@ The **workshop starter** that backs this post is at <https://github.com/bearbear
 
 ---
 
-## Appendix: A Tour of `selectinload` and `scalar_one_or_none()` {#appendix-sqlalchemy}
+## Appendix: The `list_episodes` Query, Built Up Step by Step {#appendix-list-query}
+
+The `list_episodes` handler builds one SQL statement that returns every episode along with how many pages each one has, sorted by episode number. The interesting part is *how* it computes the page count efficiently — using a subquery, an outer join, and `COALESCE` together. This appendix builds the query up the way the code does, then explains why it's shaped that way instead of a naive single-join.
+
+The handler's query, in full, for reference:
+
+```python
+page_counts = (
+    select(Page.episode_id, func.count(Page.id).label("page_count"))
+    .group_by(Page.episode_id)
+    .subquery()
+)
+stmt = (
+    select(Episode, func.coalesce(page_counts.c.page_count, 0).label("page_count"))
+    .outerjoin(page_counts, Episode.id == page_counts.c.episode_id)
+    .order_by(Episode.episode_number.asc())
+)
+rows = (await db.execute(stmt)).all()
+```
+
+### Stage 1: the subquery (counting pages per episode)
+
+```python
+page_counts = (
+    select(Page.episode_id, func.count(Page.id).label("page_count"))
+    .group_by(Page.episode_id)
+    .subquery()
+)
+```
+
+This piece, by itself, is asking the `pages` table: *"for each episode, how many pages do you have?"* In raw SQL:
+
+```sql
+SELECT episode_id, COUNT(id) AS page_count
+FROM pages
+GROUP BY episode_id;
+```
+
+Walking through the SQLAlchemy pieces:
+
+- `select(Page.episode_id, func.count(Page.id))` — select two columns: the episode each page belongs to, and a count.
+- `func.count(Page.id)` — `func` is SQLAlchemy's gateway to SQL functions. `func.count(...)` generates a SQL `COUNT(...)` call. We count `Page.id` (which is never null) rather than `*` — same result here, but explicit.
+- `.label("page_count")` — gives the `COUNT` expression a column alias, so we can refer to it later as `page_count` instead of an auto-generated name like `count_1`.
+- `.group_by(Page.episode_id)` — collapses rows that share the same `episode_id` into one row, so the `COUNT` becomes per-episode rather than across the whole table.
+- `.subquery()` — wraps the whole thing so it can be used as a *virtual table* inside another query, not executed on its own.
+
+The result, conceptually, is a temporary table that looks like:
+
+| episode_id | page_count |
+|---|---|
+| uuid-A | 12 |
+| uuid-B | 8 |
+| uuid-C | 15 |
+
+Note one thing: **episodes with zero pages don't appear here at all.** If no `Page` row references an episode, that `episode_id` never enters the `GROUP BY`. This matters in a moment.
+
+### Stage 2: the main query (joining episodes against the counts)
+
+```python
+stmt = (
+    select(Episode, func.coalesce(page_counts.c.page_count, 0).label("page_count"))
+    .outerjoin(page_counts, Episode.id == page_counts.c.episode_id)
+    .order_by(Episode.episode_number.asc())
+)
+```
+
+In raw SQL, roughly:
+
+```sql
+SELECT episodes.*, COALESCE(pc.page_count, 0) AS page_count
+FROM episodes
+LEFT OUTER JOIN (
+    SELECT episode_id, COUNT(id) AS page_count
+    FROM pages
+    GROUP BY episode_id
+) AS pc ON episodes.id = pc.episode_id
+ORDER BY episodes.episode_number ASC;
+```
+
+Three things are happening here.
+
+#### The `outerjoin`
+
+```python
+.outerjoin(page_counts, Episode.id == page_counts.c.episode_id)
+```
+
+This is a `LEFT OUTER JOIN` between `episodes` and the `page_counts` subquery. The join condition is `Episode.id == page_counts.c.episode_id` — match each episode to its row in the count table.
+
+The difference between inner join and outer join matters here:
+
+- **Inner join** → only return episodes that have a matching row in `page_counts`. Episodes with zero pages would vanish.
+- **Outer join (left)** → return every episode, even if there's no matching row in `page_counts`. Episodes with no pages still appear, just with `NULL` for `page_count`.
+
+The picker UI wants to show **all** episodes — including any that were just created but haven't been ingested yet, so they have no `Page` rows pointing at them. Outer join is the right call.
+
+The `.c` in `page_counts.c.episode_id` means *"columns of this subquery."* When you turn a `select` into a subquery, you access its columns through `.c.<name>`.
+
+#### The `coalesce`
+
+```python
+func.coalesce(page_counts.c.page_count, 0).label("page_count")
+```
+
+`COALESCE` in SQL returns the first non-`NULL` value from its arguments. So `COALESCE(page_count, 0)` means *"use `page_count` if it has a value, otherwise use `0`."*
+
+Why this is needed: the outer join leaves `page_count` as `NULL` for any episode with no matching row in the subquery (i.e., zero pages). Without `coalesce`, you'd get `None` in Python, and the downstream code `int(page_count)` would crash with `TypeError: int() argument must be a string... not 'NoneType'`.
+
+`coalesce` substitutes `0`, which is the truthful answer for *"episode has no pages"* and a clean integer for the cast.
+
+**The pair works together**: outer join keeps every episode in the result, `coalesce` converts the resulting `NULL`s to zeros.
+
+#### The `order_by`
+
+```python
+.order_by(Episode.episode_number.asc())
+```
+
+Sort the final result by `episode_number` ascending. Episode 1 first, then 2, then 3. Without this, the database can return rows in any order it likes — usually whatever's convenient for the storage engine. For a UI that displays episodes in narrative order, you need an explicit sort.
+
+### Stage 3: executing and unpacking
+
+```python
+rows = (await db.execute(stmt)).all()
+```
+
+`.all()` returns a list of `Row` objects — one per episode. Each row has two pieces (because the `select` had two arguments): the `Episode` ORM object and the `page_count` integer.
+
+```python
+for episode, page_count in rows:
+    ...
+```
+
+The tuple unpacking works because each `Row` behaves like a tuple. `episode` gets the full `Episode` ORM object (all its columns mapped to attributes), `page_count` gets the integer count.
+
+### Why a subquery instead of just joining `pages` directly?
+
+This is the subtle bit. A natural-looking alternative would be:
+
+```python
+# Don't do this
+stmt = (
+    select(Episode, func.count(Page.id))
+    .outerjoin(Page, Episode.id == Page.episode_id)
+    .group_by(Episode.id)
+    .order_by(Episode.episode_number.asc())
+)
+```
+
+This seems simpler — one query, no subquery. And it would work. But it has two real drawbacks:
+
+1. **Grouping is awkward.** When you `GROUP BY Episode.id`, strict SQL dialects (like Postgres) require every non-aggregated column to appear in the `GROUP BY` clause too. So you'd need `.group_by(Episode.id, Episode.title, Episode.slug, ...)` — tedious and fragile every time you add a column to `episodes`.
+2. **It mixes concerns.** The `pages` table is joined directly into a query about episodes, which means the query planner has to figure out how to deduplicate. With many pages per episode, the intermediate result set is large before the `GROUP BY` collapses it.
+
+The subquery approach computes the per-episode counts first (small result: one row per episode), then joins that compact summary to the `episodes` table. **Cleaner SQL, cleaner planner work**, and the main `select(Episode, ...)` doesn't need a `GROUP BY` at all because the join is one-to-one — each episode matches at most one row in `page_counts`.
+
+### The whole picture, in one mental snapshot
+
+```text
+┌─────────────────────────┐
+│ pages                   │
+│ (many rows per episode) │
+└───────────┬─────────────┘
+            │ GROUP BY episode_id, COUNT(id)
+            ▼
+┌─────────────────────────┐
+│ page_counts (subquery)  │
+│ episode_id | page_count │
+│ (one row per episode    │
+│  that has pages)        │
+└───────────┬─────────────┘
+            │ LEFT OUTER JOIN
+            │ on episodes.id = page_counts.episode_id
+            ▼
+┌─────────────────────────┐
+│ episodes ⨝ page_counts  │
+│ + COALESCE(NULL → 0)    │
+│ + ORDER BY episode_num  │
+└───────────┬─────────────┘
+            ▼
+    rows: [(Episode, count), ...]
+```
+
+One round trip to the database, all episodes returned with their page counts, zero counts handled correctly, results sorted.
+
+### The one-sentence version
+
+Build a small `episode_id → page count` table with a `GROUP BY` subquery, left-join it onto `episodes` so every episode appears (even with zero pages), use `COALESCE` to turn the `NULL`s from that join into zeros, and order the result by episode number — all in one query.
+
+---
+
+## Appendix: The `get_episode` Query — `selectinload` and `scalar_one_or_none()` {#appendix-sqlalchemy}
 
 The `get_episode` handler walked past two SQLAlchemy idioms with one-line explanations in the main flow:
 
