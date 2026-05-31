@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 540" role="img"
+     aria-label="The prompt-hardening stack. The user message and the saved current_page enter retrieval (unchanged from Post 6 — spoiler-filtered for page mode, unfiltered for wiki mode). Retrieved chunks plus the current page text pass through _strip_markdown before they reach the prompt. The system prompt is composed of named blocks: _SHARED_VOICE, _SPOILER_DISCIPLINE, _GROUNDING_CONTRACT, then per-mode _PAGE_ANTI_RECITATION or _WIKI_OUTPUT_DISCIPLINE, then _RESPONSE_FORMAT. The assembled prompt goes to ChatClient.stream(); tokens stream back through ReactMarkdown in the chat panel as the last-line safety net. After the answer, a second non-streaming call uses SUGGESTIONS_SYSTEM (with bad/good examples) and the named-slot schema; chips pass through the question-shape parser before reaching the DOM."
+     style="display: block; width: 100%; height: auto; max-width: 1180px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;">
+  <defs>
+    <marker id="ph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <text x="590" y="26" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">Retrieval and framing are unchanged from Posts 6–7.</text>
+  <text x="590" y="46" text-anchor="middle" font-size="13" font-weight="600" fill="#b45309">Every Post 8 change lives where the model meets prose.</text>
+
+  <!-- Input: user message + current_page -->
+  <g>
+    <rect x="30" y="80" width="200" height="84" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="130" y="106" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2937">User message</text>
+    <text x="130" y="126" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">+ saved current_page</text>
+    <text x="130" y="146" text-anchor="middle" font-size="9" fill="#94a3b8" font-style="italic">spoiler boundary lives here</text>
+  </g>
+
+  <line x1="230" y1="120" x2="298" y2="120" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ph-arrow)"/>
+
+  <!-- Retrieval -->
+  <g>
+    <rect x="300" y="80" width="220" height="84" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="410" y="106" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">RetrievalService</text>
+    <text x="410" y="126" text-anchor="middle" font-size="10" fill="#92400e" font-style="italic">page: spoiler-filtered (Post 6)</text>
+    <text x="410" y="146" text-anchor="middle" font-size="10" fill="#92400e" font-style="italic">wiki: unfiltered (Post 7)</text>
+  </g>
+
+  <line x1="520" y1="120" x2="588" y2="120" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ph-arrow)"/>
+
+  <!-- _strip_markdown -->
+  <g>
+    <rect x="590" y="80" width="260" height="84" rx="8" fill="#fde68a" stroke="#b45309" stroke-width="1.8"/>
+    <text x="720" y="105" text-anchor="middle" font-size="12" font-weight="700" fill="#7c2d12">★ Post 8 · _strip_markdown</text>
+    <text x="720" y="125" text-anchor="middle" font-size="10" fill="#7c2d12" font-style="italic">applied to every prompt-bound text</text>
+    <text x="720" y="147" text-anchor="middle" font-size="9" fill="#94a3b8" font-style="italic">**bold**, ### header, - bullet → gone</text>
+  </g>
+
+  <!-- System-prompt stack -->
+  <g>
+    <rect x="40" y="220" width="640" height="230" rx="8" fill="#fde68a" stroke="#b45309" stroke-width="1.8"/>
+    <text x="360" y="246" text-anchor="middle" font-size="13" font-weight="700" fill="#7c2d12">★ Post 8 · render_system_prompt(mode)</text>
+    <text x="360" y="264" text-anchor="middle" font-size="10" fill="#7c2d12" font-style="italic">composed top to bottom from these named blocks</text>
+
+    <rect x="60" y="284" width="600" height="22" rx="3" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="360" y="299" text-anchor="middle" font-size="11" fill="#1f2937">_SHARED_VOICE (warm, playful, not corporate)</text>
+
+    <rect x="60" y="310" width="600" height="22" rx="3" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
+    <text x="360" y="325" text-anchor="middle" font-size="11" fill="#1f2937">_SPOILER_DISCIPLINE (mode-neutral, position interpolated from session)</text>
+
+    <rect x="60" y="336" width="600" height="22" rx="3" fill="#fed7aa" stroke="#b45309" stroke-width="1"/>
+    <text x="360" y="351" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2937">_GROUNDING_CONTRACT — closed-world rule (Tightener 2)</text>
+
+    <rect x="60" y="362" width="290" height="22" rx="3" fill="#fed7aa" stroke="#b45309" stroke-width="1"/>
+    <text x="205" y="377" text-anchor="middle" font-size="10" font-weight="600" fill="#1f2937">page: _PAGE_ANTI_RECITATION (3)</text>
+
+    <rect x="370" y="362" width="290" height="22" rx="3" fill="#fed7aa" stroke="#b45309" stroke-width="1"/>
+    <text x="515" y="377" text-anchor="middle" font-size="10" font-weight="600" fill="#1f2937">wiki: _WIKI_OUTPUT_DISCIPLINE (concise contrast)</text>
+
+    <rect x="60" y="388" width="600" height="22" rx="3" fill="#fed7aa" stroke="#b45309" stroke-width="1"/>
+    <text x="360" y="403" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2937">_RESPONSE_FORMAT — 4-sentence cap, no preamble/wrap-ups (Tightener 4)</text>
+
+    <text x="360" y="430" text-anchor="middle" font-size="9" fill="#94a3b8" font-style="italic">same composition as Post 7; the blocks themselves are sharper</text>
+  </g>
+
+  <line x1="720" y1="164" x2="500" y2="220" stroke="#9ca3af" stroke-width="1.3" stroke-dasharray="4,4" marker-end="url(#ph-arrow)"/>
+  <text x="610" y="200" font-size="10" fill="#94a3b8" font-style="italic">stripped notes</text>
+
+  <!-- Chat call -->
+  <g>
+    <rect x="720" y="220" width="200" height="84" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+    <text x="820" y="246" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2937">ChatClient.stream()</text>
+    <text x="820" y="266" text-anchor="middle" font-size="10" fill="#065f46" font-style="italic">qwen2.5:7b via Ollama</text>
+    <text x="820" y="286" text-anchor="middle" font-size="10" fill="#065f46" font-style="italic">tokens out (Post 7 SSE)</text>
+  </g>
+  <line x1="680" y1="285" x2="718" y2="262" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ph-arrow)"/>
+
+  <!-- ReactMarkdown safety net -->
+  <g>
+    <rect x="950" y="220" width="200" height="84" rx="8" fill="#fde68a" stroke="#b45309" stroke-width="1.8"/>
+    <text x="1050" y="244" text-anchor="middle" font-size="12" font-weight="700" fill="#7c2d12">★ Post 8 · &lt;ReactMarkdown&gt;</text>
+    <text x="1050" y="264" text-anchor="middle" font-size="10" fill="#7c2d12" font-style="italic">renders the bubble</text>
+    <text x="1050" y="286" text-anchor="middle" font-size="9" fill="#94a3b8" font-style="italic">safety net for leaked markdown</text>
+  </g>
+  <line x1="920" y1="262" x2="948" y2="262" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ph-arrow)"/>
+
+  <!-- Chip side-channel -->
+  <g>
+    <rect x="720" y="338" width="430" height="106" rx="8" fill="#fde68a" stroke="#b45309" stroke-width="1.8"/>
+    <text x="935" y="362" text-anchor="middle" font-size="12" font-weight="700" fill="#7c2d12">★ Post 8 · second call · SUGGESTIONS_SYSTEM</text>
+    <text x="935" y="382" text-anchor="middle" font-size="10" fill="#7c2d12" font-style="italic">bad/good chip examples replace abstract rules</text>
+    <text x="935" y="402" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">named-slot schema (Post 7) — unchanged</text>
+    <text x="935" y="422" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">_parse_suggestions question-shape filter — unchanged</text>
+  </g>
+  <line x1="820" y1="304" x2="850" y2="338" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ph-arrow)"/>
+
+  <!-- Legend -->
+  <g>
+    <rect x="30" y="478" width="14" height="12" fill="#fde68a" stroke="#b45309" stroke-width="1.5"/>
+    <text x="50" y="489" font-size="11" fill="#4b5563">★ Post 8 (this post)</text>
+    <rect x="210" y="478" width="14" height="12" fill="#dbeafe" stroke="#2563eb" stroke-width="1"/>
+    <text x="230" y="489" font-size="11" fill="#4b5563">unchanged from Post 7</text>
+    <rect x="380" y="478" width="14" height="12" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+    <text x="400" y="489" font-size="11" fill="#4b5563">retrieval / framing (Post 6)</text>
+    <rect x="580" y="478" width="14" height="12" fill="#d1fae5" stroke="#059669" stroke-width="1"/>
+    <text x="600" y="489" font-size="11" fill="#4b5563">provider abstraction (Post 3)</text>
+  </g>
+</svg>
