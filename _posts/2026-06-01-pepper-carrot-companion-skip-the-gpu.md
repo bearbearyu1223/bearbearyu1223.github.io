@@ -26,7 +26,7 @@ For a lot of portfolio cases, no. If you don't care that the model runs on hardw
 > **▶ Try it live: [pepper-carrot-flipbook.pages.dev](https://pepper-carrot-flipbook.pages.dev/)** — this is the exact deploy this post describes, running right now: chat on the Anthropic API, embeddings on Voyage, everything else on Cloudflare Pages + Fly + Neon + R2. Pick an episode, ask the companion who's on the page or about Hereva's lore, and watch the answer stream in token by token. Because there's no GPU to cold-start, the first answer is quick — though if the Fly backend has scaled to zero you may wait a few seconds for it to wake. *Pepper & Carrot* is © [David Revoy](https://www.peppercarrot.com), CC BY 4.0.
 
 <div style="margin: 1.5rem 0; overflow-x: auto;">
-<a href="/assets/picture/2026-06-01-pepper-carrot-companion-skip-the-gpu/demo.gif" target="_blank" rel="noopener" title="Click to enlarge — opens the full-size GIF in a new tab" style="display: block; cursor: zoom-in;">
+<a href="/assets/picture/2026-06-01-pepper-carrot-companion-skip-the-gpu/demo-large.gif" target="_blank" rel="noopener" title="Click to enlarge — opens the larger 1280px GIF in a new tab" style="display: block; cursor: zoom-in;">
 <img src="/assets/picture/2026-06-01-pepper-carrot-companion-skip-the-gpu/demo.gif"
      alt="Screen recording of the deployed Pepper & Carrot reading companion: the StPageFlip flipbook on the left turning through episode pages, and the chat panel on the right streaming spoiler-safe, grounded answers from the Anthropic + Voyage backend, with follow-up suggestion chips."
      loading="lazy"
