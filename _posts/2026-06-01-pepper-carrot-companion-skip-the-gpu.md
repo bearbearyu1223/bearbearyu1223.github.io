@@ -221,6 +221,8 @@ The insidious part is the failure mode. It doesn't crash. Retrieval still return
 
 So before deploying, you rebuild the index locally with Voyage. Postgres (the canonical text) and R2 (the image bytes) don't depend on the embedder, so they stay exactly where they are — only Chroma rebuilds:
 
+> **Run the rebuild in a shell where you haven't `source`d `.env.production`.** That file's `set -a && source …` exports your Neon `DATABASE_URL_OVERRIDE` (with `?sslmode=require`) into the environment, and pydantic-settings prefers env vars over the `.env` file — so the local re-index would aim at Neon instead of localhost and fail with `TypeError: connect() got an unexpected keyword argument 'sslmode'` (the ingestion engine has no asyncpg SSL shim). Fresh terminal, or `unset DATABASE_URL_OVERRIDE` first. The re-index must hit your *local* Postgres so the seed you dump later matches the new Chroma.
+
 ```bash
 # 1. Point local .env at Voyage.
 echo 'EMBEDDING_PROVIDER=voyage'  >> .env
