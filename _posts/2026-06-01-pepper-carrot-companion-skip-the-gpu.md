@@ -34,7 +34,7 @@ For a lot of portfolio cases, no. If you don't care that the model runs on hardw
 </a>
 </div>
 
-*The deployed companion in action — the StPageFlip flipbook plus the spoiler-safe streaming chat, all running on the Anthropic + Voyage path (recording condensed ~6×). Click to enlarge.*
+*The deployed companion in action — the StPageFlip flipbook plus the spoiler-safe streaming chat, all running on the Anthropic + Voyage path (recording condensed ~3×). Click to enlarge.*
 
 > **What you'll build in this post.**
 > - **The same deployed app as Post 10, minus the GPU.** Cloudflare Pages + Fly + Neon + R2 are unchanged; the Modal tier is replaced by the Anthropic Messages API (chat) and the Voyage AI API (embeddings). No `modal deploy`, no model-weights volume, no proxy-auth tokens, no GPU cold start.
