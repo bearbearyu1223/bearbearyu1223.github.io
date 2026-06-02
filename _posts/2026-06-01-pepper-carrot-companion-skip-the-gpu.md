@@ -234,9 +234,9 @@ rm -rf data/chroma
 #    Episodes live in data/raw/ep*/ (wiki dirs don't match `ep*`), and the
 #    wrapper maps a slug back to data/raw/<slug>, so each dir's basename IS the
 #    slug. The page-description JSONs already exist on disk, so nothing is
-#    re-described; only the embeddings (and Chroma) rebuild.
-shopt -s nullglob
-for dir in data/raw/ep*/; do
+#    re-described; only the embeddings (and Chroma) rebuild. `find` keeps this
+#    identical in bash and zsh (zsh has no `shopt -s nullglob`).
+find data/raw -maxdepth 1 -type d -name 'ep*' | sort | while read -r dir; do
   slug=$(basename "$dir")
   echo "── re-indexing $slug ──"
   .claude/skills/ingest-from-images/scripts/reingest_with_json.sh "$slug"
