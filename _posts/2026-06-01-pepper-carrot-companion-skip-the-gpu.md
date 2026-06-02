@@ -25,6 +25,17 @@ For a lot of portfolio cases, no. If you don't care that the model runs on hardw
 
 > **▶ Try it live: [pepper-carrot-flipbook.pages.dev](https://pepper-carrot-flipbook.pages.dev/)** — this is the exact deploy this post describes, running right now: chat on the Anthropic API, embeddings on Voyage, everything else on Cloudflare Pages + Fly + Neon + R2. Pick an episode, ask the companion who's on the page or about Hereva's lore, and watch the answer stream in token by token. Because there's no GPU to cold-start, the first answer is quick — though if the Fly backend has scaled to zero you may wait a few seconds for it to wake. *Pepper & Carrot* is © [David Revoy](https://www.peppercarrot.com), CC BY 4.0.
 
+<div style="margin: 1.5rem 0; overflow-x: auto;">
+<a href="/assets/picture/2026-06-01-pepper-carrot-companion-skip-the-gpu/demo.gif" target="_blank" rel="noopener" title="Click to enlarge — opens the full-size GIF in a new tab" style="display: block; cursor: zoom-in;">
+<img src="/assets/picture/2026-06-01-pepper-carrot-companion-skip-the-gpu/demo.gif"
+     alt="Screen recording of the deployed Pepper & Carrot reading companion: the StPageFlip flipbook on the left turning through episode pages, and the chat panel on the right streaming spoiler-safe, grounded answers from the Anthropic + Voyage backend, with follow-up suggestion chips."
+     loading="lazy"
+     style="display: block; width: 100%; max-width: 720px; height: auto; margin: 0 auto; border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,0.18);">
+</a>
+</div>
+
+*The deployed companion in action — the StPageFlip flipbook plus the spoiler-safe streaming chat, all running on the Anthropic + Voyage path (recording condensed ~6×). Click to enlarge.*
+
 > **What you'll build in this post.**
 > - **The same deployed app as Post 10, minus the GPU.** Cloudflare Pages + Fly + Neon + R2 are unchanged; the Modal tier is replaced by the Anthropic Messages API (chat) and the Voyage AI API (embeddings). No `modal deploy`, no model-weights volume, no proxy-auth tokens, no GPU cold start.
 > - **A config-only provider swap.** `CHAT_PROVIDER=anthropic` selects the `AnthropicChatClient` that already lives in `backend/app/clients/chat.py`; `EMBEDDING_PROVIDER=voyage` selects the `VoyageEmbeddingClient` in `backend/app/clients/embedding.py`. The factory in `backend/app/clients/__init__.py` already carries both branches. **The only code this post changes is two default-model strings (to `claude-haiku-4-5` and `voyage-4-lite`); everything else it adds is documentation.**
