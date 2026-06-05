@@ -1,5 +1,5 @@
 ---
-title: "When Your Chunks Are Comic Pages: An AI-Powered Flipbook for Pepper & Carrot"
+title: "Pepper & Carrot AI-powered flipbook · Part 1 of 16 — When Your Chunks Are Comic Pages"
 date: 2026-05-09 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [rag, claude-skills, fastapi, react, ollama, chromadb, modal, fly, cloudflare-pages, neon, r2, llm, portfolio]
@@ -20,7 +20,7 @@ a laptop or on a five-piece free-tier cloud deploy.
 > **What you'll get from this post.** A clear picture of what we're building
 > across the series, a 20-second walkthrough of the running app, the
 > architecture in one diagram, and the two ideas that hold the whole thing
-> together. No code yet — the next ten posts handle the build, one slice at
+> together. No code yet — the next fifteen posts handle the build, one slice at
 > a time.
 >
 > **Prerequisites.** None. You can read this on a phone with a coffee.
@@ -95,7 +95,7 @@ To pull that off you need:
 5. A bonus: a knowledge graph of characters, places, and covens that
    reveals itself as you read further into the comic.
 
-This is a ten-part series about how I built that, end to end — from the
+This is a sixteen-part series about how I built that, end to end — from the
 first `docker compose up` on my laptop through a public deployment on
 free- and low-cost cloud services. The audience I had in mind: someone
 who has read about RAG and "AI agents" but hasn't yet built a full-stack
@@ -104,25 +104,28 @@ app where the AI is a *feature*, not the whole product.
 > **A note on the source code and live demo.** Code lands in two
 > repos. A **workshop starter** at
 > <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>
-> reproduces [Post 2](#the-series) (the setup) and [Post 3](#the-series)
-> (the provider abstractions) end-to-end — published alongside those
-> posts. The **full project repository** plus a live-demo URL go up
-> alongside the final post, the deploy guide, so the
-> full source and the cloud walkthrough land together rather than as a
-> half-explained skeleton. Each post in between is self-contained, with
-> the code inline and screenshots / GIFs of the running app.
+> reproduces [Posts 2–4](#the-series) — the setup, the data model, and the
+> provider abstractions — end-to-end, published alongside those posts. The
+> **full project repository** plus a live-demo URL go up alongside the
+> deploy guide near the end, so the full source and the cloud walkthrough
+> land together rather than as a half-explained skeleton. Each post in
+> between is self-contained, with the code inline and screenshots / GIFs of
+> the running app.
 >
-> **Checking out the code.** The workshop starter is tagged from Post 5
-> onward; Posts 1–4 build toward that first checkpoint. `git checkout post-5`
-> gives you a complete, working tree for everything through Post 5, and each
-> later post adds its own tag (`post-6`, `post-7`, …). See the README's
+> **Checking out the code.** The workshop starter is tagged per checkpoint.
+> Several posts share a checkpoint where they tour different parts of the
+> same code — Posts 2–4 all live at `post-02-04-starter` (`git checkout
+> post-02-04-starter` gives a complete tree for the setup, the data model,
+> and the provider abstractions). Later steps add their own tags
+> (`post-05-06-ingestion`, `post-07-08-fullstack`, `post-09-rag`, …); each
+> post names the exact tag to check out. See the README's
 > [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series).
 
 ---
 
 ## See It Running {#see-it-running}
 
-The live demo URL will go up alongside Post 10, the deploy guide — once
+The live demo URL will go up alongside the deploy guide (Post 15) — once
 that post is published, this section will get the public link
 to a running instance you can play with. For now, here's a 20-second
 walkthrough of the same app running locally:
@@ -310,7 +313,7 @@ in production is a one-line config change. The same goes for the
 embedding model. Ten lines of `Protocol` boilerplate buys you a codebase
 that runs identically on a laptop and in the cloud.
 
-We'll spend an entire post on this in [Post 3](#the-series), because it's
+We'll spend an entire post on this in [Post 4](#the-series), because it's
 the pattern that makes everything afterward composable. Most "AI demo"
 codebases skip this and pay for it later.
 
@@ -358,7 +361,7 @@ The model couldn't spoil a future page if it tried — that data isn't in
 its prompt. This pattern (push correctness-critical filters down to the
 data layer; let the prompt focus on tone and synthesis) is one of the most
 broadly useful lessons from the project, and it shows up in
-Post 6 for chat retrieval and Post 9 for the world graph.
+Post 9 for chat retrieval and Post 12 for the world graph.
 
 ---
 
@@ -376,7 +379,7 @@ official site so you can read up before the next post starts using it.
 | Migrations | [Alembic](https://alembic.sqlalchemy.org/) | |
 | Chat + embedding models (local) | [Ollama](https://ollama.com/) running [`qwen2.5`](https://ollama.com/library/qwen2.5) + [`bge-m3`](https://huggingface.co/BAAI/bge-m3) | One process, two models, no API key. |
 | Chat + embedding models (cloud) | Same Ollama, hosted on Modal serverless GPU | Same HTTP API; only the URL changes. |
-| Page descriptions | [`ingest-from-images` Claude Code skill](https://docs.claude.com/en/docs/claude-code/skills) | Claude reads each page image visually and writes a JSON description next to it. More on this in Post 4. |
+| Page descriptions | [`ingest-from-images` Claude Code skill](https://docs.claude.com/en/docs/claude-code/skills) | Claude reads each page image visually and writes a JSON description next to it. More on this in Post 5. |
 | Image storage | Local filesystem (dev) / Cloudflare R2 (cloud) | Both behind the same `StorageClient` interface. |
 | Backend host (cloud) | [Fly.io](https://fly.io/) | Cheap Firecracker VMs that scale to zero. |
 | Frontend host (cloud) | [Cloudflare Pages](https://pages.cloudflare.com/) | Free static CDN. |
@@ -396,8 +399,9 @@ generation" = retrieve-then-prompt the model.)
 
 ## The Series: What Each Post Builds {#the-series}
 
-Each post leaves you with a working slice. By the end of Post 10, you have
-the full app deployed on the public internet.
+Each post leaves you with a working slice. By the end of Post 15 you have
+the full app deployed on the public internet; Post 16 shows a no-GPU
+alternative deploy on managed APIs.
 
 The series publishes one post at a time. Titles in the table below become
 clickable links as each post goes live; the rest are placeholders for
@@ -406,15 +410,21 @@ what's coming.
 | # | Post | What you'll have when you finish |
 |---|------|----------------------------------|
 | 1 | **When Your Chunks Are Comic Pages: An AI-Powered Flipbook for Pepper & Carrot** *(this post)* | A clear picture of the series and a 20-second walkthrough of what you'll be building. |
-| 2 | Setting Up the Workshop: Postgres, Ollama, and a Project That Type-Checks | Local Postgres + Ollama running, FastAPI scaffold passing `mypy` and `ruff`, first migration applied, one episode downloaded. |
-| 3 | Provider Abstractions: Why Every External Service Hides Behind an Interface | A `LocalStorage` that works end-to-end, a `SentenceTransformersEmbeddingClient` producing real 1024-dim vectors, and a mental model for swapping either out without touching business logic. |
-| 4 | Claude Skills as an Ingestion Tool: When the Best Vision Model Is the One Driving Your Editor | One full episode ingested into Postgres + Chroma + storage. A working understanding of what a Claude Code skill is and why this beats running a vision model in production. |
-| 5 | From Database to Browser: A REST API and a Real Flipbook | An episode picker plus a real page-flipping flipbook rendering real data from your local backend. |
-| 6 | The RAG Layer: Spoiler-Safe Retrieval Without Trusting the Prompt | A working chat pipeline that answers questions about the visible page using only the pages you've already read. No UI yet — you'll exercise it with `curl`. |
-| 7 | Streaming Chat in the Browser: SSE, React, and Schema-Constrained Suggestion Chips | End-to-end chat in the browser. Tokens stream in, follow-up suggestion chips render below each answer. |
-| 8 | Making Small Models Behave: Wiki Mode and the Long Road to Concise Answers | A second retrieval mode for universe lore, plus a prompt-engineering toolkit that takes a chatty 14B model from "essay-style replies with section headers" to clean prose. |
-| 9 | A World Graph Built by a Second Skill: Spoiler-Aware Knowledge Graph Overlay | A side-panel overlay rendering an interactive graph of characters, creatures, and places that grows as you read. |
-| 10 | Shipping It: Cloudflare Pages + Fly + Modal + R2 + Neon for ~$10/mo | A live, public URL anyone can visit. Cold-start, secrets, CORS, and a deploy you can rebuild in under ten minutes. |
+| 2 | Setting Up the Workshop: Postgres, Ollama, and a Project That Type-Checks | Local Postgres + Ollama running, a FastAPI scaffold passing `mypy` and `ruff`, and one episode downloaded — the environment every later post builds on. |
+| 3 | The Data Model: Ten Tables, One Migration | The schema that mirrors the app's features, the first Alembic migration applied, and a column-by-column tour of the SQLAlchemy models. |
+| 4 | Provider Abstractions: Why Every External Service Hides Behind an Interface | A `LocalStorage` that works end-to-end, a `SentenceTransformersEmbeddingClient` producing real 1024-dim vectors, and a mental model for swapping either out without touching business logic. |
+| 5 | Claude Skills as a Vision Provider: Ingesting a Comic by Reading It | A working understanding of what a Claude Code skill is, why it beats running a vision model in production, and the `ingest-from-images` skill that describes each page. |
+| 6 | The Ingestion Pipeline: From Page JSONs to Postgres + Chroma | One full episode ingested into Postgres + Chroma + storage by the Stage-2 pipeline that consumes the skill's page descriptions. |
+| 7 | From Database to JSON: A Typed REST API | Two typed FastAPI routes that resolve relative storage keys into absolute URLs at response time — exercised with `curl`. |
+| 8 | A Real Flipbook in the Browser: React + StPageFlip | An episode picker plus a real page-flipping flipbook rendering real data from your local backend. |
+| 9 | The RAG Layer: Spoiler-Safe Retrieval Without Trusting the Prompt | A working chat pipeline that answers questions about the visible page using only the pages you've already read. No UI yet — you'll exercise it with `curl`. |
+| 10 | Streaming Chat in the Browser: SSE, React, and Schema-Constrained Suggestion Chips | End-to-end chat in the browser. Tokens stream in, follow-up suggestion chips render below each answer. |
+| 11 | Making Small Models Behave: Wiki Mode and the Long Road to Concise Answers | A second retrieval mode for universe lore, plus a prompt-engineering toolkit that takes a chatty 7B model from "essay-style replies with section headers" to clean prose. |
+| 12 | A World Graph Built by a Skill: Extraction and a Spoiler-Safe API | A second Claude Code skill that walks the wiki + page JSONs into a YAML graph, loaded into Postgres behind a spoiler-safe API route. |
+| 13 | Rendering the World Graph: A React-Flow Overlay and Summary-First Wiki | A side-panel overlay rendering an interactive graph of characters, creatures, and places that grows as you read — plus a third skill that authors per-entity wiki summaries. |
+| 14 | Going to Production: Provisioning Modal, Neon, and R2 | The five-provider architecture stood up: a GPU-served Ollama on Modal, managed Postgres on Neon, image bytes on Cloudflare R2 behind the Post 4 storage interface. |
+| 15 | Shipping It: Containerize, Deploy to Fly + Pages, and Verify | A live, public URL anyone can visit. Cold-start, secrets, CORS, and a deploy you can rebuild in under ten minutes. |
+| 16 | Skip the GPU: A Managed-API Deploy on Anthropic + Voyage | The same app shipped without a GPU at all — chat on the Anthropic API, embeddings on Voyage — as a config change, not a code change. |
 
 I'll publish them one at a time and link them back here as they go up.
 
@@ -422,7 +432,7 @@ I'll publish them one at a time and link them back here as they go up.
 
 ## What You'll Have Learned by the End {#what-youll-have-learned}
 
-If you read all ten posts and follow along on your own machine, you'll
+If you read all sixteen posts and follow along on your own machine, you'll
 have hands-on experience with the patterns most modern AI app codebases
 use:
 
@@ -457,10 +467,10 @@ use:
   scale-to-zero GPU for the model, hosted Postgres for the database, and
   an object store for images.
 
-If you mostly want one of those, individual posts stand alone — Post 4 is
+If you mostly want one of those, individual posts stand alone — Post 5 is
 worth reading on its own if you're curious about Claude Skills, and
-Post 10 is worth reading on its own if you're curious about the deploy
-shape.
+Posts 14–15 are worth reading on their own if you're curious about the
+deploy shape.
 
 ---
 
@@ -488,7 +498,7 @@ your runtime stack.** Page descriptions are the highest-leverage input to
 chat quality — but chat doesn't need to call a vision model at runtime.
 Producing them once, with the best vision model available, and storing
 them as auditable JSON on disk is a different and better choice than "run
-a local VLM in production." Post 4 makes this case in detail.
+a local VLM in production." Post 5 makes this case in detail.
 
 **5. Cold start is a design parameter, not a bug.** Scale-to-zero hosting
 is what makes a portfolio app cost ~$10/mo instead of ~$200/mo. The
@@ -509,10 +519,10 @@ the first Alembic migration, and download the first episode of the comic
 into `data/raw/`. By the end of that post you'll have the same workshop I
 built every subsequent layer on top of.
 
-The **workshop starter** for Posts 2–3 is at
+The **workshop starter** for Posts 2–4 is at
 <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>.
 The **full source repository** and a public live-demo URL go up with
-the final post of this series — the deploy guide — once it's published.
+the deploy guide near the end of the series — once it's published.
 Each post in between is self-contained.
 
 Pepper & Carrot is © [David Revoy](https://www.davidrevoy.com/), licensed

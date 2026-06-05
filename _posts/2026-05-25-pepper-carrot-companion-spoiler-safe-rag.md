@@ -1,21 +1,21 @@
 ---
-title: "The RAG Layer: Spoiler-Safe Retrieval Without Trusting the Prompt"
+title: "Pepper & Carrot AI-powered flipbook · Part 9 of 16 — The RAG Layer: Spoiler-Safe Retrieval Without Trusting the Prompt"
 date: 2026-05-25 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [rag, retrieval, chromadb, embeddings, fastapi, sqlalchemy, ollama, peppercarrot, portfolio]
 description: >-
-  Post 6 of the Pepper & Carrot AI flipbook series. The flipbook from
-  Post 5 knows which page you're on. Now we build the chat pipeline that
+  Post 9 of the Pepper & Carrot AI flipbook series. The flipbook from
+  Post 8 knows which page you're on. Now we build the chat pipeline that
   answers questions about that page — and we make spoiler safety a
   property of the database query, not a line in the prompt. Build a
   RetrievalService whose Chroma filter is derived from server-side
   reading progress, wire it into a FastAPI chat endpoint, drive it with
   curl, and prove the boundary holds even when the user tries to
-  jailbreak it. No chat UI yet — that's Post 7.
+  jailbreak it. No chat UI yet — that's Post 10.
 pin: true
 ---
 
-Post 6 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}) series. [Post 5]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}) left us with a real flipbook: a reader can pick an episode and flip through it, and the reader component already knows which page is on screen. This post uses that. We build the chat pipeline that answers questions grounded in the page the reader is looking at — and we treat the obvious risk, *spoilers*, as the central design problem. The thesis of the whole post is one sentence: **retrieval scope is a security boundary, not a prompt convention.** The model never receives text from pages the reader hasn't reached, no matter what the prompt — or the user — asks for.
+Post 9 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}) series. [Post 8]({% post_url 2026-05-24-pepper-carrot-companion-flipbook-ui %}) left us with a real flipbook: a reader can pick an episode and flip through it, and the reader component already knows which page is on screen. This post uses that. We build the chat pipeline that answers questions grounded in the page the reader is looking at — and we treat the obvious risk, *spoilers*, as the central design problem. The thesis of the whole post is one sentence: **retrieval scope is a security boundary, not a prompt convention.** The model never receives text from pages the reader hasn't reached, no matter what the prompt — or the user — asks for.
 
 > **What you'll build in this post.**
 > - A `RetrievalService` in `backend/app/retrieval/service.py` that wraps ChromaDB and owns the **spoiler filter** — a query-time `where` clause derived from the reader's saved position.
@@ -25,11 +25,11 @@ Post 6 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pep
 > - Hermetic tests in `backend/tests/test_retrieval.py` that prove the boundary holds — including a **jailbreak query** that explicitly demands future content.
 >
 > **Prerequisites.**
-> - The workshop starter at the [`post-6` tag](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/tree/post-6): `git checkout post-6` (see [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series)). Postgres up, `alembic upgrade head` applied, `seed.py` run, and Episode 1 ingested by the `ingest-from-images` skill from [Post 4]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %}). Verify with `docker exec peppercarrot-postgres psql -U peppercarrot -d peppercarrot -c "SELECT COUNT(*) FROM pages;"` — three rows means you're ready.
+> - The workshop starter at the [`post-09-rag` tag](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/tree/post-09-rag): `git checkout post-09-rag` (see [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series)). Postgres up, `alembic upgrade head` applied, `seed.py` run, and Episode 1 ingested by the `ingest-from-images` skill from [Post 5]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %}). Verify with `docker exec peppercarrot-postgres psql -U peppercarrot -d peppercarrot -c "SELECT COUNT(*) FROM pages;"` — three rows means you're ready.
 > - Ollama running with the chat + embedding models pulled (`ollama pull qwen2.5:7b`, `ollama pull bge-m3`), exactly as in [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}). The chat answers in this post run on `qwen2.5:7b`.
 > - No new external services, and no frontend work — this post is backend-only. You'll drive everything with `curl`.
 
-> **About the repo URL.** The backend additions in this post — `app/retrieval/`, `app/orchestration/`, `app/core/prompts.py`, `app/api/sessions.py`, `app/api/messages.py`, and `tests/test_retrieval.py` — live in the same workshop starter that backed [Posts 2–5](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop), now tagged `post-6`. Every file link below points at that tag so the code you read here is the code you get. The full project repository — the streaming chat UI, world-graph overlay, and cloud deploy — still goes up alongside the deploy guide in Post 10.
+> **About the repo URL.** The backend additions in this post — `app/retrieval/`, `app/orchestration/`, `app/core/prompts.py`, `app/api/sessions.py`, `app/api/messages.py`, and `tests/test_retrieval.py` — live in the same workshop starter that backed [Posts 2–8](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop), now tagged `post-09-rag`. Every file link below points at that tag so the code you read here is the code you get. The full project repository — the streaming chat UI, world-graph overlay, and cloud deploy — still goes up alongside the deploy guide in Post 15.
 
 ---
 
@@ -59,19 +59,19 @@ Before any concepts, let's get the pipeline running and orient around the files 
 
 ### Get the code at this post's tag
 
-Every file referenced below lives at the **`post-6`** tag of the workshop starter. Checking it out gives you exactly the code this post describes — not a later post's evolution of it:
+Every file referenced below lives at the **`post-09-rag`** tag of the workshop starter. Checking it out gives you exactly the code this post describes — not a later post's evolution of it:
 
 ```bash
 git clone https://github.com/bearbearyu1223/pepper-carrot-companion-workshop
 cd pepper-carrot-companion-workshop
-git checkout post-6
+git checkout post-09-rag
 ```
 
-Already cloned from an earlier post? `git fetch --tags && git checkout post-6`. Each post from Post 5 onward has its own tag (`post-5`, `post-6`, …), and `git checkout main` returns you to the latest. See the README's [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series) for the full list.
+Already cloned from an earlier post? `git fetch --tags && git checkout post-09-rag`. Each post names its own tag; the checkpoints are `post-02-04-starter`, `post-05-06-ingestion`, `post-07-08-fullstack`, `post-09-rag`, `post-10-streaming`, `post-11-prompts`, `post-12-13-worldgraph`, `post-14-15-deploy`, and `post-16-managed`, and `git checkout main` returns you to the latest. See the README's [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series) for the full list.
 
 ### What's new in the workshop starter
 
-Three new packages on the backend, plus two route files and a test. Everything from Post 5 carries forward unchanged; the frontend is untouched.
+Three new packages on the backend, plus two route files and a test. Everything from Post 8 carries forward unchanged; the frontend is untouched.
 
 ```
 pepper-carrot-companion-workshop/
@@ -133,7 +133,7 @@ The answer comes back as JSON — text plus an audit trail of which chunks groun
 
 That's the whole loop. The rest of this post is about the one thing that makes it safe: every id in `retrieved_doc_ids` is a page at or before where the reader actually is — and there is no message you can send that changes that.
 
-> *Plain-English aside: why no streaming, no UI?* A production chat answer usually **streams** — tokens appear one at a time — and renders in a chat panel. We're deferring both to Post 7 on purpose. The build plan for this project says to get retrieval and the chat call working over a CLI first, so that when the streaming endpoint misbehaves in Post 7, you already know it isn't the retrieval or the model call. This post answers in a single non-streaming call and you read the result with `curl`. The boundary — the actual subject — is identical either way.
+> *Plain-English aside: why no streaming, no UI?* A production chat answer usually **streams** — tokens appear one at a time — and renders in a chat panel. We're deferring both to Post 10 on purpose. The build plan for this project says to get retrieval and the chat call working over a CLI first, so that when the streaming endpoint misbehaves in Post 10, you already know it isn't the retrieval or the model call. This post answers in a single non-streaming call and you read the result with `curl`. The boundary — the actual subject — is identical either way.
 
 ---
 
@@ -155,10 +155,10 @@ If "RAG" is a new acronym, here's the whole idea in plain terms before we lean o
 
 > *Plain-English aside: RAG, embeddings, vector search.* **RAG** stands for *retrieval-augmented generation*. A language model only knows what's in its prompt (plus whatever it absorbed during training, which you can't control or trust for facts). RAG means: before you ask the model a question, you **retrieve** the handful of documents most relevant to that question and paste them into the prompt as notes, so the model answers from *your* data instead of guessing. To find "most relevant," you turn each document into an **embedding** — a list of numbers (a vector) that captures its meaning, so that two texts about the same thing land near each other. A **vector database** ([ChromaDB](https://www.trychroma.com/) here) stores those vectors and, given a query vector, returns the nearest ones. That nearest-neighbour lookup is **vector search**. ([A gentle primer on embeddings](https://huggingface.co/blog/getting-started-with-embeddings); [the original RAG paper](https://arxiv.org/abs/2005.11401).)
 
-In this project the documents are **page descriptions**. Back in [Post 4]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %}), the `ingest-from-images` skill wrote a prose description of every page, and the ingestion pipeline embedded each one and stored it in a Chroma collection called `pages_v1`. Each stored vector carries a little metadata alongside it:
+In this project the documents are **page descriptions**. Back in [Post 5]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %}), the `ingest-from-images` skill wrote a prose description of every page, and the ingestion pipeline embedded each one and stored it in a Chroma collection called `pages_v1`. Each stored vector carries a little metadata alongside it:
 
 ```python
-# ingestion/chroma_writer.py — written in Post 4, read in Post 6
+# ingestion/chroma_writer.py — written in Post 6, read in Post 9
 metadatas = [
     {
         "episode_number": episode_number,
@@ -187,7 +187,7 @@ Two shapes were on the table:
 
 We take **Option A**, and the reason *is* the thesis. If the boundary were a request parameter, "don't spoil me" would be one `curl -d '{"current_page": 9999}'` away from defeat. By keeping the reader's position in a row the server controls — written only through a dedicated `PATCH` endpoint that validates it against the episode's real page count — the chat message has no say over it at all.
 
-The good news: the table already exists. It was created back in the [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}) migration, and it's documented in [`docs/data-model.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-6/docs/data-model.md). The column that matters:
+The good news: the table already exists. It was created back in the [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}) migration, and it's documented in [`docs/data-model.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-09-rag/docs/data-model.md). The column that matters:
 
 ```python
 # backend/app/db/models.py
@@ -269,7 +269,7 @@ async def retrieve(
     return await self._query(embeddings[0], where=where, k=k)
 ```
 
-Three lines of logic. The query gets embedded through the `EmbeddingClient` Protocol from [Post 3]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) (so the same provider abstraction that powers ingestion powers retrieval), the filter is built from the two position integers, and the Chroma query runs with both. `k=3` is plenty of nearby narrative context for a page question.
+Three lines of logic. The query gets embedded through the `EmbeddingClient` Protocol from [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) (so the same provider abstraction that powers ingestion powers retrieval), the filter is built from the two position integers, and the Chroma query runs with both. `k=3` is plenty of nearby narrative context for a page question.
 
 ---
 
@@ -333,7 +333,7 @@ for page in (await db.execute(stmt)).scalars():
     text_by_id[str(page.id)] = description
 ```
 
-Why split it this way? Because text and embeddings change for different reasons and at different rates. If you re-run the ingestion with a better embedding model, you rebuild Chroma without touching the source of truth. If you fix a typo in a page description, you update one Postgres row and re-embed just that page. Duplicating the text into Chroma would mean two copies that drift. Keeping Chroma as a pure index over Postgres ids — convention 4 in the project's [`CLAUDE.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-6/CLAUDE.md) — keeps one authoritative copy of every fact.
+Why split it this way? Because text and embeddings change for different reasons and at different rates. If you re-run the ingestion with a better embedding model, you rebuild Chroma without touching the source of truth. If you fix a typo in a page description, you update one Postgres row and re-embed just that page. Duplicating the text into Chroma would mean two copies that drift. Keeping Chroma as a pure index over Postgres ids — convention 4 in the project's [`CLAUDE.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-09-rag/CLAUDE.md) — keeps one authoritative copy of every fact.
 
 ---
 
@@ -408,7 +408,7 @@ who is on this page and what are they doing?
 
 The "Reference context" block is *only ever filled with pages the reader has already passed*, because that's all `retrieve()` is structurally able to return. The prompt can't leak what the retrieval layer never handed it.
 
-> *A simplification worth naming.* The full project loads a two-page *spread* on wide screens (the flipbook shows facing pages), strips markdown from the descriptions, and replays the last few conversation turns into the prompt. The workshop collapses all three to keep this post on its subject — a single current page, no history yet, descriptions passed as-is. The streaming version in Post 7 reintroduces history; the spread and markdown-stripping live in the full repo for readers who want them. Mirror the *pattern*, not the line count.
+> *A simplification worth naming.* The full project loads a two-page *spread* on wide screens (the flipbook shows facing pages), strips markdown from the descriptions, and replays the last few conversation turns into the prompt. The workshop collapses all three to keep this post on its subject — a single current page, no history yet, descriptions passed as-is. The streaming version in Post 10 reintroduces history; the spread and markdown-stripping live in the full repo for readers who want them. Mirror the *pattern*, not the line count.
 
 ---
 
@@ -432,7 +432,7 @@ notes, the reader hasn't reached it yet.
 
 Notice the second paragraph. The prompt *does* ask the model to be spoiler-aware — but it says so knowing the retrieval layer has already removed the temptation. **The prompt is a backstop; retrieval is the guard.** That ordering is the point, and the next section shows exactly why you need it in that order: when we push a small local model hard, the prompt-level guard *fails* — and the structural one holds anyway.
 
-The prompt is intentionally short here. Squeezing good behavior out of small models (no essay-formatting, no invented backstory, tight answers) takes a much longer prompt — that's the subject of Post 8, not this one. Keeping it minimal now keeps the spotlight on retrieval.
+The prompt is intentionally short here. Squeezing good behavior out of small models (no essay-formatting, no invented backstory, tight answers) takes a much longer prompt — that's the subject of Post 11, not this one. Keeping it minimal now keeps the spotlight on retrieval.
 
 ---
 
@@ -477,7 +477,7 @@ async def update_session(session_id: uuid.UUID, body: UpdateSessionBody, db: Ses
     return {"ok": True}
 ```
 
-> *Plain-English aside: the HTTP verbs.* Back in [Post 5]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}) we previewed this — `POST` *creates* a thing (a new session), `PATCH` *updates part of* a thing (move the cursor), `GET` *reads*. `POST /api/sessions/{id}/messages` is the odd one out: it's a `POST` because asking a question isn't safe-and-repeatable — it writes two rows to `chat_messages` and runs a model. Verb choice is about side effects, not grammar.
+> *Plain-English aside: the HTTP verbs.* Back in [Post 7]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}) we previewed this — `POST` *creates* a thing (a new session), `PATCH` *updates part of* a thing (move the cursor), `GET` *reads*. `POST /api/sessions/{id}/messages` is the odd one out: it's a `POST` because asking a question isn't safe-and-repeatable — it writes two rows to `chat_messages` and runs a model. Verb choice is about side effects, not grammar.
 
 And the message endpoint, which is thin — it hands off to the orchestrator and shapes the result:
 
@@ -538,7 +538,7 @@ Page 3 — the page the reader is on — isn't in the list, because retrieval ex
 
 ## Proving It: The Jailbreak Test {#jailbreak}
 
-`curl` shows the boundary holding on the happy path. The interesting question is whether it holds when someone *attacks* it. That's a test, and it's the most important one in the project. It lives in [`backend/tests/test_retrieval.py`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-6/backend/tests/test_retrieval.py) and runs against a real, hermetic Chroma collection — no Postgres, no model download — seeded with a handful of fake page vectors spanning two episodes.
+`curl` shows the boundary holding on the happy path. The interesting question is whether it holds when someone *attacks* it. That's a test, and it's the most important one in the project. It lives in [`backend/tests/test_retrieval.py`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-09-rag/backend/tests/test_retrieval.py) and runs against a real, hermetic Chroma collection — no Postgres, no model download — seeded with a handful of fake page vectors spanning two episodes.
 
 ```python
 # backend/tests/test_retrieval.py
@@ -589,7 +589,7 @@ Two things happened, and the gap between them is the entire point. The **prompt-
 
 But look at `retrieved_doc_ids`: every chunk is still page 1 or 2. The model never received page 3's real content, let alone a real page 4 — *there is no page 4*. It could **fabricate** an ending out of its own imagination; it could not **reveal** the real one, because the real one was never in its context. The structural boundary held even as the prompt-level one crumbled.
 
-This is exactly why you don't trust the prompt. A weak model under a direct jailbreak will say almost anything — but it can only spoil with data it has, and retrieval decides what data it has. (Hardening the prompt so the model also *declines* gracefully is real work; it's the subject of Post 8. It makes the demo nicer. It is not what makes it safe.)
+This is exactly why you don't trust the prompt. A weak model under a direct jailbreak will say almost anything — but it can only spoil with data it has, and retrieval decides what data it has. (Hardening the prompt so the model also *declines* gracefully is real work; it's the subject of Post 11. It makes the demo nicer. It is not what makes it safe.)
 
 ---
 
@@ -701,7 +701,7 @@ Everything above, in one diagram. The reader's question and the reader's saved p
 
 ## What Deserves an Abstraction (and What Doesn't) {#abstraction}
 
-One design decision in this post is worth surfacing on its own, because it cuts against a rule the project otherwise enforces hard. [Post 3]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) established that external services hide behind `clients/` Protocols — chat, embeddings, storage each have a local implementation and a cloud one, swappable by config. So why does `RetrievalService` `import chromadb` directly, rather than going through a `clients/` interface?
+One design decision in this post is worth surfacing on its own, because it cuts against a rule the project otherwise enforces hard. [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) established that external services hide behind `clients/` Protocols — chat, embeddings, storage each have a local implementation and a cloud one, swappable by config. So why does `RetrievalService` `import chromadb` directly, rather than going through a `clients/` interface?
 
 Because **ChromaDB isn't a swappable provider — it's the single vector store.** The three things behind Protocols all answer the question "local or cloud?": Ollama or Anthropic for chat, sentence-transformers or Ollama for embeddings, local disk or R2 for images. Each abstraction exists because that choice genuinely changes between your laptop and production. The vector store doesn't have that fork — Chroma is Chroma in both places — so wrapping it in a Protocol would be ceremony with no second implementation behind it. The `chromadb` SDK is imported in exactly two files (`retrieval/service.py` for reads, `ingestion/chroma_writer.py` for writes) and nowhere else, which is the actual discipline: *contain* the dependency, but don't abstract what has nothing to swap to.
 
@@ -725,9 +725,9 @@ Because **ChromaDB isn't a swappable provider — it's the single vector store.*
 
 ---
 
-Next up: **Post 7 — Streaming Chat in the Browser: SSE, React, and Schema-Constrained Suggestion Chips.** The pipeline answers in one shot today; next we make tokens stream into a real chat panel over [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events), wire the flipbook's current-page callback into the session's `PATCH`, and add follow-up suggestion chips — generated by a second model call, constrained to a JSON schema, and validated server-side before a single chip reaches the DOM. The retrieval boundary you built here rides underneath all of it, unchanged.
+Next up: **[Post 10 — Streaming Chat in the Browser]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}): SSE, React, and Schema-Constrained Suggestion Chips.** The pipeline answers in one shot today; next we make tokens stream into a real chat panel over [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events), wire the flipbook's current-page callback into the session's `PATCH`, and add follow-up suggestion chips — generated by a second model call, constrained to a JSON schema, and validated server-side before a single chip reaches the DOM. The retrieval boundary you built here rides underneath all of it, unchanged.
 
-The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>, tagged `post-6` — `git checkout post-6` to get exactly the code shown here (see [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series)). The **full source repository** and the public live-demo URL go up alongside the final post — the deploy guide — once it's published.
+The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>, tagged `post-09-rag` — `git checkout post-09-rag` to get exactly the code shown here (see [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series)). The **full source repository** and the public live-demo URL go up alongside the deploy guide near the end of the series — once it's published.
 
 *Pepper & Carrot* is © [David Revoy](https://www.davidrevoy.com/), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). All credit to him for the source material that made this project possible.
 

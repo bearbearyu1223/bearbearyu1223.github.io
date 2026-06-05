@@ -1,5 +1,5 @@
 ---
-title: "Setting Up the Workshop: Postgres, Ollama, and a Project That Type-Checks"
+title: "Pepper & Carrot AI-powered flipbook · Part 2 of 16 — Setting Up the Workshop: Postgres, Ollama, and a Project That Type-Checks"
 date: 2026-05-10 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [postgres, ollama, fastapi, uv, mypy, ruff, alembic, docker, peppercarrot, portfolio]
@@ -42,12 +42,11 @@ verification step below.
 4. [Postgres in a Container](#postgres)
 5. [Ollama: An LLM Server for Your Laptop](#ollama)
 6. [A Typed Python Project with uv, mypy, and ruff](#python-project)
-7. [The First Migration: Real Schema in Real Postgres](#first-migration)
+7. [Apply the First Migration](#first-migration)
 8. [Your First Episode in `data/raw/`](#first-episode)
 9. [The `.env` File That Ties It Together](#env)
 10. [Verification: The Whole Workshop, End to End](#verification)
 11. [Key Takeaways](#key-takeaways)
-12. [Appendix A: What the SQLAlchemy Models Actually Look Like](#appendix-models)
 
 ---
 
@@ -150,9 +149,9 @@ Two things to take away from that tree:
 - **You'll only touch a handful of these in this post.** Top-level `docker-compose.yml` and `.env.example`; `backend/pyproject.toml` and the `backend/alembic/` migration directory; the SQLAlchemy models under `backend/app/db/`; and `ingestion/acquire.py`. Every other path is structural placeholder for code that arrives in later posts — they're listed so you can see where things will land as the series builds out.
 - **`data/` is gitignored — it's not part of the source.** It's a working directory each developer creates as they run the workshop. By the end of this post you'll have `./data/postgres/` (live Postgres data files), `./data/raw/ep01-potion-of-flight/` (one downloaded episode of comic source), and a placeholder for `./data/chroma/` that gets populated in Post 4.
 
-> **About the repo URL.** The code that backs this post (and Post 3) is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop> — a deliberately scoped workshop starter. Clone it and the tree above is exactly what you'll find on disk. The full project repository (frontend, chat orchestrator, world-graph, cloud deploy) goes up alongside the deploy guide in Post 10. Until then, the file paths in every later command (`backend/app/clients/`, `backend/app/db/models.py`, etc.) are the same paths in both the starter and the eventual full repo.
+> **About the repo URL.** The code that backs this post (and Posts 3–4) is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop> — a deliberately scoped workshop starter. Clone it and the tree above is exactly what you'll find on disk. The full project repository (frontend, chat orchestrator, world-graph, cloud deploy) goes up alongside the deploy guide near the end of the series. Until then, the file paths in every later command (`backend/app/clients/`, `backend/app/db/models.py`, etc.) are the same paths in both the starter and the eventual full repo.
 >
-> **Checking out the code.** The workshop is tagged from Post 5 onward; Posts 1–4 build toward that first checkpoint. To get a complete, working tree for everything through Post 5, run `git checkout post-5`. Each later post then adds its own tag (`post-6`, `post-7`, …) — see the README's [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series).
+> **Checking out the code.** The setup, the data model, and the provider abstractions (Posts 2–4) all live at one checkpoint: `git checkout post-02-04-starter` gives you a complete, working tree for all three. Later posts add their own tags (`post-05-06-ingestion`, `post-07-08-fullstack`, `post-09-rag`, …); each names the tag to check out. See the README's [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series).
 
 ---
 
@@ -535,61 +534,18 @@ If all three pass, the Python project is sound.
 
 ---
 
-## The First Migration: Real Schema in Real Postgres {#first-migration}
+## Apply the First Migration {#first-migration}
 
-> *What's a migration?* A migration is a versioned script — usually one `.py` file per change — that takes the database from one schema (the set of tables, columns, indexes, constraints) to the next. Run all of them in order on a fresh database and you arrive at the current schema. [**Alembic**](https://alembic.sqlalchemy.org/en/latest/) is the migration tool that ships with SQLAlchemy. It can *autogenerate* a migration by diffing your declared models (Python classes) against the live database — though as we'll see in a minute, you should never trust autogenerate blindly.
+> *What's a migration?* A versioned script — usually one `.py` file per change — that takes the database from one schema (the set of tables, columns, indexes, constraints) to the next. Run them in order on a fresh database and you arrive at the current schema. [**Alembic**](https://alembic.sqlalchemy.org/en/latest/) is the migration tool that ships with SQLAlchemy.
 
-### How Alembic knows what to do: `alembic.ini` and `alembic/env.py`
-
-Before `alembic revision` does anything useful, two files on disk wire the tool to this project:
-
-- **`backend/alembic.ini`** is the [INI file](https://en.wikipedia.org/wiki/INI_file) telling Alembic where the migration directory lives (`alembic/`), what to name new revision files, and (nominally) the Postgres URL. The interesting line is `sqlalchemy.url =` — left empty on purpose, because the actual URL is injected at runtime from `.env`. There's also a `[post_write_hooks]` section that pipes every autogenerated migration through `ruff --fix` so the formatting matches the rest of the codebase out of the box.
-- **`backend/alembic/env.py`** is the Python script Alembic runs on every command. Three load-bearing lines: it imports `Base` from `app.db.models` (so `Base.metadata` knows every model class), calls `get_settings()` and sets `sqlalchemy.url` to `settings.database_url` (overriding the empty placeholder in `alembic.ini`), and sets `target_metadata = Base.metadata` — that's the "what should the schema look like?" source of truth `--autogenerate` diffs the live database against.
-
-You don't write either from scratch. `alembic init alembic` (a one-time bootstrap in any new SQLAlchemy project) creates both with sensible defaults; the project's `env.py` has a small patch to read the URL from `Settings` and to register the `Base` import, plus the async-engine plumbing that matches the rest of the codebase. If you cloned the repo they exist already; if you're rebuilding from scratch as you read along, run `uv run alembic init alembic` from `backend/` first, then mirror those edits into the generated `env.py`.
-
-### Generate the initial migration
+The workshop starter already ships the initial migration, so applying it is one command from `backend/`:
 
 ```bash
 cd backend
-uv run alembic revision --autogenerate -m "initial schema"
-```
-
-This reads `backend/app/db/models.py` (the SQLAlchemy 2.0 typed declarative models), compares them against the empty database, and writes a file like:
-
-```
-backend/alembic/versions/a1b2c3d4e5f6_initial_schema.py
-```
-
-**Open that file and read it.** I mean it. Autogenerate is great but not perfect, and the bugs it introduces are silent and load-bearing. Specifically check:
-
-- All 10 application tables are present: `episodes`, `pages`, `characters`, `page_characters`, `wiki_articles`, `commentary_notes`, `chat_sessions`, `chat_messages`, `world_entities`, `world_relationships`. (An eleventh table, `alembic_version`, gets created automatically.)
-- JSONB columns use `postgresql.JSONB`, **not** generic `sa.JSON`. Autogenerate sometimes downgrades these. ChromaDB metadata queries in Post 6 depend on JSONB specifically, so this matters.
-- Array columns (`mood_tags`, `aliases`) use `postgresql.ARRAY(sa.String())`.
-- The unique constraint on `(episode_id, page_number)` in `pages` exists.
-- The `(session_id, created_at)` index on `chat_messages` exists — chat history retrieval scans by it on every request.
-
-If anything is off, **edit the migration file directly** rather than regenerating. Autogenerate occasionally drops things on regeneration if its inference of "current state" drifts.
-
-> *Why we have these specific tables, in one paragraph.* `episodes` and `pages` are the unit-of-content rows the flipbook UI reads from. `characters` and `page_characters` power the (future) character chips on the page indicator. `wiki_articles` holds the curated universe lore that wiki-mode chat retrieves from in Post 8. `chat_sessions` and `chat_messages` are the conversation audit log. (`commentary_notes` is a forward-looking placeholder — see the feature-to-table walk-through below for what it's for and why it's in the schema without a UI yet.) `world_entities` and `world_relationships` are the knowledge-graph tables that power the world-graph overlay in Post 9 — declared in `models.py` from day one, so this same initial migration creates them, even though nothing touches them until later. The full schema with field-by-field rationale lives in [`docs/data-model.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/docs/data-model.md) in the workshop starter.
-
-### Why not just `Base.metadata.create_all()`?
-
-Now that you have a generated migration in front of you, it's worth asking: was all this necessary? SQLAlchemy ships a one-liner — `Base.metadata.create_all(engine)` — that walks your declared models and issues `CREATE TABLE` for any that don't exist. No Alembic, no `versions/` directory, no autogenerate. Why bother?
-
-Three reasons, each load-bearing:
-
-1. **`create_all` doesn't migrate.** It creates from scratch. If you add a column tomorrow, `create_all` shrugs at your existing tables — it sees they're already there and skips them. Alembic instead generates a fresh `ALTER TABLE ... ADD COLUMN` migration that updates the live schema in place.
-2. **It produces an audit trail.** Every change is a file in `alembic/versions/` with a hash, a parent revision, and a human-readable description. `git log` becomes a history of your database too — invaluable when you're three months in and need to know when a column was added.
-3. **It's how every production deploy will work.** When we deploy to [Neon](https://neon.tech/) in Post 10, the deploy script runs `alembic upgrade head` against the production database. There's exactly one way to make schema changes safe across environments, and it starts on day one — not the week you first need it on a database with real users in it.
-
-### Apply it
-
-```bash
 uv run alembic upgrade head
 ```
 
-`head` means "the latest revision." On a fresh database, that's our one new migration.
+`head` means "the latest revision." On a fresh database, that's the one initial migration — and it creates every table the app will ever use.
 
 Verify by listing tables:
 
@@ -612,7 +568,7 @@ psql "postgresql://peppercarrot:peppercarrot_dev@localhost:5432/peppercarrot" -c
 #  public | world_relationships   | table | peppercarrot
 ```
 
-Eleven rows. Now insert a test row to prove the schema is healthy:
+Eleven rows — ten application tables plus `alembic_version`. Now insert a test row to prove the schema is queryable:
 
 ```bash
 psql "postgresql://peppercarrot:peppercarrot_dev@localhost:5432/peppercarrot" \
@@ -624,75 +580,11 @@ psql "postgresql://peppercarrot:peppercarrot_dev@localhost:5432/peppercarrot" \
 #  Pepper | {the witch}
 ```
 
-If that query lands without an error, your schema is real, queryable, and ready for the next post.
+If that lands without an error, your schema is real, queryable, and ready for the next post.
 
-> *A gotcha worth flagging — skip this if you're using the Docker Postgres we set up earlier.* The verification query above uses [`gen_random_uuid()`](https://www.postgresql.org/docs/current/functions-uuid.html), Postgres's built-in function for minting a fresh random ID. In PostgreSQL 13 and later (including the `postgres:16-alpine` image), it works out of the box. On older Postgres — say a system-installed one from 2019 — the same function lives in an optional add-on called an [*extension*](https://www.postgresql.org/docs/current/external-extensions.html), specifically [`pgcrypto`](https://www.postgresql.org/docs/current/pgcrypto.html), that has to be turned on first. Without it you'll see `function gen_random_uuid() does not exist`.
->
-> The fix is to enable the extension at the start of the migration. Add this one line to the top of the `upgrade()` function in your generated migration file, then re-run `alembic upgrade head`:
->
-> ```python
-> op.execute('CREATE EXTENSION IF NOT EXISTS "pgcrypto"')
-> ```
->
-> (`op` is the Alembic helper available inside every migration file; `op.execute(...)` runs raw SQL within the same transaction as the migration's other operations, so the extension is in place before any `CREATE TABLE` runs.)
+> *A gotcha worth flagging — skip this if you're using the Docker Postgres we set up earlier.* The verification query uses [`gen_random_uuid()`](https://www.postgresql.org/docs/current/functions-uuid.html). In PostgreSQL 13 and later (including the `postgres:16-alpine` image) it works out of the box. On an older Postgres it lives in the [`pgcrypto`](https://www.postgresql.org/docs/current/pgcrypto.html) extension — add `op.execute('CREATE EXTENSION IF NOT EXISTS "pgcrypto"')` to the top of the migration's `upgrade()` function and re-run `alembic upgrade head`.
 
-### From features to tables: how the schema mirrors the app
-
-A natural question reading the table list is: *why these eight, and not some other set?* The schema isn't arbitrary — every table comes from one specific feature of the product. Walking through it feature by feature is the fastest way to see what each table is doing.
-
-Start with the **reading experience** — an AI flipbook of a webcomic. The comic is organized into *episodes*, and each episode is an ordered sequence of *pages*. That gives us two tables and one relationship:
-
-- `episodes` — one row per episode, with the metadata the picker needs: `title`, `episode_number`, cover image, plot summary, publish date.
-- `pages` — one row per page, with an `episode_id` column pointing back to its episode and a `page_number` marking its slot within. A unique constraint on `(episode_id, page_number)` enforces "no two pages share a slot in the same episode."
-
-Now the **AI part**: the chat needs to talk about what the reader is currently looking at. To do that, every page needs a prose *description* the chat layer can embed and retrieve. That's the `visual_description` text column on `pages` — the same text Post 4 (ingestion) will hand to the embedding model.
-
-Add **character-aware features**: character chips in the page indicator, "next time this character appears" navigation, and anchoring chat answers to canonical names (so the AI says "Pepper" instead of inventing a fresh name for an unfamiliar witch each time). We need a roster *and* we need to know which pages each character appears on. Two more tables:
-
-- `characters` — one row per named character (Pepper, Carrot, the three Chaosah witches, etc.), with an `aliases` array column for the inevitable "the cat" → Carrot mapping.
-- `page_characters` — a *join table*: its only purpose is to connect `pages` and `characters` in a many-to-many relationship (a page can show many characters; a character appears on many pages). Each row is two foreign keys (`page_id`, `character_id`) and nothing else — a pure linkage, with no data of its own.
-
-Add **wiki mode**: a second retrieval pipeline for "what is Chaosah?" or "tell me about the Magic Sand" — questions about universe lore that aren't tied to any specific page. Wiki content has different chunking, a different retrieval `k`, and (because universe facts aren't plot spoilers) skips the spoiler filter that page mode applies. It deserves its own table:
-
-- `wiki_articles` — one row per article (`slug`, `title`, full `content` as markdown, `category` like `school` or `creature`).
-
-Finally, the **conversations themselves** need to persist — a user might close the tab and come back tomorrow to keep chatting about ep07, page 3. So:
-
-- `chat_sessions` — one row per conversation, with `episode_id` and a `current_page` column that updates as the reader flips so the AI always knows the spread the conversation is grounded in.
-- `chat_messages` — one row per turn (user or assistant), with `mode` (`page` or `wiki`), `content`, and — for assistant messages — the `retrieved_doc_ids` audit column we'll come back to in a minute.
-
-Those are the seven tables driven by current product features. There's also one **forward-looking placeholder** in the schema: `commentary_notes`. The idea behind it was a small UI feature — surfacing excerpts from David Revoy's making-of blog posts (he often writes about how a specific page came together) inline with the comic. The data shape is straightforward (one row per note, tied to an `episode_id` and an optional `page_number_hint`), and the source content is already part of the archive we'll download from peppercarrot.com in the next section. But the UI to surface it isn't built in the current version of the app — the table is in the schema as a hook for a feature that may or may not ship later. I'm leaving it in the migration mostly because removing tables later is cheap; provisioning them retroactively against production data is less so.
-
-Two more tables — `world_entities` and `world_relationships` — round out the schema. They power the world-graph overlay Post 9 covers in depth, but they're already declared in `models.py` and therefore created by *this* initial migration alongside everything else. We won't touch them until the world-graph phase, but they're sitting there in `\dt` from day one because there's nothing to gain from staging them in a later migration.
-
-The point of this exercise isn't to memorize the tables. It's to notice that **the schema is a direct translation of the product**, not a generic data model pulled off a shelf. When you're designing a schema for your own app, the same move applies: list the features the product is going to support — or might plausibly support soon — and ask what data each one needs. Let the answers cluster into tables. The result is a schema where every table can name the specific feature it exists for. You won't find generic `users` / `tags` / `permissions` / `revisions` tables sitting there "just in case" — and that absence is the point. Schemas full of speculative tables are how data models calcify before the product is even shipped.
-
-### Four design decisions worth naming
-
-A migration is just a `CREATE TABLE` script. The interesting parts of a data model are the design decisions that *aren't* visible in the DDL — the choices about what to store where, in what shape, and what to leave out. Four worth flagging now, because each one shows up as a load-bearing choice in a later post:
-
-**1. Postgres holds the text of truth; ChromaDB holds embeddings + IDs only.**
-
-A naive RAG app stores every chunk's text in both places — the embedding in Chroma and the same text duplicated as a column. That gives you two problems: data drift (which copy is canonical?) and storage bloat (a 1024-dim float vector is a few KB; the same text in prose might be twice that, often more). This schema picks the opposite shape. `pages.visual_description` is the canonical text in Postgres. When Post 4 (ingestion) embeds those descriptions, it writes to Chroma only the *embedding* plus a small metadata payload — notably the page's UUID — and *not* the text itself. At retrieval time (Post 6), the orchestrator asks Chroma for matching IDs, then re-fetches the actual text from Postgres. One source of truth, two indexes pointing at it.
-
-**2. `pages.image_url` is a relative key, not a full URL.**
-
-The column stores `episodes/ep01-pollution/pages/001-display.webp`, not `http://localhost:8000/images/episodes/ep01-pollution/pages/001-display.webp`. The full URL is composed at API response time by whichever storage backend is active — a `LocalStorage` implementation when you're on `STORAGE_BACKEND=local`, an `R2Storage` implementation when Post 10 flips that to `r2`. The indirection lets you swap your image host with a one-line config change instead of an `UPDATE` over every row in `pages`. (The latter is easy with three pages and a single shared prefix; it's a Saturday-night incident with three thousand rows and a half-dozen historical prefixes accreted over a year.) Post 3 builds the `StorageClient` interface that consumes these relative keys.
-
-**3. `image_metadata` is JSONB, not separate columns.**
-
-Width, height, blurhash, dominant color — you might expect each as its own typed column. They're a single JSONB blob instead, for two reasons:
-
-- *Co-fetched and rarely queried in isolation.* The frontend reads them all together when rendering a page; nothing in the app queries "every page wider than 1000px." When you never filter on a field, putting it in its own column buys you nothing.
-- *The shape will evolve.* Today the blob is `{width, height, blurhash, dominant_color}`. Tomorrow we might add `palette`, `alt_text`, or `dominant_emotion`. With JSONB that's an edit to `models.py`; with separate columns every new field is a migration.
-
-The tradeoff: no [GIN](https://www.postgresql.org/docs/current/gin.html) index by default, no per-field type safety from the DB. Both are worth giving up for metadata that's always read as a bundle.
-
-**4. `chat_messages.retrieved_doc_ids` is the column that makes retrieval debuggable.**
-
-Every assistant message will record exactly which Chroma chunks the orchestrator pulled to compose its prompt — stored as a JSONB array of IDs. This sounds like a boring audit column. It's the single most useful column in the schema.
-
-When you're tuning retrieval in Post 6 and a user reports "the chat answered wrong about page 4," you need to know *what context the model actually saw* at the moment it answered. Rebuilding that from logs is usually impossible — the chunk store keeps moving as you re-ingest, so the same query at a different time returns different results. With `retrieved_doc_ids` recorded inline, every assistant turn is fully replayable: pull the IDs, fetch those chunks from Chroma, look at exactly what the prompt contained, then decide whether the bug is in retrieval (wrong chunks) or generation (right chunks, wrong answer). Mature LLM-app codebases all have a column like this under various names — "trace," "context manifest," "retrieval ledger." Whatever it's called, build it on day one. Adding it retroactively means losing the audit trail for everything that happened before.
+That's the migration applied. **What it actually created — how Alembic generates it from your models, why migrations beat `Base.metadata.create_all()`, how the ten tables map onto product features, and a column-by-column tour of the SQLAlchemy models — is the whole subject of the next post, [The Data Model]({% post_url 2026-05-11-pepper-carrot-companion-data-model %}).**
 
 ---
 
@@ -844,400 +736,11 @@ If something fails, **fix it now**. Setup bugs that survive into application dev
 
 ---
 
-## Appendix A: What the SQLAlchemy Models Actually Look Like {#appendix-models}
-
-Throughout this post I've referenced "the SQLAlchemy 2.0 typed declarative models in `backend/app/db/models.py`" without ever showing one. This appendix closes that gap. The code below is exactly what Alembic's autogenerate diffs against to produce the migration you just applied — every column, type, and constraint mentioned in the design discussions earlier is a line of Python below.
-
-If you've never seen SQLAlchemy 2.0's typed style before, here's the one-sentence summary: **each column is a class attribute typed with `Mapped[X]` (the Python type) and assigned to `mapped_column(...)` (the database type and constraints)**. The two halves are kept in agreement by [`mypy --strict`](https://mypy-lang.org/) — if you say a column is `Mapped[str]` and then map it to a column that allows NULL, the type-check fails.
-
-### Three terms used throughout: parent, child, join
-
-The section headings below — and the annotations on each model — lean on three terms that come up whenever a relational database holds connected things. Worth nailing down before the code:
-
-- **Parent table** — a table other tables point at via [foreign keys](https://www.postgresql.org/docs/current/tutorial-fk.html). Nothing references *down into* it; its rows exist on their own. `episodes` is a parent.
-- **Child table** — a table whose rows belong to a parent. Each row carries a foreign-key column pointing at the parent's primary key. `pages` is a child of `episodes` (each page row has an `episode_id`).
-- **Join table** — a table whose only purpose is to connect *two other tables* in a many-to-many. Its rows are pure linkages: two foreign keys, no data of its own. `page_characters` joins `pages` to `characters`.
-
-The same table can be both: `pages` is a child of `episodes` *and* a parent of `page_characters`. Trace the foreign-key arrows — arrows pointing *into* a table mean it's playing a parent role; arrows pointing *out* mean it's a child or part of a join. Most tables in a real schema have both.
-
-Here's how those four roles play out across this schema's tables. Each arrow points from a child to its parent (the direction the foreign key references):
-
-<div style="margin: 1.5rem 0; overflow-x: auto;">
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 640" role="img"
-     aria-label="Foreign-key diagram of the eight schema tables, showing parent, child, join, and standalone roles."
-     style="display: block; width: 100%; height: auto; max-width: 900px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;">
-  <defs>
-    <marker id="fk-arrow" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
-    </marker>
-  </defs>
-
-  <!-- Foreign-key arrows: each points from a CHILD up to its PARENT -->
-  <!-- pages.episode_id -> episodes.id (CASCADE) -->
-  <line x1="105" y1="180" x2="420" y2="104" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
-  <!-- chat_sessions.episode_id -> episodes.id (CASCADE) -->
-  <line x1="295" y1="180" x2="440" y2="104" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
-  <!-- commentary_notes.episode_id -> episodes.id (CASCADE) -->
-  <line x1="515" y1="180" x2="470" y2="104" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
-  <!-- characters.first_appearance_episode_id -> episodes.id (SET NULL) -->
-  <line x1="735" y1="180" x2="490" y2="104" stroke="#6b7280" stroke-width="1.5"
-        stroke-dasharray="6,4" marker-end="url(#fk-arrow)"/>
-  <!-- chat_messages.session_id -> chat_sessions.id (CASCADE) -->
-  <line x1="295" y1="320" x2="295" y2="244" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
-  <!-- page_characters.page_id -> pages.id (CASCADE) -->
-  <line x1="365" y1="460" x2="135" y2="244" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
-  <!-- page_characters.character_id -> characters.id (CASCADE) -->
-  <line x1="515" y1="460" x2="710" y2="244" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
-
-  <!-- episodes (PARENT) -->
-  <g>
-    <rect x="370" y="42" width="160" height="62" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
-    <text x="450" y="70" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">episodes</text>
-    <text x="450" y="90" text-anchor="middle" font-size="11" fill="#92400e" font-weight="600">PARENT</text>
-  </g>
-
-  <!-- pages (CHILD + parent) -->
-  <g>
-    <rect x="40" y="182" width="130" height="62" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
-    <text x="105" y="210" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">pages</text>
-    <text x="105" y="230" text-anchor="middle" font-size="11" fill="#1e40af" font-weight="600">CHILD + parent</text>
-  </g>
-
-  <!-- chat_sessions (CHILD + parent) -->
-  <g>
-    <rect x="210" y="182" width="170" height="62" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
-    <text x="295" y="210" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">chat_sessions</text>
-    <text x="295" y="230" text-anchor="middle" font-size="11" fill="#1e40af" font-weight="600">CHILD + parent</text>
-  </g>
-
-  <!-- commentary_notes (CHILD, leaf) -->
-  <g>
-    <rect x="420" y="182" width="190" height="62" rx="8" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
-    <text x="515" y="210" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">commentary_notes</text>
-    <text x="515" y="230" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">CHILD, leaf</text>
-  </g>
-
-  <!-- characters (optional CHILD + parent) -->
-  <g>
-    <rect x="650" y="182" width="170" height="62" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
-    <text x="735" y="205" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">characters</text>
-    <text x="735" y="223" text-anchor="middle" font-size="11" fill="#1e40af" font-weight="600">optional CHILD</text>
-    <text x="735" y="237" text-anchor="middle" font-size="11" fill="#1e40af" font-weight="600">+ parent</text>
-  </g>
-
-  <!-- chat_messages (CHILD, leaf) -->
-  <g>
-    <rect x="210" y="322" width="170" height="62" rx="8" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
-    <text x="295" y="350" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">chat_messages</text>
-    <text x="295" y="370" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">CHILD, leaf</text>
-  </g>
-
-  <!-- page_characters (JOIN) -->
-  <g>
-    <rect x="320" y="460" width="240" height="62" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
-    <text x="440" y="488" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">page_characters</text>
-    <text x="440" y="508" text-anchor="middle" font-size="11" fill="#065f46" font-weight="600">JOIN</text>
-  </g>
-
-  <!-- wiki_articles (STANDALONE) -->
-  <g>
-    <rect x="680" y="460" width="170" height="62" rx="8" fill="#f3f4f6" stroke="#9ca3af" stroke-width="1.5"/>
-    <text x="765" y="488" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2937">wiki_articles</text>
-    <text x="765" y="508" text-anchor="middle" font-size="11" fill="#4b5563" font-weight="600">STANDALONE</text>
-  </g>
-
-  <!-- Legend -->
-  <g>
-    <line x1="40" y1="572" x2="86" y2="572" stroke="#6b7280" stroke-width="1.5" marker-end="url(#fk-arrow)"/>
-    <text x="96" y="576" font-size="11" fill="#4b5563">solid arrow = FK with ondelete="CASCADE"</text>
-    <line x1="40" y1="596" x2="86" y2="596" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="6,4" marker-end="url(#fk-arrow)"/>
-    <text x="96" y="600" font-size="11" fill="#4b5563">dashed arrow = FK with ondelete="SET NULL"</text>
-    <text x="450" y="625" text-anchor="middle" font-size="11" fill="#6b7280" font-style="italic">Each arrow points from a child to its parent (the direction the foreign key references).</text>
-  </g>
-</svg>
-</div>
-
-Reading the diagram:
-
-- **`(PARENT)`** — nothing FKs out of it. `episodes` is the only pure parent in this schema.
-- **`(CHILD + parent)`** — has a foreign key out *and* something else FKs into it. `pages`, `chat_sessions`, and `characters` are all in this dual role.
-- **`(CHILD, leaf)`** — has a FK out but nothing points at it. `commentary_notes` and `chat_messages` sit at the ends of their chains.
-- **`(JOIN)`** — two FKs out, no other data. `page_characters` is the only one — it links `pages` ↔ `characters` for the many-to-many.
-- **`(STANDALONE)`** — no FK in or out. `wiki_articles` is the floor of the schema's complexity, sitting off to the side.
-
-One nuance the diagram glosses over for simplicity: the `characters → episodes` arrow is `first_appearance_episode_id`, which uses `ondelete="SET NULL"` rather than the `CASCADE` used by every other arrow. So deleting an episode doesn't delete the characters who first appeared in it — it just clears their "first appearance" pointer. The `PageCharacter` annotation later in this appendix has the full discussion of `CASCADE` vs `SET NULL`.
-
-### The imports and a couple of helpers
-
-Every model lives in `models.py`. These lines appear once at the top of the file:
-
-```python
-from __future__ import annotations
-
-import uuid
-from datetime import datetime
-from typing import Any
-
-from sqlalchemy import (
-    DateTime, Float, ForeignKey, Index, String, Text, UniqueConstraint, func,
-)
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
-
-class Base(DeclarativeBase):
-    """Common base for all ORM models."""
-
-
-def _uuid_pk() -> Mapped[uuid.UUID]:
-    return mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
-    )
-
-
-def _timestamp_now() -> Mapped[datetime]:
-    return mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False,
-    )
-```
-
-Three things to notice:
-
-- **`from __future__ import annotations`** enables [PEP 563](https://peps.python.org/pep-0563/) lazy evaluation of type hints. Without it, the forward references between models (e.g. `Page` referencing `Episode` before `Episode` is defined) would crash at import time. Add this line to any Python file with model classes that reference each other.
-- **`class Base(DeclarativeBase):`** is the parent every model inherits from. It's how SQLAlchemy knows which classes are tables.
-- **`_uuid_pk()` and `_timestamp_now()`** are small helpers. Every row in this schema has a UUID primary key and most have a `created_at` / `ingested_at` timestamp. Factoring those out keeps each model class focused on the columns that actually differ.
-
-The next three sections show three representative model classes — `Episode`, `Page`, `ChatMessage` — each connecting directly to a design decision from earlier in the post.
-
-### The full schema, every column
-
-The role diagram above grouped tables by structural role. This one drops a level: every column, type, key, default, and FK target on all ten tables — including `world_entities` and `world_relationships`, which the role diagram skips because they're introduced later in the series.
-
-<iframe src="{{ '/assets/embed/peppercarrot_data_model_erd.html' | relative_url }}" loading="lazy" style="width: 100%; height: 780px; border: 1px solid rgba(115, 114, 108, 0.18); border-radius: 6px; display: block; margin: 1rem 0;" title="Pepper & Carrot data model ERD (interactive — drag to pan, use ± to zoom)"></iframe>
-
-A few patterns worth noticing once everything is in one frame:
-
-- **Every table has a UUID primary key with `default uuid4()`** — the `_uuid_pk()` helper above is the single line of code those ten `id` columns share.
-- **Every FK in the schema is one of two flavors:** `ON DELETE CASCADE` (children disappear with the parent) or `ON DELETE SET NULL` (children survive, pointer is cleared). There's no `RESTRICT` and no orphan rows.
-- **JSONB and `text[]` appear only on `pages`, `chat_messages` (and `characters.aliases`).** Everywhere else, the schema is plain typed columns — JSONB is reserved for genuinely open-ended payloads (raw image EXIF, per-page mood lists, retrieval doc-id traces, model token counts), not used as a substitute for proper columns.
-- **`world_entities` and `world_relationships`** carry their own `created_at` + `updated_at` because, unlike the read-mostly ingestion tables, they're edited by hand as the world graph evolves — the `updated_at` with `onupdate=func.now()` makes that auditable.
-- **`world_relationships` is the only self-referential table:** both `source_id` and `target_id` point at `world_entities`, which is how the graph in Post 9 encodes edges like "Pepper is a member of Hippiah Coven."
-
-### `Episode` — a parent table
-
-```python
-class Episode(Base):
-    __tablename__ = "episodes"
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    slug: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
-    title: Mapped[str] = mapped_column(String(256), nullable=False)
-    episode_number: Mapped[int] = mapped_column(nullable=False)
-    language: Mapped[str] = mapped_column(String(8), default="en", nullable=False)
-    cover_image_url: Mapped[str | None] = mapped_column(Text)
-    plot_summary: Mapped[str | None] = mapped_column(Text)
-    credits_url: Mapped[str | None] = mapped_column(Text)
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    ingested_at: Mapped[datetime] = _timestamp_now()
-
-    pages: Mapped[list[Page]] = relationship(
-        back_populates="episode",
-        cascade="all, delete-orphan",
-        order_by="Page.page_number",
-    )
-    commentary_notes: Mapped[list[CommentaryNote]] = relationship(
-        back_populates="episode", cascade="all, delete-orphan",
-    )
-```
-
-Most of the body is column declarations — one per attribute on the table. A few things worth pausing on:
-
-- **`Mapped[str | None]` vs `Mapped[str]`** is how nullability is communicated. The type annotation is the source of truth: `Mapped[str | None]` produces a nullable column; `Mapped[str]` (combined with `nullable=False`) produces a NOT NULL column. The two halves must agree or `mypy --strict` yells at you.
-- **`Mapped[str] = mapped_column(String(128), unique=True, nullable=False)`** — `String(128)` is `VARCHAR(128)` in Postgres. We bound the length on identifier-style columns (`slug`, `title`, `language`) and leave long-text columns as `Text` (effectively unbounded). The bound is a small belt-and-braces guard against accidentally writing megabytes into a column that's supposed to hold a short identifier.
-- **`relationship(back_populates="episode", cascade="all, delete-orphan", order_by="Page.page_number")`** is the ORM-side declaration that "an Episode has many Pages, and the Page side has a matching `episode` back-reference." Three knobs worth knowing:
-  - `back_populates="episode"` — names the matching attribute on the *other* class (here, `Page.episode`). What this actually buys you is **automatic in-memory sync**: when you write `episode.pages.append(page)`, SQLAlchemy *also* sets `page.episode = episode` for you — and vice versa, setting `page.episode = ep` automatically appends to `ep.pages`. Without `back_populates`, you'd have to remember to update both sides every time. Note this is purely Python-side ergonomics — the *database* knows about the relationship because of the `ForeignKey("episodes.id")` on `Page.episode_id`; `back_populates` just keeps the two `relationship()` attributes mirrored in your application code so you don't end up with two views of the same connection that disagree.
-  - `cascade="all, delete-orphan"` — if you delete an Episode, delete its Pages too. Appropriate here because Pages can't exist without their Episode.
-  - `order_by="Page.page_number"` — `episode.pages` is always returned in reading order without you having to remember an `.order_by()` clause on every query.
-
-### `Page` — a child, with most of the design decisions visible
-
-```python
-class Page(Base):
-    __tablename__ = "pages"
-    __table_args__ = (
-        UniqueConstraint("episode_id", "page_number", name="uq_pages_episode_page"),
-    )
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    episode_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("episodes.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    page_number: Mapped[int] = mapped_column(nullable=False)
-    image_url: Mapped[str] = mapped_column(Text, nullable=False)
-    thumbnail_url: Mapped[str | None] = mapped_column(Text)
-    original_url: Mapped[str | None] = mapped_column(Text)
-    ocr_text: Mapped[str | None] = mapped_column(Text)
-    visual_description: Mapped[str | None] = mapped_column(Text)
-    mood_tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
-    image_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
-
-    episode: Mapped[Episode] = relationship(back_populates="pages")
-    characters: Mapped[list[Character]] = relationship(
-        secondary="page_characters", back_populates="pages",
-    )
-```
-
-This class is dense — but every design decision from earlier in the post shows up here in code:
-
-- **`UniqueConstraint("episode_id", "page_number", ...)`** in `__table_args__` enforces the "no two pages share a slot in the same episode" rule from the feature-to-table walkthrough. Defining it once at the class level (instead of trying to assemble it from individual columns) is the readable way to express a multi-column constraint.
-- **`ForeignKey("episodes.id", ondelete="CASCADE")`** plus the matching `relationship(back_populates="pages")` on the Episode side is the link that lets you do `page.episode` and `episode.pages` in Python without writing a JOIN by hand. `ondelete="CASCADE"` mirrors the `cascade="all, delete-orphan"` on the Episode side: at both the ORM level *and* the database level, deleting an episode also deletes its pages. (You want both — the ORM cascade handles in-process deletes; the database `ON DELETE CASCADE` handles direct SQL deletes or admin tools.)
-- **`image_url: Mapped[str] = mapped_column(Text, nullable=False)`** — this is the "relative key, not full URL" column from **design decision #2**. The Python type is just `str`; storage of the prefix happens in the `StorageClient` interface that Post 3 builds.
-- **`visual_description: Mapped[str | None] = mapped_column(Text)`** — the canonical embedded text from **design decision #1**. Stored once here in Postgres; only the embedding and the UUID go to Chroma when Post 4 (ingestion) runs.
-- **`mood_tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)`** — the array column you verified existed in the migration. The Python side is a `list[str]`; the database side is `VARCHAR[]` (an array of unbounded `VARCHAR`s — and since [PostgreSQL treats unbounded `VARCHAR` as interchangeable with `TEXT`](https://www.postgresql.org/docs/current/datatype-character.html), the storage and performance are effectively the same as `TEXT[]` would be). `default=list` is a Python-side default (every new row starts with `[]`, not `NULL`).
-- **`image_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)`** — **design decision #3** in code form. `dict[str, Any]` on the Python side, `JSONB` on the database side. The blob currently holds `{width, height, blurhash, dominant_color}`; new fields are an edit to this line, not a migration.
-- **`relationship(secondary="page_characters", ...)`** is how SQLAlchemy expresses the many-to-many we set up. From Python you write `page.characters` (or `character.pages`); SQLAlchemy handles the join through the `page_characters` association table — which we'll look at in a moment.
-
-Every line is justified by a feature or a design decision we already named.
-
-### `Character` and `PageCharacter` — both sides of the many-to-many
-
-The `secondary="page_characters"` declaration on `Page.characters` only makes sense if there's a matching declaration on the `Character` side and an actual join table called `page_characters`. Here are both, in order:
-
-```python
-class Character(Base):
-    __tablename__ = "characters"
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
-    aliases: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
-    bio: Mapped[str | None] = mapped_column(Text)
-    first_appearance_episode_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("episodes.id", ondelete="SET NULL"),
-    )
-    image_url: Mapped[str | None] = mapped_column(Text)
-
-    pages: Mapped[list[Page]] = relationship(
-        secondary="page_characters", back_populates="characters",
-    )
-
-
-class PageCharacter(Base):
-    __tablename__ = "page_characters"
-
-    page_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("pages.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    character_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("characters.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-```
-
-Four things to notice:
-
-- **Symmetric `relationship(...)` on both sides.** `Page.characters` and `Character.pages` both use `relationship(secondary="page_characters", back_populates=<other side>)`. The `secondary=` string names the join table to walk through; `back_populates=` keeps the two endpoints in sync so SQLAlchemy knows they describe the same M:N. Writing only one half works at runtime but leaves the other side without an attribute — better to write both.
-- **The join table is *just* two foreign keys.** `PageCharacter` has no `id` column of its own — its primary key is the composite `(page_id, character_id)`, declared by setting `primary_key=True` on both columns. That's the database-level statement of "a character either appears on a page or doesn't; there's no extra data about the appearance" (no per-appearance timestamp, no panel count, no role). If we ever wanted that extra data, we'd give the join table its own `id` and add columns; for now, two FKs are enough.
-- **`ondelete="CASCADE"` on both FKs of the join table.** Delete a page and its character-appearance rows go with it; same if you delete a character. The join table never holds orphan rows pointing at deleted entities.
-- **`first_appearance_episode_id` uses `ondelete="SET NULL"`, not `CASCADE`.** This is a small but real design choice worth pausing on. Deleting an episode shouldn't *delete* every character who first appeared in it — that would lose Pepper if you ever dropped episode 1. It should just clear the "first appearance" pointer to `NULL`. The choice of `CASCADE` vs `SET NULL` vs the default `RESTRICT` (which would block the parent delete entirely) is always a "what's the right thing to do if the parent disappears?" question. Spend a few seconds on it for every foreign key — getting it wrong shows up months later as either data loss (`CASCADE` too eager) or deletes that mysteriously fail (`RESTRICT` you didn't realize was there).
-
-### `ChatMessage` — the audit column up close
-
-```python
-class ChatMessage(Base):
-    __tablename__ = "chat_messages"
-    __table_args__ = (
-        Index("ix_chat_messages_session_created", "session_id", "created_at"),
-    )
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    role: Mapped[str] = mapped_column(String(16), nullable=False)        # 'user' | 'assistant'
-    mode: Mapped[str | None] = mapped_column(String(32))                 # 'page' | 'wiki', null on user messages
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    retrieved_doc_ids: Mapped[list[str]] = mapped_column(JSONB, default=list)
-    latency_ms: Mapped[int | None] = mapped_column()
-    token_counts: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
-    created_at: Mapped[datetime] = _timestamp_now()
-
-    session: Mapped[ChatSession] = relationship(back_populates="messages")
-```
-
-The headline is `retrieved_doc_ids: Mapped[list[str]] = mapped_column(JSONB, default=list)` — that's **design decision #4** in code. Every assistant message stores the list of Chroma chunk IDs the orchestrator used to compose its prompt. JSONB on the database side gives you a real array stored efficiently; `Mapped[list[str]]` on the Python side means your application code reads it as a plain Python list with no parsing. When you tune retrieval in Post 6 and a user reports "the chat answered wrong about page 4," this column is what makes "show me the context for that exact message" a one-line query.
-
-A few smaller points worth flagging:
-
-- **`Index("ix_chat_messages_session_created", "session_id", "created_at")`** — the composite index from the migration checklist. Chat history is always read "messages in this session, in chronological order," so the index covers exactly that access pattern. Without it, listing a session's messages requires a full table scan (cheap at 10 rows, painful at 10,000).
-
-  > *What's a database index, in plain English?* Think of the index at the back of a textbook. To find every page that mentions "Pepper", you don't read the whole book cover to cover — you flip to the index, find the entry, and jump straight to the listed pages. A database index works the same way. Without one, finding "every message in session X" means Postgres has to read every row in `chat_messages` and check each one — a [**full table scan**](https://www.postgresql.org/docs/current/using-explain.html). With the index above, Postgres jumps straight to the right neighborhood and reads only those rows.
-  >
-  > *Why "composite"?* The index is on **two columns at once**: `(session_id, created_at)`. That's because the query we run on every chat-panel load is "give me all the rows where `session_id = ?`, ordered by `created_at`." A single-column index on `session_id` would solve the *filter* part (jump to that session's rows) but Postgres would still have to sort them by `created_at` afterward. Indexing both columns together means the rows are already grouped by session **and** stored in time order within each session — the query is just a contiguous read.
-  >
-  > *Is there a cost?* Yes — indexes use disk space, and every `INSERT` / `UPDATE` has to update the index too. So you don't index every column "just in case." The rule of thumb: add an index for query patterns you run **frequently** (every chat-panel load qualifies) on tables that will **grow** (chat history accumulates forever) where the table size will eventually be **large enough that a scan hurts** (every demo user opening a session adds rows). All three are true here, so this index earns its keep.
-- **`role: Mapped[str]`** — note this is a plain string, not a Postgres `ENUM` type. The two acceptable values are `"user"` and `"assistant"`; you might reasonably expect an enum to enforce that. We use plain strings because [enums are notoriously painful to migrate](https://www.postgresql.org/docs/current/sql-altertype.html) in Postgres (adding a new variant requires raw SQL inside a transaction with specific ordering rules). A string column plus a Pydantic schema at the API boundary catches the same typos with much less ceremony.
-- **`mode: Mapped[str | None]`** — nullable because user messages don't have a mode; only assistant responses are produced by a specific retrieval pipeline (`page` or `wiki`). Storing the mode on every assistant message means you can audit "which mode did this answer go through?" at the row level — useful for the per-mode analytics in Post 8.
-- **`latency_ms` and `token_counts`** are observability columns: how long the assistant message took to produce, how many prompt/completion tokens it consumed. Filling them in happens in Post 6/Post 7; including the columns in the schema *now* means the audit trail is complete from the very first chat message you ever store. (Adding observability columns retroactively is the same problem as adding `retrieved_doc_ids` retroactively — you lose the history for everything that happened before.)
-
-### `ChatSession` and `WikiArticle` — completing the picture
-
-Two more classes worth a quick look. `ChatSession` is the other half of the `ChatMessage` story — the parent table its `session_id` FK points at. `WikiArticle` is the simplest model in the schema — a good reference point for "how minimal can a class be?"
-
-```python
-class ChatSession(Base):
-    __tablename__ = "chat_sessions"
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    user_id: Mapped[str | None] = mapped_column(String(256))
-    episode_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("episodes.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    current_page: Mapped[int] = mapped_column(default=1, nullable=False)
-    created_at: Mapped[datetime] = _timestamp_now()
-
-    messages: Mapped[list[ChatMessage]] = relationship(
-        back_populates="session",
-        cascade="all, delete-orphan",
-        order_by="ChatMessage.created_at",
-    )
-
-
-class WikiArticle(Base):
-    __tablename__ = "wiki_articles"
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    slug: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
-    title: Mapped[str] = mapped_column(String(256), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    category: Mapped[str | None] = mapped_column(String(64))
-    source_url: Mapped[str | None] = mapped_column(Text)
-```
-
-Three things to notice:
-
-- **`ChatSession.messages` mirrors `Episode.pages` exactly.** Same three knobs: `back_populates` (the matching attribute on the child side), `cascade="all, delete-orphan"` (deleting the parent removes the children), `order_by=` (so reading the relationship returns rows in a useful order without a manual `.order_by()` on every query). Seeing this shape twice is enough to recognize it as the standard "one-to-many where the child belongs entirely to the parent" pattern. Most schemas have several of these.
-- **`current_page` is the one mutable column in the chat domain.** Each flip on the frontend triggers a small `PATCH /sessions/<id>` request that bumps this number — which is what makes the AI's grounding context always reflect the spread the reader is currently looking at. Compare to `chat_messages`, which is purely append-only: once a turn is recorded, it never changes.
-- **`WikiArticle` has no `relationship(...)` at all.** It's a fully standalone table — wiki articles aren't tied to specific episodes or pages, so there's no FK out and no back-reference in. (The link from a chat question to a wiki article happens at *retrieval* time in Post 6, not via a database relationship.) This is the floor of the schema's complexity: a primary key, five string-ish columns, no joins. When you're modeling your own domain and a table feels like it doesn't need to point at anything, `WikiArticle` is the shape to aim for — clean, minimal, no premature relationships.
-
 ---
 
-That's the shape of every model in this schema: a typed Python class, one `mapped_column(...)` per database column, with `Mapped[X]` driving both the Python type and (where it differs) the database type. The remaining models in `models.py` — `CommentaryNote`, `WorldEntity`, `WorldRelationship` — follow exactly the same patterns: `CommentaryNote` is a lean version of `Page` (FK to episodes, an optional page-number hint, content as text); `WorldEntity` and `WorldRelationship` are Post 9 territory but use the same parent/child + cascade choices we just walked through. Read the classes above carefully and the rest are a five-minute skim.
+Next up: **Post 3 — The Data Model: Ten Tables, One Migration.** You just applied a migration that created eleven tables; the next post opens them up — how Alembic generates the migration from your models, why that beats `create_all()`, how each table maps to a product feature, and a column-by-column tour of the SQLAlchemy models.
 
----
-
-Next up: **Post 3 — Provider Abstractions: Why Every External Service Hides Behind an Interface.** With the workshop standing, we start writing code. Specifically: the three [`Protocol`](https://docs.python.org/3/library/typing.html#typing.Protocol) types — `StorageClient`, `EmbeddingClient`, and (foreshadowing) `ChatClient` — that make the rest of the project portable. By the end of that post you'll have a `LocalStorage` working end-to-end against `./data/images/`, a `SentenceTransformersEmbeddingClient` (and an `OllamaEmbeddingClient`) producing real 1024-dimensional vectors, and a factory that picks the right implementation based on the `.env` file you just built.
-
-The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>. The **full source repository** and a public live-demo URL go up alongside the final post of this series — the deploy guide — once it's published.
+The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>, tagged `post-02-04-starter`. The **full source repository** and a public live-demo URL go up alongside the deploy guide near the end of the series — once it's published.
 
 *Pepper & Carrot* is © [David Revoy](https://www.davidrevoy.com/), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). All credit to him for the source material that made this project possible.
 

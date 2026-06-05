@@ -1,10 +1,10 @@
 ---
-title: "Making Small Models Behave: Wiki Mode and the Long Road to Concise Answers"
+title: "Pepper & Carrot AI-powered flipbook · Part 11 of 16 — Making Small Models Behave: Wiki Mode and the Long Road to Concise Answers"
 date: 2026-05-30 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [prompt-engineering, qwen, ollama, react-markdown, suggestion-chips, rag, fastapi, peppercarrot, portfolio]
 description: >-
-  Post 8 of the Pepper & Carrot AI flipbook series. Post 7 left a streaming
+  Post 11 of the Pepper & Carrot AI flipbook series. Post 10 left a streaming
   chat panel and an honest admission: the engineering guarantees structure
   and safety, but it doesn't guarantee taste. This post is the
   prompt-engineering pass that closes that gap on a 7B local model — a
@@ -16,20 +16,20 @@ description: >-
 pin: true
 ---
 
-Post 8 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}) series. [Post 7]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}) ended with an honest admission: streaming worked, retrieval was spoiler-safe, the suggestion chips were structurally sound — and the actual *replies* were still occasionally rough. A 7B local model under pressure invents details, mirrors `### headers` from its notes, treats prepared context as user-provided input and politely asks the user for "more information," and emits a wiki chip that's really a page question wearing a wiki label. None of that is a bug in the plumbing; it's a gap between *the engineering* and *the model's taste*. This post is the prompt-engineering pass that closes most of it — a strict response-format contract, a closed-world grounding rule, a page-mode anti-recitation block, a markdown stripper on every piece of text on its way into the prompt, a much sharper suggestion-chip prompt with concrete bad/good examples, and `react-markdown` in the chat panel as the safety net for the rest.
+Post 11 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}) series. [Post 10]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}) ended with an honest admission: streaming worked, retrieval was spoiler-safe, the suggestion chips were structurally sound — and the actual *replies* were still occasionally rough. A 7B local model under pressure invents details, mirrors `### headers` from its notes, treats prepared context as user-provided input and politely asks the user for "more information," and emits a wiki chip that's really a page question wearing a wiki label. None of that is a bug in the plumbing; it's a gap between *the engineering* and *the model's taste*. This post is the prompt-engineering pass that closes most of it — a strict response-format contract, a closed-world grounding rule, a page-mode anti-recitation block, a markdown stripper on every piece of text on its way into the prompt, a much sharper suggestion-chip prompt with concrete bad/good examples, and `react-markdown` in the chat panel as the safety net for the rest.
 
 > **What you'll build in this post.**
 > - A `_strip_markdown` helper in `backend/app/orchestration/chat.py` and apply it to **every** piece of text on its way into the prompt — `episode.plot_summary`, `page.visual_description`, `page.ocr_text`, each retrieved page's description, each retrieved wiki article body. Small chat models mirror whatever formatting they see; remove the markers at the source.
 > - Four composable prompt blocks in `backend/app/core/prompts.py` — `_SPOILER_DISCIPLINE`, `_GROUNDING_CONTRACT`, `_PAGE_ANTI_RECITATION`, `_RESPONSE_FORMAT` — re-mixed into a sharper `PAGE_MODE_SYSTEM` and `WIKI_MODE_SYSTEM`.
-> - A much longer `SUGGESTIONS_SYSTEM` with explicit BAD-CHIP and GOOD-CHIP examples — the abstract rules from Post 7 get ignored by 7B models; the worked examples don't.
+> - A much longer `SUGGESTIONS_SYSTEM` with explicit BAD-CHIP and GOOD-CHIP examples — the abstract rules from Post 10 get ignored by 7B models; the worked examples don't.
 > - `react-markdown` + `remark-gfm` in `frontend/src/components/ChatPanel.tsx` as a last-line safety net for any markdown that *does* leak past the system prompt, so a stray `### header` reads as bubble content rather than ugly raw text.
 > - Three new unit tests in `backend/tests/test_chat.py` that pin `_strip_markdown` against the most common Markdown shapes we feed it.
 >
 > **Prerequisites.**
-> - The workshop starter at the [`post-8` tag](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/tree/post-8): `git checkout post-8` (see [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series)). Everything [Post 7]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}) needed — Postgres up, migrations applied, the roster seeded, Episode 1 ingested, the wiki seed ingested, Ollama running with `qwen2.5:7b` and `bge-m3` pulled.
-> - [Node.js 20+](https://nodejs.org/) for the Vite frontend, exactly as in [Post 5]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}).
+> - The workshop starter at the [`post-11-prompts` tag](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/tree/post-11-prompts): `git checkout post-11-prompts` (see [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series)). Everything [Post 10]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}) needed — Postgres up, migrations applied, the roster seeded, Episode 1 ingested, the wiki seed ingested, Ollama running with `qwen2.5:7b` and `bge-m3` pulled.
+> - [Node.js 20+](https://nodejs.org/) for the Vite frontend, exactly as in [Post 8]({% post_url 2026-05-24-pepper-carrot-companion-flipbook-ui %}).
 
-> **About the repo URL.** All the changes in this post — `core/prompts.py`, the `_strip_markdown` helper and its call sites in `orchestration/chat.py`, the new tests, the `react-markdown` dependency, and the chat panel's markdown rendering — live in the same workshop starter that backed [Posts 2–7](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop), now tagged `post-8`. File links below point at that tag. The full project repository (world-graph overlay, cloud deploy) goes up alongside the deploy guide in Post 10.
+> **About the repo URL.** All the changes in this post — `core/prompts.py`, the `_strip_markdown` helper and its call sites in `orchestration/chat.py`, the new tests, the `react-markdown` dependency, and the chat panel's markdown rendering — live in the same workshop starter that backed [Posts 2–10](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop), now tagged `post-11-prompts`. File links below point at that tag. The full project repository (world-graph overlay, cloud deploy) goes up alongside the deploy guide in Post 15.
 
 ---
 
@@ -57,15 +57,15 @@ Before any concepts, let's get the hardened pipeline in front of you and orient 
 
 ### Get the code at this post's tag
 
-Every file referenced below lives at the **`post-8`** tag:
+Every file referenced below lives at the **`post-11-prompts`** tag:
 
 ```bash
 git clone https://github.com/bearbearyu1223/pepper-carrot-companion-workshop
 cd pepper-carrot-companion-workshop
-git checkout post-8
+git checkout post-11-prompts
 ```
 
-Already cloned from an earlier post? `git fetch --tags && git checkout post-8`. Each post from Post 5 onward has its own tag (`post-5`, `post-6`, `post-7`, `post-8`), and `git checkout main` returns you to the latest.
+Already cloned from an earlier post? `git fetch --tags && git checkout post-11-prompts`. Each post names its own checkpoint tag (`post-02-04-starter`, `post-05-06-ingestion`, `post-07-08-fullstack`, `post-09-rag`, `post-10-streaming`, `post-11-prompts`, `post-12-13-worldgraph`, `post-14-15-deploy`, `post-16-managed`), and `git checkout main` returns you to the latest.
 
 ### What's new in the workshop starter
 
@@ -120,11 +120,11 @@ curl -sN -X POST localhost:8000/api/sessions/$SID/messages -H 'content-type: app
 # }
 ```
 
-> *If you skipped Posts 6–7:* the `done` frame is the SSE event that closes a chat turn. `retrieved_doc_ids` is the audit trail of which Chroma chunks grounded the answer; `suggestions` is the two follow-up chips. The token-by-token text streams in `event: token` frames before it (`curl -N` lets you watch them live).
+> *If you skipped Posts 9–10:* the `done` frame is the SSE event that closes a chat turn. `retrieved_doc_ids` is the audit trail of which Chroma chunks grounded the answer; `suggestions` is the two follow-up chips. The token-by-token text streams in `event: token` frames before it (`curl -N` lets you watch them live).
 
 ### What's *not* in the diff is the point
 
-If you've followed Posts 6–7, the most striking thing about Post 8 is what *doesn't* change. The Chroma `where` clause is byte-for-byte the same. The `EventSourceResponse` framing is the same. The named-slot JSON schema for chips is the same. The retrieval boundary, the spoiler filter, the SSE wire format — all untouched.
+If you've followed Posts 9–10, the most striking thing about Post 11 is what *doesn't* change. The Chroma `where` clause is byte-for-byte the same. The `EventSourceResponse` framing is the same. The named-slot JSON schema for chips is the same. The retrieval boundary, the spoiler filter, the SSE wire format — all untouched.
 
 **Every change in this post lives where the model meets prose.** Retrieval doesn't get safer; the model's *answers* get cleaner. That separation — *the safety lives in the structure, the polish lives in the prompts* — is the spine of the post.
 
@@ -142,19 +142,19 @@ We're on [`qwen2.5:7b`](https://qwenlm.github.io/blog/qwen2.5-llm/), served by [
 - **Parametric bleed-through.** *Pepper&Carrot* has been on the public internet since 2014, the comic and its wiki are CC-BY, and a 7B model trained on web text has absorbed *some* of it — usually fragments, often wrong. The model will confidently fill gaps in our notes with plausible-but-fabricated lore unless we explicitly tell it: *the notes are the only source of truth, ignore what you "know" from elsewhere*. That's [Tightener 2](#grounding).
 - **Soft instructions get ignored.** *"Be concise"* doesn't work. *"Maximum 4 sentences. Hard cap. Stop after the answer."* works most of the time. *"Answer using the wiki context"* doesn't reliably stop the model from reciting a tour of the article; *"WIKI ANSWERS MUST BE TIGHT. Pick the ONE OR TWO facts that directly answer the question, and answer in 2-3 sentences"* with a concrete contrast example does. That's [Tightener 4](#response-format) and [§ Wiki Concise](#wiki-concise).
 
-On a frontier API the soft versions of those instructions usually carry the day. On a 7B local model, you write the strict version, and you write it in shouting caps if that's what it takes. The point of using qwen2.5:7b for the demo isn't masochism — it's that **the *Pepper & Carrot* companion runs locally on the reader's laptop** ([ADR 0001](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-8/docs/decisions/0001-local-first-architecture.md)). When the model is your reader's hardware, you write prompts for *that* model, not the model you wish you had.
+On a frontier API the soft versions of those instructions usually carry the day. On a 7B local model, you write the strict version, and you write it in shouting caps if that's what it takes. The point of using qwen2.5:7b for the demo isn't masochism — it's that **the *Pepper & Carrot* companion runs locally on the reader's laptop** ([ADR 0001](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-11-prompts/docs/decisions/0001-local-first-architecture.md)). When the model is your reader's hardware, you write prompts for *that* model, not the model you wish you had.
 
 ---
 
 ## The Thesis: Structure Carries Safety, Prompts Carry Taste {#thesis}
 
-Two ideas split the work between Posts 6–7 and Post 8 cleanly. Both have appeared earlier in the series; this post leans on them together.
+Two ideas split the work between Posts 9–10 and Post 11 cleanly. Both have appeared earlier in the series; this post leans on them together.
 
-**Structural guarantees go in the data layer.** [Post 6]({% post_url 2026-05-25-pepper-carrot-companion-spoiler-safe-rag %}) made spoiler safety a property of the Chroma `where` clause, not a line in the prompt — because *"please don't spoil"* is a request a model can ignore, and a hardcoded filter is one it cannot. [Post 7]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}) extended the same instinct to the suggestion chips: a JSON Schema with two **named slots** (`page_chip` + `wiki_chip`) made "two page chips in a row" structurally impossible. Both decisions remove an entire class of failure from the model's hands by removing the affordance to fail that way.
+**Structural guarantees go in the data layer.** [Post 9]({% post_url 2026-05-25-pepper-carrot-companion-spoiler-safe-rag %}) made spoiler safety a property of the Chroma `where` clause, not a line in the prompt — because *"please don't spoil"* is a request a model can ignore, and a hardcoded filter is one it cannot. [Post 10]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}) extended the same instinct to the suggestion chips: a JSON Schema with two **named slots** (`page_chip` + `wiki_chip`) made "two page chips in a row" structurally impossible. Both decisions remove an entire class of failure from the model's hands by removing the affordance to fail that way.
 
 **Taste — concision, register, the right level of specificity, the right facts to surface, the right *length* — can't be made structural.** It lives in the system prompt, in the few-shot examples, and (last-line) in the rendering layer. No `where` clause can make the model lead with the answer instead of "Certainly!"; no JSON schema can make a wiki chip about a witch school instead of a panel detail. Those land through prompt discipline: *what you write*, *how strictly you write it*, and *how concretely you ground it in worked examples* the model can pattern-match against.
 
-That's the split, and it's the whole post. The structural guarantees from Posts 6–7 don't change — every chunk the orchestrator hands the model is still gated by reading position, every chip still occupies a typed slot, every assistant message is still validated server-side before reaching the DOM. Post 8 adds the *taste* layer on top, in four named blocks of prompt plus one helper function that scrubs markdown before any of it can leak into context.
+That's the split, and it's the whole post. The structural guarantees from Posts 9–10 don't change — every chunk the orchestrator hands the model is still gated by reading position, every chip still occupies a typed slot, every assistant message is still validated server-side before reaching the DOM. Post 11 adds the *taste* layer on top, in four named blocks of prompt plus one helper function that scrubs markdown before any of it can leak into context.
 
 The next four sections take the tighteners one at a time, in roughly the order they pay off if you're starting from a working-but-rough pipeline.
 
@@ -167,7 +167,7 @@ This is the smallest tightener and probably the single biggest visible win. Loca
 Two of our text sources are markdown-heavy at origin:
 
 - **Page descriptions** are written by the [`ingest-from-images` Claude Code skill]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %}), which produces prose that often carries `**character names**` for emphasis and the occasional list. Auditable on disk, but markdown-flavored.
-- **Wiki seed articles** ([`ingestion/wiki_seed.yaml`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-8/ingestion/wiki_seed.yaml)) are hand-written in flowing prose, but the upstream framagit wiki (which informs them) is dense with `## Section` headers and bullet lists, and that style bleeds into anything paraphrased from it.
+- **Wiki seed articles** ([`ingestion/wiki_seed.yaml`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-11-prompts/ingestion/wiki_seed.yaml)) are hand-written in flowing prose, but the upstream framagit wiki (which informs them) is dense with `## Section` headers and bullet lists, and that style bleeds into anything paraphrased from it.
 
 A handful of regular expressions strips the markers and leaves the text:
 
@@ -213,7 +213,7 @@ parts.append(_strip_markdown(page.ocr_text))                         # dialogue 
 
 Notice that the **article title is *not* stripped** — titles are short, never carry markdown, and going through the regex pass would be pure ceremony. The discipline is "strip what's likely to have markdown," not "strip everything." A type-checker won't tell you which is which; that's a judgement call you make per site.
 
-And because this is the kind of helper that's easy to forget about and easy to break, [`test_chat.py`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-8/backend/tests/test_chat.py) pins the contract — inline markers like `**bold**` and `*italic*` go away, block markers like `## Scene` and `- bullets` go away, and plain prose passes through unchanged. Twelve regexes have a lot of room for a typo to slip in and silently swallow the wrong thing; the three tests below catch the obvious shapes:
+And because this is the kind of helper that's easy to forget about and easy to break, [`test_chat.py`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-11-prompts/backend/tests/test_chat.py) pins the contract — inline markers like `**bold**` and `*italic*` go away, block markers like `## Scene` and `- bullets` go away, and plain prose passes through unchanged. Twelve regexes have a lot of room for a typo to slip in and silently swallow the wrong thing; the three tests below catch the obvious shapes:
 
 ```python
 def test_strip_markdown_removes_inline_markers() -> None:
@@ -402,7 +402,7 @@ Both `PAGE_MODE_SYSTEM` and `WIKI_MODE_SYSTEM` end with this block. Combined wit
 > logging.getLogger(__name__).warning("PROMPT:\n%s", parts)
 > ```
 >
-> Run a chat turn against the running backend; you'll see the four labelled sections plus the user question, with every piece of text scrubbed by `_strip_markdown`. The diff between this and what you'd see at `post-7` is *the entire content* of this post.
+> Run a chat turn against the running backend; you'll see the four labelled sections plus the user question, with every piece of text scrubbed by `_strip_markdown`. The diff between this and what you'd see at `post-10-streaming` is *the entire content* of this post.
 
 ---
 
@@ -448,9 +448,9 @@ The page-mode equivalent is the per-question focus rule (*"Focus on what's happe
 
 ## Suggestion Chips: A Schema Can't Carry Taste Either {#chips}
 
-[Post 7]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}) introduced the two follow-up chips — one `page_chip`, one `wiki_chip` — generated by a second, schema-constrained model call and validated server-side before they render. The schema (named slots, both required, string-typed with min/max lengths) guaranteed that *something* parseable comes back in each slot. It did *not* guarantee that the content in the `wiki_chip` slot was actually about the universe rather than the page, and Post 7 closed with that honest admission.
+[Post 10]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}) introduced the two follow-up chips — one `page_chip`, one `wiki_chip` — generated by a second, schema-constrained model call and validated server-side before they render. The schema (named slots, both required, string-typed with min/max lengths) guaranteed that *something* parseable comes back in each slot. It did *not* guarantee that the content in the `wiki_chip` slot was actually about the universe rather than the page, and Post 10 closed with that honest admission.
 
-Post 8 is where we make the chip prompt do more work. The Post 7 `SUGGESTIONS_SYSTEM` was ~100 words and mostly abstract: *"page_chip must be about the page; wiki_chip must be about the universe; both must be complete questions."* The Post 8 version is ~400 words and structured around **concrete bad/good examples** — the form that actually moves 7B behavior:
+Post 11 is where we make the chip prompt do more work. The Post 10 `SUGGESTIONS_SYSTEM` was ~100 words and mostly abstract: *"page_chip must be about the page; wiki_chip must be about the universe; both must be complete questions."* The Post 11 version is ~400 words and structured around **concrete bad/good examples** — the form that actually moves 7B behavior:
 
 ```python
 # backend/app/core/prompts.py (excerpt from SUGGESTIONS_SYSTEM)
@@ -480,18 +480,18 @@ that each is a complete, specific question:
 A few things to call out, because the choices weren't arbitrary:
 
 - **Each BAD chip is annotated with the *reason*** ("← truncated, ends with comma", "← two questions stacked with 'and'", "← 'Can you tell me' stem"). The annotation is what teaches the model the *category* of mistake, not just the specific example. Without it, the model dutifully avoids the literal strings and finds other ways to make the same class of mistake.
-- **The BAD examples are real model output**, copied from logs during Post 7's testing. Made-up bad examples don't carry the same *pattern weight* — the model has actually produced these shapes, and naming them is how you teach it not to.
+- **The BAD examples are real model output**, copied from logs during Post 10's testing. Made-up bad examples don't carry the same *pattern weight* — the model has actually produced these shapes, and naming them is how you teach it not to.
 - **The GOOD examples are mixed-length.** *"What's in the rainbow potion bottles"* is 6 words; *"What is the difference between Chaosah and Hippiah"* is 9. The note "*some are short, some are longer; what matters is that each is a complete, specific question*" reframes length as a *consequence* of specificity, not a target on its own.
 
-The structural validation in `_parse_suggestions` ([Post 7]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}#validation)) still runs after this — chips that *do* slip through as a statement or a truncated fragment get dropped on the server. **The schema guarantees parseability; the prompt examples guarantee *taste*; the validator catches what slips past both.** Three layers of defense, none of them sufficient alone.
+The structural validation in `_parse_suggestions` ([Post 10]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}#validation)) still runs after this — chips that *do* slip through as a statement or a truncated fragment get dropped on the server. **The schema guarantees parseability; the prompt examples guarantee *taste*; the validator catches what slips past both.** Three layers of defense, none of them sufficient alone.
 
-> *What about a better model?* This is the right next question. Switching the suggestion call to a frontier API (Claude Haiku, GPT-4.1-mini) would clean the chips up dramatically with a much shorter prompt — and at portfolio scale the cost would be negligible. The provider abstraction from [Post 3]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) lets us do exactly that with a one-line config flip: the chip call goes through `ChatClient.complete()`, which has both an Ollama and an Anthropic implementation. The reason we don't here is the *post's* premise — "if your whole pipeline runs locally, can you still make the demo good?" — but the seam to escape that premise is one config line away. Knowing *when to upgrade the model* and *when to upgrade the prompt* is part of the design story; pretending only one of them is the answer would be dishonest.
+> *What about a better model?* This is the right next question. Switching the suggestion call to a frontier API (Claude Haiku, GPT-4.1-mini) would clean the chips up dramatically with a much shorter prompt — and at portfolio scale the cost would be negligible. The provider abstraction from [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) lets us do exactly that with a one-line config flip: the chip call goes through `ChatClient.complete()`, which has both an Ollama and an Anthropic implementation. The reason we don't here is the *post's* premise — "if your whole pipeline runs locally, can you still make the demo good?" — but the seam to escape that premise is one config line away. Knowing *when to upgrade the model* and *when to upgrade the prompt* is part of the design story; pretending only one of them is the answer would be dishonest.
 
 ---
 
 ## The Markdown Safety Net in the Chat Panel {#safety-net}
 
-Three lines of defense aren't quite enough. Even with the system prompt forbidding markdown, even with `_strip_markdown` scrubbing the context, a 7B model under a tricky question will occasionally emit *one* `### header` or *one* `**bold**` phrase. With Post 7's chat panel, that markdown rendered as literal characters in the bubble — `### Background` showed up exactly that way, hashes and all, and the bubble suddenly looked like a code dump.
+Three lines of defense aren't quite enough. Even with the system prompt forbidding markdown, even with `_strip_markdown` scrubbing the context, a 7B model under a tricky question will occasionally emit *one* `### header` or *one* `**bold**` phrase. With Post 10's chat panel, that markdown rendered as literal characters in the bubble — `### Background` showed up exactly that way, hashes and all, and the bubble suddenly looked like a code dump.
 
 The last-line fix is to render the assistant's output through a markdown renderer. Install [`react-markdown`](https://github.com/remarkjs/react-markdown) and [`remark-gfm`](https://github.com/remarkjs/remark-gfm) (GitHub-flavored markdown — tables, strikethrough, task lists, the things `react-markdown` doesn't enable by default):
 
@@ -499,12 +499,12 @@ The last-line fix is to render the assistant's output through a markdown rendere
 cd frontend && npm install react-markdown remark-gfm
 ```
 
-Then six lines of JSX in [`ChatPanel.tsx`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-8/frontend/src/components/ChatPanel.tsx):
+Then six lines of JSX in [`ChatPanel.tsx`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-11-prompts/frontend/src/components/ChatPanel.tsx):
 
 ```tsx
 // frontend/src/components/ChatPanel.tsx (the assistant-bubble branch)
 {m.role === 'assistant' && m.content ? (
-  // Safety net for Post 8: the system prompt asks for plain prose, but a
+  // Safety net for Post 11: the system prompt asks for plain prose, but a
   // 7B model under pressure will occasionally emit `### headers`,
   // `**bold**`, or `- bullets` anyway. Rendering markdown turns that ugly
   // raw output into something readable; remark-gfm covers tables and
@@ -551,12 +551,12 @@ This is also the section to flag a security note: `react-markdown` sanitizes its
 
 ## The Prompt, End to End {#diagram}
 
-One picture of where each tightener lives in the pipeline. Notice that *only* the prompt-bound paths gain anything — retrieval, the spoiler filter, the chip schema, the SSE framing are all from Posts 6–7 and unchanged.
+One picture of where each tightener lives in the pipeline. Notice that *only* the prompt-bound paths gain anything — retrieval, the spoiler filter, the chip schema, the SSE framing are all from Posts 9–10 and unchanged.
 
 <div style="margin: 1.5rem 0; overflow-x: auto;">
 <a href="/assets/picture/2026-05-30-pepper-carrot-companion-prompt-hardening/prompt-stack.svg" target="_blank" rel="noopener" title="Open the diagram full-size in a new tab" style="display: block; cursor: zoom-in;">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 540" role="img"
-     aria-label="The prompt-hardening stack. The user message and the saved current_page enter retrieval (unchanged from Post 6 — spoiler-filtered for page mode, unfiltered for wiki mode). Retrieved chunks plus the current page text pass through _strip_markdown before they reach the prompt. The system prompt is composed of named blocks: _SHARED_VOICE, _SPOILER_DISCIPLINE, _GROUNDING_CONTRACT, then per-mode _PAGE_ANTI_RECITATION or _WIKI_OUTPUT_DISCIPLINE, then _RESPONSE_FORMAT. The assembled prompt goes to ChatClient.stream(); tokens stream back through ReactMarkdown in the chat panel as the last-line safety net. After the answer, a second non-streaming call uses SUGGESTIONS_SYSTEM (with bad/good examples) and the named-slot schema; chips pass through the question-shape parser before reaching the DOM."
+     aria-label="The prompt-hardening stack. The user message and the saved current_page enter retrieval (unchanged from Post 9 — spoiler-filtered for page mode, unfiltered for wiki mode). Retrieved chunks plus the current page text pass through _strip_markdown before they reach the prompt. The system prompt is composed of named blocks: _SHARED_VOICE, _SPOILER_DISCIPLINE, _GROUNDING_CONTRACT, then per-mode _PAGE_ANTI_RECITATION or _WIKI_OUTPUT_DISCIPLINE, then _RESPONSE_FORMAT. The assembled prompt goes to ChatClient.stream(); tokens stream back through ReactMarkdown in the chat panel as the last-line safety net. After the answer, a second non-streaming call uses SUGGESTIONS_SYSTEM (with bad/good examples) and the named-slot schema; chips pass through the question-shape parser before reaching the DOM."
      style="display: block; width: 100%; height: auto; max-width: 1180px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;">
   <defs>
     <marker id="ph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
@@ -564,8 +564,8 @@ One picture of where each tightener lives in the pipeline. Notice that *only* th
     </marker>
   </defs>
 
-  <text x="590" y="26" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">Retrieval and framing are unchanged from Posts 6–7.</text>
-  <text x="590" y="46" text-anchor="middle" font-size="13" font-weight="600" fill="#b45309">Every Post 8 change lives where the model meets prose.</text>
+  <text x="590" y="26" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">Retrieval and framing are unchanged from Posts 9–10.</text>
+  <text x="590" y="46" text-anchor="middle" font-size="13" font-weight="600" fill="#b45309">Every Post 11 change lives where the model meets prose.</text>
 
   <!-- Input: user message + current_page -->
   <g>
@@ -581,8 +581,8 @@ One picture of where each tightener lives in the pipeline. Notice that *only* th
   <g>
     <rect x="300" y="80" width="220" height="84" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
     <text x="410" y="106" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">RetrievalService</text>
-    <text x="410" y="126" text-anchor="middle" font-size="10" fill="#92400e" font-style="italic">page: spoiler-filtered (Post 6)</text>
-    <text x="410" y="146" text-anchor="middle" font-size="10" fill="#92400e" font-style="italic">wiki: unfiltered (Post 7)</text>
+    <text x="410" y="126" text-anchor="middle" font-size="10" fill="#92400e" font-style="italic">page: spoiler-filtered (Post 9)</text>
+    <text x="410" y="146" text-anchor="middle" font-size="10" fill="#92400e" font-style="italic">wiki: unfiltered (Post 10)</text>
   </g>
 
   <line x1="520" y1="120" x2="588" y2="120" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ph-arrow)"/>
@@ -590,7 +590,7 @@ One picture of where each tightener lives in the pipeline. Notice that *only* th
   <!-- _strip_markdown -->
   <g>
     <rect x="590" y="80" width="260" height="84" rx="8" fill="#fde68a" stroke="#b45309" stroke-width="1.8"/>
-    <text x="720" y="105" text-anchor="middle" font-size="12" font-weight="700" fill="#7c2d12">★ Post 8 · _strip_markdown</text>
+    <text x="720" y="105" text-anchor="middle" font-size="12" font-weight="700" fill="#7c2d12">★ Post 11 · _strip_markdown</text>
     <text x="720" y="125" text-anchor="middle" font-size="10" fill="#7c2d12" font-style="italic">applied to every prompt-bound text</text>
     <text x="720" y="147" text-anchor="middle" font-size="9" fill="#94a3b8" font-style="italic">**bold**, ### header, - bullet → gone</text>
   </g>
@@ -598,7 +598,7 @@ One picture of where each tightener lives in the pipeline. Notice that *only* th
   <!-- System-prompt stack -->
   <g>
     <rect x="40" y="220" width="640" height="230" rx="8" fill="#fde68a" stroke="#b45309" stroke-width="1.8"/>
-    <text x="360" y="246" text-anchor="middle" font-size="13" font-weight="700" fill="#7c2d12">★ Post 8 · render_system_prompt(mode)</text>
+    <text x="360" y="246" text-anchor="middle" font-size="13" font-weight="700" fill="#7c2d12">★ Post 11 · render_system_prompt(mode)</text>
     <text x="360" y="264" text-anchor="middle" font-size="10" fill="#7c2d12" font-style="italic">composed top to bottom from these named blocks</text>
 
     <rect x="60" y="284" width="600" height="22" rx="3" fill="#fef3c7" stroke="#b45309" stroke-width="1"/>
@@ -619,7 +619,7 @@ One picture of where each tightener lives in the pipeline. Notice that *only* th
     <rect x="60" y="388" width="600" height="22" rx="3" fill="#fed7aa" stroke="#b45309" stroke-width="1"/>
     <text x="360" y="403" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2937">_RESPONSE_FORMAT — 4-sentence cap, no preamble/wrap-ups (Tightener 4)</text>
 
-    <text x="360" y="430" text-anchor="middle" font-size="9" fill="#94a3b8" font-style="italic">same composition as Post 7; the blocks themselves are sharper</text>
+    <text x="360" y="430" text-anchor="middle" font-size="9" fill="#94a3b8" font-style="italic">same composition as Post 10; the blocks themselves are sharper</text>
   </g>
 
   <line x1="720" y1="164" x2="500" y2="220" stroke="#9ca3af" stroke-width="1.3" stroke-dasharray="4,4" marker-end="url(#ph-arrow)"/>
@@ -630,14 +630,14 @@ One picture of where each tightener lives in the pipeline. Notice that *only* th
     <rect x="720" y="220" width="200" height="84" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
     <text x="820" y="246" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2937">ChatClient.stream()</text>
     <text x="820" y="266" text-anchor="middle" font-size="10" fill="#065f46" font-style="italic">qwen2.5:7b via Ollama</text>
-    <text x="820" y="286" text-anchor="middle" font-size="10" fill="#065f46" font-style="italic">tokens out (Post 7 SSE)</text>
+    <text x="820" y="286" text-anchor="middle" font-size="10" fill="#065f46" font-style="italic">tokens out (Post 10 SSE)</text>
   </g>
   <line x1="680" y1="285" x2="718" y2="262" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ph-arrow)"/>
 
   <!-- ReactMarkdown safety net -->
   <g>
     <rect x="950" y="220" width="200" height="84" rx="8" fill="#fde68a" stroke="#b45309" stroke-width="1.8"/>
-    <text x="1050" y="244" text-anchor="middle" font-size="12" font-weight="700" fill="#7c2d12">★ Post 8 · &lt;ReactMarkdown&gt;</text>
+    <text x="1050" y="244" text-anchor="middle" font-size="12" font-weight="700" fill="#7c2d12">★ Post 11 · &lt;ReactMarkdown&gt;</text>
     <text x="1050" y="264" text-anchor="middle" font-size="10" fill="#7c2d12" font-style="italic">renders the bubble</text>
     <text x="1050" y="286" text-anchor="middle" font-size="9" fill="#94a3b8" font-style="italic">safety net for leaked markdown</text>
   </g>
@@ -646,9 +646,9 @@ One picture of where each tightener lives in the pipeline. Notice that *only* th
   <!-- Chip side-channel -->
   <g>
     <rect x="720" y="338" width="430" height="106" rx="8" fill="#fde68a" stroke="#b45309" stroke-width="1.8"/>
-    <text x="935" y="362" text-anchor="middle" font-size="12" font-weight="700" fill="#7c2d12">★ Post 8 · second call · SUGGESTIONS_SYSTEM</text>
+    <text x="935" y="362" text-anchor="middle" font-size="12" font-weight="700" fill="#7c2d12">★ Post 11 · second call · SUGGESTIONS_SYSTEM</text>
     <text x="935" y="382" text-anchor="middle" font-size="10" fill="#7c2d12" font-style="italic">bad/good chip examples replace abstract rules</text>
-    <text x="935" y="402" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">named-slot schema (Post 7) — unchanged</text>
+    <text x="935" y="402" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">named-slot schema (Post 10) — unchanged</text>
     <text x="935" y="422" text-anchor="middle" font-size="10" fill="#475569" font-style="italic">_parse_suggestions question-shape filter — unchanged</text>
   </g>
   <line x1="820" y1="304" x2="850" y2="338" stroke="#6b7280" stroke-width="1.5" marker-end="url(#ph-arrow)"/>
@@ -656,19 +656,19 @@ One picture of where each tightener lives in the pipeline. Notice that *only* th
   <!-- Legend -->
   <g>
     <rect x="30" y="478" width="14" height="12" fill="#fde68a" stroke="#b45309" stroke-width="1.5"/>
-    <text x="50" y="489" font-size="11" fill="#4b5563">★ Post 8 (this post)</text>
+    <text x="50" y="489" font-size="11" fill="#4b5563">★ Post 11 (this post)</text>
     <rect x="210" y="478" width="14" height="12" fill="#dbeafe" stroke="#2563eb" stroke-width="1"/>
-    <text x="230" y="489" font-size="11" fill="#4b5563">unchanged from Post 7</text>
+    <text x="230" y="489" font-size="11" fill="#4b5563">unchanged from Post 10</text>
     <rect x="380" y="478" width="14" height="12" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
-    <text x="400" y="489" font-size="11" fill="#4b5563">retrieval / framing (Post 6)</text>
+    <text x="400" y="489" font-size="11" fill="#4b5563">retrieval / framing (Post 9)</text>
     <rect x="580" y="478" width="14" height="12" fill="#d1fae5" stroke="#059669" stroke-width="1"/>
-    <text x="600" y="489" font-size="11" fill="#4b5563">provider abstraction (Post 3)</text>
+    <text x="600" y="489" font-size="11" fill="#4b5563">provider abstraction (Post 4)</text>
   </g>
 </svg>
 </a>
 </div>
 
-*Every box outlined in dark amber is something Post 8 either added or substantially sharpened. Notice that the *path* of the request is exactly Posts 6–7's path — retrieval still happens before the prompt, the prompt is still composed top-to-bottom from named blocks, the chip call is still a second schema-constrained pass, the chat panel still consumes SSE. The hardening is concentrated at three points: scrubbing input text, sharpening system prompts (per mode), and rendering output safely. Click the diagram to open it full-size in a new tab.*
+*Every box outlined in dark amber is something Post 11 either added or substantially sharpened. Notice that the *path* of the request is exactly Posts 9–10's path — retrieval still happens before the prompt, the prompt is still composed top-to-bottom from named blocks, the chip call is still a second schema-constrained pass, the chat panel still consumes SSE. The hardening is concentrated at three points: scrubbing input text, sharpening system prompts (per mode), and rendering output safely. Click the diagram to open it full-size in a new tab.*
 
 ---
 
@@ -676,7 +676,7 @@ One picture of where each tightener lives in the pipeline. Notice that *only* th
 
 Two honest things to name, because the post is a portfolio piece and the line between *engineering judgment* and *salesmanship* is "tell me what you tried that didn't work."
 
-**The wiki chip is still sometimes a page question wearing a wiki label.** The Post 8 prompt cuts the failure rate substantially — running the chip call ten times on a typical page-3 page-mode answer in Episode 1, you'll see something like 7–8 chips that clearly land in wiki territory ("What is Chaosah?", "How do potions work in Hereva?") and 2–3 that are really about the panel ("How does Pepper feel about Carrot winning?"). Compared to Post 7's roughly 50/50, that's a real shift; compared to *zero* page-flavored wiki chips, it's incomplete. The schema *can't* tell the difference (both are valid strings, both are questions), and the few-shot examples can teach the model what *good* wiki chips look like but can't reliably make qwen2.5:7b *infer the topic* of a question it just answered. A reliable fix means a stronger model on the chip call — and the provider abstraction makes that a config flip, not a refactor.
+**The wiki chip is still sometimes a page question wearing a wiki label.** The Post 11 prompt cuts the failure rate substantially — running the chip call ten times on a typical page-3 page-mode answer in Episode 1, you'll see something like 7–8 chips that clearly land in wiki territory ("What is Chaosah?", "How do potions work in Hereva?") and 2–3 that are really about the panel ("How does Pepper feel about Carrot winning?"). Compared to Post 10's roughly 50/50, that's a real shift; compared to *zero* page-flavored wiki chips, it's incomplete. The schema *can't* tell the difference (both are valid strings, both are questions), and the few-shot examples can teach the model what *good* wiki chips look like but can't reliably make qwen2.5:7b *infer the topic* of a question it just answered. A reliable fix means a stronger model on the chip call — and the provider abstraction makes that a config flip, not a refactor.
 
 **Sentence counting isn't quite reliable.** The 4-sentence cap holds most of the time. Occasionally — particularly on questions that genuinely warrant nuance, like "what are Pepper and Carrot's personalities like?" — qwen2.5:7b will produce six or seven sentences and mostly stop. The cap is *guidance with strong examples*, not a hard limit at the sampler level; the model can choose to overshoot. Two real options to close this further: a length-penalty in `complete()` (provider-specific and finicky), or a post-generation check that truncates at sentence 4 if the response runs long (cheap, ugly). The workshop ships neither — at portfolio scale the occasional 6-sentence reply isn't worth the new failure mode of mid-sentence truncation.
 
@@ -698,7 +698,7 @@ The bigger meta-point: **prompts are a software discipline, not a magic incantat
 
 **5. Wiki-mode concision needs a contrast example, not an instruction.** *"Pick one or two facts and stop"* moves the model less than *"User asks 'what is Chaosah?' → 'Chaosah is the witch school of chaos magic, one of the major schools in the universe. Pepper is its youngest student.' That's it. Do not also explain the founder, the philosophy, the rivals, the headquarters, the colour palette."* The concrete answer-shape gives the model something to pattern-match against; the explicit *"do not also explain…"* list names the exact subtopics it was going to reach for anyway.
 
-**6. The chip schema guarantees parseability; bad/good examples guarantee taste.** Post 7's named-slot schema made "two page chips in a row" structurally impossible, which was the right structural guarantee. It can't tell whether a `wiki_chip` is actually about the universe or about a page detail — that's a *taste* problem and lives in the prompt. The Post 8 `SUGGESTIONS_SYSTEM` quadrupled in length, almost entirely with concrete BAD-CHIP and GOOD-CHIP examples annotated with the *category* of mistake each one makes. Real-failure examples teach more than rules.
+**6. The chip schema guarantees parseability; bad/good examples guarantee taste.** Post 10's named-slot schema made "two page chips in a row" structurally impossible, which was the right structural guarantee. It can't tell whether a `wiki_chip` is actually about the universe or about a page detail — that's a *taste* problem and lives in the prompt. The Post 11 `SUGGESTIONS_SYSTEM` quadrupled in length, almost entirely with concrete BAD-CHIP and GOOD-CHIP examples annotated with the *category* of mistake each one makes. Real-failure examples teach more than rules.
 
 **7. The markdown renderer is the *last* line of defense, not the only one.** Rendering assistant output through `react-markdown` + `remark-gfm` means a stray `### header` reads as a small heading rather than as hashes. It does *not* mean the prompt rules can relax — mirroring is contagious in long conversations, and one markdown reply tends to beget more. Belt + suspenders + safety net is the right number of layers for a small model on local hardware.
 
@@ -706,9 +706,9 @@ The bigger meta-point: **prompts are a software discipline, not a magic incantat
 
 ---
 
-Next up: **Post 9 — A World Graph Built by a Second Skill: Spoiler-Aware Knowledge Graph Overlay.** Post 8 closed the gap on the chat *replies*; Post 9 adds a new affordance to the reader. A second Claude Code skill (mirroring `ingest-from-images` from [Post 4]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %})) walks the upstream *Pepper&Carrot* wiki + the existing page-description JSONs and writes a durable YAML of entities + relationships. That YAML loads into Postgres, gets exposed through a spoiler-filtered API (same lexicographic boundary as the page retrieval — `(episode_debut, page_debut) ≤ (current_episode, current_page)`), and renders in the browser as an avatar-node overlay built on [react-flow](https://reactflow.dev/) with kind-based SVG fallbacks for the entities without art. Click a node, read the blurb, click "Ask in wiki mode" — the chip routes back through the same `WIKI_MODE_SYSTEM` you sharpened here.
+Next up: [**Post 12 — A World Graph Built by a Skill: Extraction and a Spoiler-Safe API.**]({% post_url 2026-05-30-pepper-carrot-companion-spoiler-safe-world-graph %}) Post 11 closed the gap on the chat *replies*; Post 12 adds a new affordance to the reader. A second Claude Code skill (mirroring `ingest-from-images` from [Post 5]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %})) walks the upstream *Pepper&Carrot* wiki + the existing page-description JSONs and writes a durable YAML of entities + relationships. That YAML loads into Postgres, gets exposed through a spoiler-filtered API (same lexicographic boundary as the page retrieval — `(episode_debut, page_debut) ≤ (current_episode, current_page)`), and renders in the browser as an avatar-node overlay built on [react-flow](https://reactflow.dev/) with kind-based SVG fallbacks for the entities without art. Click a node, read the blurb, click "Ask in wiki mode" — the chip routes back through the same `WIKI_MODE_SYSTEM` you sharpened here.
 
-The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>, tagged `post-8` — `git checkout post-8` to get exactly the code shown here (see [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series)). The **full source repository** and the public live-demo URL go up alongside the final post — the deploy guide — once it's published.
+The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>, tagged `post-11-prompts` — `git checkout post-11-prompts` to get exactly the code shown here (see [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series)). The **full source repository** and the public live-demo URL go up alongside the final post — the deploy guide — once it's published.
 
 *Pepper & Carrot* is © [David Revoy](https://www.davidrevoy.com/), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). All credit to him for the source material that made this project possible.
 

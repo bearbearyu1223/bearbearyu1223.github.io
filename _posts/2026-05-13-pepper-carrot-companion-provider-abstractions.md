@@ -1,10 +1,10 @@
 ---
-title: "Provider Abstractions: Why Every External Service Hides Behind an Interface"
+title: "Pepper & Carrot AI-powered flipbook · Part 4 of 16 — Provider Abstractions: Why Every External Service Hides Behind an Interface"
 date: 2026-05-13 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [python, protocol, fastapi, ollama, sentence-transformers, httpx, aiofiles, cloudflare-r2, peppercarrot, portfolio]
 description: >-
-  Post 3 of the Pepper & Carrot AI flipbook series. Build three typed
+  Post 4 of the Pepper & Carrot AI flipbook series. Build three typed
   Protocol interfaces — Storage, EmbeddingClient, ChatClient — and the
   factory that picks the right implementation from a .env file. By the
   end you have LocalStorage serving images end-to-end and a working
@@ -13,7 +13,7 @@ description: >-
 pin: true
 ---
 
-Post 3 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %})
+Post 4 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %})
 series. With the workshop standing from
 [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}), we
 write the first code that the rest of the project will sit on top of:
@@ -26,7 +26,7 @@ seams.
 > **What you'll build in this post.**
 > - A `Storage` Protocol with a working `LocalStorage` implementation that writes to `./data/images/` and serves images via FastAPI's [`StaticFiles`](https://fastapi.tiangolo.com/tutorial/static-files/).
 > - An `EmbeddingClient` Protocol with two implementations — `OllamaEmbeddingClient` (the project default, talking to the local Ollama you set up in Post 2) and `SentenceTransformersEmbeddingClient` (a zero-network fallback).
-> - A `ChatClient` Protocol with `OllamaChatClient` for the local path and `AnthropicChatClient` for the cloud swap-in. (We don't *use* the chat clients in this post — the streaming pipeline lands in Post 6 — but defining them now lets us see all three abstractions in one place.)
+> - A `ChatClient` Protocol with `OllamaChatClient` for the local path and `AnthropicChatClient` for the cloud swap-in. (We don't *use* the chat clients in this post — the streaming pipeline lands in Post 9 — but defining them now lets us see all three abstractions in one place.)
 > - A factory in `backend/app/clients/__init__.py` that reads `Settings` and hands the rest of the app back a Protocol-typed instance.
 > - A smoke test that proves you can swap `EMBEDDING_PROVIDER=ollama` for `EMBEDDING_PROVIDER=sentence-transformers` without changing a single line of caller code.
 >
@@ -34,9 +34,9 @@ seams.
 > - The workshop from [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}) up and green: Postgres healthy in Docker, `ollama serve` running with `qwen2.5:7b` and `bge-m3` pulled, `uv run mypy app/` and `uv run ruff check app/` both clean, and a copy of `.env.example` sitting at `.env`.
 > - No new tools to install. We're spending this post entirely inside `backend/app/clients/`.
 
-> **About the repo URL.** The code in this post lives in the same workshop starter that backs [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}): <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>. The three Protocols (`backend/app/clients/storage.py`, `embedding.py`, `chat.py`), the factory in `backend/app/clients/__init__.py`, the typed `Settings` in `backend/app/config.py`, and the smoke tests in `backend/tests/` are all there — clone it once and every command in this post resolves against the same tree. (The starter also includes `vision.py`, the fourth Protocol, used by [Post 4]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %})'s skill-based ingestion path.) The full project repository — frontend, chat orchestrator, world-graph overlay, cloud deploy — goes up alongside the deploy guide in Post 10.
+> **About the repo URL.** The code in this post lives in the same workshop starter that backs [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}): <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>. The three Protocols (`backend/app/clients/storage.py`, `embedding.py`, `chat.py`), the factory in `backend/app/clients/__init__.py`, the typed `Settings` in `backend/app/config.py`, and the smoke tests in `backend/tests/` are all there — clone it once and every command in this post resolves against the same tree. (The starter also includes `vision.py`, the fourth Protocol, used by [Post 5]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %})'s skill-based ingestion path.) The full project repository — frontend, chat orchestrator, world-graph overlay, cloud deploy — goes up alongside the deploy guide near the end of the series.
 >
-> **Checking out the code.** The workshop is tagged from Post 5 onward; Posts 1–4 build toward that first checkpoint. To get a complete, working tree for everything through Post 5, run `git checkout post-5`. Each later post then adds its own tag (`post-6`, `post-7`, …) — see the README's [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series).
+> **Checking out the code.** The setup, the data model, and the provider abstractions (Posts 2–4) all live at one checkpoint: `git checkout post-02-04-starter` gives you a complete, working tree for all three. Each later post then names its own tag (`post-05-06-ingestion`, `post-07-08-fullstack`, `post-09-rag`, …) — see the README's [Following along with the blog series](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop#following-along-with-the-blog-series).
 
 ---
 
@@ -48,7 +48,7 @@ seams.
 4. [The Three Seams in One Picture](#three-seams)
 5. [Seam 1 — Storage: LocalStorage End to End](#seam-storage)
 6. [Seam 2 — EmbeddingClient: Two Implementations of the Same Protocol](#seam-embedding)
-7. [Seam 3 — ChatClient: A Preview of What Post 6 Will Use](#seam-chat)
+7. [Seam 3 — ChatClient: A Preview of What Post 9 Will Use](#seam-chat)
 8. [The Factory in `clients/__init__.py`](#factory)
 9. [Verification: Prove the Swap Works](#verification)
 10. [The Discipline That Makes This Work](#discipline)
@@ -94,7 +94,7 @@ That's the entire interface. Three async methods. The `...` is Python syntax for
 >
 > The practical payoff: implementations don't have to import the Protocol. `LocalStorage` doesn't say `class LocalStorage(Storage):` — it just defines the right methods, and `mypy` keeps everyone honest.
 
-Everything downstream of the rule follows from this one line: `Storage` is a `Protocol`, not a base class. Three other Protocols live alongside it in the same package — `EmbeddingClient`, `ChatClient`, and `VisionClient` (covered in Post 4) — and they all look the same shape.
+Everything downstream of the rule follows from this one line: `Storage` is a `Protocol`, not a base class. Three other Protocols live alongside it in the same package — `EmbeddingClient`, `ChatClient`, and `VisionClient` (covered in Post 5) — and they all look the same shape.
 
 ---
 
@@ -104,7 +104,7 @@ Before we look at code, three concrete payoffs from the next ~250 lines. Each on
 
 **1. Local↔cloud swap is a config change.**
 
-The same backend binary boots two different deployment shapes depending on the value of three environment variables. Run it with `STORAGE_BACKEND=local CHAT_PROVIDER=ollama EMBEDDING_PROVIDER=ollama` and you get the all-local workshop you built in Post 2. Run it with `STORAGE_BACKEND=r2 OLLAMA_BASE_URL=<modal-url>` and it talks to [Cloudflare R2](https://www.cloudflare.com/developer-platform/products/r2/) for images and a Modal-hosted Ollama for chat — same code, same imports, same call sites. Post 10 is just a long checklist of "set this env var to that production value"; the codebase changes by zero lines.
+The same backend binary boots two different deployment shapes depending on the value of three environment variables. Run it with `STORAGE_BACKEND=local CHAT_PROVIDER=ollama EMBEDDING_PROVIDER=ollama` and you get the all-local workshop you built in Post 2. Run it with `STORAGE_BACKEND=r2 OLLAMA_BASE_URL=<modal-url>` and it talks to [Cloudflare R2](https://www.cloudflare.com/developer-platform/products/r2/) for images and a Modal-hosted Ollama for chat — same code, same imports, same call sites. Post 15 is just a long checklist of "set this env var to that production value"; the codebase changes by zero lines.
 
 **2. Hybrid setups become free.**
 
@@ -112,7 +112,7 @@ You might want local embeddings (cheap, no rate limits, runs while you sleep ing
 
 **3. Tests stop touching the network.**
 
-When the only place SDKs are imported is `clients/`, every other module can be tested with a stub that implements the Protocol in five lines. The integration tests in Post 6 (retrieval) and Post 8 (prompt assembly) will use this — neither one hits a real model. The pattern: pass the test a `FakeChatClient` whose `stream()` yields pre-recorded tokens, and assert on the prompt assembly. Zero network, deterministic, runs in milliseconds.
+When the only place SDKs are imported is `clients/`, every other module can be tested with a stub that implements the Protocol in five lines. The integration tests in Post 9 (retrieval) and Post 11 (prompt assembly) will use this — neither one hits a real model. The pattern: pass the test a `FakeChatClient` whose `stream()` yields pre-recorded tokens, and assert on the prompt assembly. Zero network, deterministic, runs in milliseconds.
 
 A worked example, since this comes up often enough to be worth pinning:
 
@@ -131,7 +131,7 @@ class FakeChatClient:
         return "".join(self._tokens)
 ```
 
-That's the *whole* test double. The retrieval logic in Post 6 can be tested by handing this to the orchestrator and asserting on what got streamed back. None of the real provider code is exercised; none of it needs to be — that code is tested separately, against real model servers.
+That's the *whole* test double. The retrieval logic in Post 9 can be tested by handing this to the orchestrator and asserting on what got streamed back. None of the real provider code is exercised; none of it needs to be — that code is tested separately, against real model servers.
 
 ---
 
@@ -209,7 +209,7 @@ By the end of this post, three Protocols hide three different concerns from the 
   <g>
     <rect x="200" y="340" width="130" height="82" rx="8" fill="#f3f4f6" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5,3"/>
     <text x="265" y="368" text-anchor="middle" font-size="14" font-weight="600" fill="#1f2937">R2Storage</text>
-    <text x="265" y="390" text-anchor="middle" font-size="11" fill="#4b5563" font-weight="600">stub · Post 10</text>
+    <text x="265" y="390" text-anchor="middle" font-size="11" fill="#4b5563" font-weight="600">stub · Post 15</text>
     <text x="265" y="408" text-anchor="middle" font-size="10" fill="#6b7280" font-style="italic">Cloudflare R2 (S3-compatible)</text>
   </g>
 
@@ -275,7 +275,7 @@ Three things worth noticing in the picture:
 
 - **All the SDK imports happen on the bottom row.** `anthropic`, `httpx`, `aiofiles`, `boto3`, `sentence-transformers` — these names appear *only* inside the leaf implementations in `backend/app/clients/`. Routes and services see Protocols.
 - **The factory is the only code that knows which leaves exist.** `clients/__init__.py` reads `Settings` and instantiates one of the leaves. Every other caller asks the factory for a `Storage` or a `ChatClient` and gets back an opaque object whose type is the Protocol.
-- **Today there's a hole on the bottom-left.** `R2Storage` is a stub that raises `NotImplementedError` — we fill it in for the cloud deploy in Post 10. The fact that we can ship Post 4–9 with that stub raising is itself a small piece of evidence the abstraction is working: nobody outside `clients/` knows or cares which storage backend is mounted.
+- **Today there's a hole on the bottom-left.** `R2Storage` is a stub that raises `NotImplementedError` — we fill it in for the cloud deploy in Post 14. The fact that we can ship Post 5–13 with that stub raising is itself a small piece of evidence the abstraction is working: nobody outside `clients/` knows or cares which storage backend is mounted.
 
 Let's build each seam in turn.
 
@@ -328,10 +328,10 @@ class Storage(Protocol):
 
 Three methods, each chosen because *both* backends need to do them and *neither* call site needs to do more. A handful of design choices in those few lines are worth pausing on:
 
-- **Keys, not paths.** The argument to every method is a `key: str` — a relative path like `episodes/ep01-potion-of-flight/pages/001-display.webp`. Never a full URL, never an absolute filesystem path. That's the same string the database stores in `pages.image_url` (from Post 2's design decision #2). It's *meaningful in the application*, not in the storage backend. `LocalStorage` turns the key into `./data/images/episodes/...`; `R2Storage` turns the same key into an R2 object key — and both compose the same key into a URL via `url_for`. A reader of `pages.image_url` doesn't know or care which backend resolved it.
+- **Keys, not paths.** The argument to every method is a `key: str` — a relative path like `episodes/ep01-potion-of-flight/pages/001-display.webp`. Never a full URL, never an absolute filesystem path. That's the same string the database stores in `pages.image_url` (from Post 3's design decision #2). It's *meaningful in the application*, not in the storage backend. `LocalStorage` turns the key into `./data/images/episodes/...`; `R2Storage` turns the same key into an R2 object key — and both compose the same key into a URL via `url_for`. A reader of `pages.image_url` doesn't know or care which backend resolved it.
 - **`content_type` is a parameter even though `LocalStorage` ignores it.** Filesystems don't care about MIME types — but R2 does (it goes on the `Content-Type` HTTP response header so browsers render `image/webp` as an image, not a download). Putting the parameter on the Protocol now means R2 doesn't need a wider interface later; `LocalStorage` just discards it. **The Protocol is the union of what implementations *might* need.** This is one of the few places it's worth designing for a use case you don't have yet.
 - **`url_for` is async even though `LocalStorage` doesn't need to await anything.** R2's [signed URLs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/ShareObjectPreSignedURL.html) require a network call or at least async-friendly crypto in some configurations; making the whole Protocol async keeps the door open. Async is contagious — fix the contagion at the interface level, not the call site level.
-- **`exists` exists.** It's not strictly required for writes (we could just always `put`) — but the ingestion pipeline (Post 4) uses it to skip re-uploading variants that are already in place. R2 round-trips are slower than disk reads; a cheap `HEAD` check is worth defining.
+- **`exists` exists.** It's not strictly required for writes (we could just always `put`) — but the ingestion pipeline (Post 6) uses it to skip re-uploading variants that are already in place. R2 round-trips are slower than disk reads; a cheap `HEAD` check is worth defining.
 
 > *Why Protocols and not an Abstract Base Class? An aside for readers new to Python typing.*
 >
@@ -465,7 +465,7 @@ Four things in this code earn their lines:
 
 > *Plain-English aside: what's `mtime`?* Short for **modification time** — the Unix filesystem metadata field that records when a file's contents were last written. Every file carries three timestamps you can see with `stat`: **atime** (last read), **mtime** (last write), and **ctime** (last metadata change like permissions or rename). The detail that matters here is that **every write bumps mtime to "now" — even if the bytes are identical to what was already on disk**. That trips a lot of downstream tools that subscribe to mtime as a "file changed" signal: [file watchers](https://github.com/emcrisostomo/fswatch) like Vite's hot-reload and IDE auto-rebuilders, build systems like [`make`](https://www.gnu.org/software/make/) and [Bazel](https://bazel.build/) (which compare mtimes to decide what to rebuild), and rsync-style backup tools (default mode uses size + mtime as the "is this different?" check). Rewriting a file with identical content lights all of those up to think something changed. Preserving the original mtime when the content really hasn't changed keeps them quiet. This codebase doesn't plug any watchers into `data/images/` *yet*, but getting the convention right on day one beats remembering to retrofit it the day you do.
 
-**`async` + `aiofiles`.** The FastAPI request handler that ingest-write paths touch is async; if we did blocking disk I/O directly, we'd stall the event loop and starve every other concurrent request. [`aiofiles`](https://github.com/Tinche/aiofiles) wraps file operations in a thread pool so they cooperate with [`asyncio`](https://docs.python.org/3/library/asyncio.html). For a laptop-scale workload this is mild overkill — but it keeps the async story uniform, which matters in Post 6 when we have streaming chat responses and an ingestion run happening in parallel and the whole thing needs to not stutter. (For `exists`, we don't bother with `aiofiles` — just `asyncio.to_thread(path.exists)`, which threads the one-syscall check.)
+**`async` + `aiofiles`.** The FastAPI request handler that ingest-write paths touch is async; if we did blocking disk I/O directly, we'd stall the event loop and starve every other concurrent request. [`aiofiles`](https://github.com/Tinche/aiofiles) wraps file operations in a thread pool so they cooperate with [`asyncio`](https://docs.python.org/3/library/asyncio.html). For a laptop-scale workload this is mild overkill — but it keeps the async story uniform, which matters in Post 9 when we have streaming chat responses and an ingestion run happening in parallel and the whole thing needs to not stutter. (For `exists`, we don't bother with `aiofiles` — just `asyncio.to_thread(path.exists)`, which threads the one-syscall check.)
 
 **`url_for` is dead simple.** Just `f"{self._url_prefix}/{key}"`. The whole point is that `LocalStorage` doesn't *do* any URL signing or routing — it relies on FastAPI to serve the file at that URL, which is the next piece.
 
@@ -520,13 +520,13 @@ Two paths share a single file on disk: ingestion writes it once; every browser r
   <g>
     <rect x="100" y="68" width="180" height="62" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
     <text x="190" y="94" text-anchor="middle" font-size="14" font-weight="600" fill="#1f2937">Ingestion pipeline</text>
-    <text x="190" y="115" text-anchor="middle" font-size="11" fill="#92400e" font-style="italic">(Post 4)</text>
+    <text x="190" y="115" text-anchor="middle" font-size="11" fill="#92400e" font-style="italic">(Post 6)</text>
   </g>
   <!-- Browser -->
   <g>
     <rect x="640" y="68" width="180" height="62" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
     <text x="730" y="94" text-anchor="middle" font-size="14" font-weight="600" fill="#1f2937">Browser / frontend</text>
-    <text x="730" y="115" text-anchor="middle" font-size="11" fill="#92400e" font-style="italic">(Post 5+)</text>
+    <text x="730" y="115" text-anchor="middle" font-size="11" fill="#92400e" font-style="italic">(Post 8+)</text>
   </g>
 
   <!-- Arrows from actors down to middle layer -->
@@ -627,7 +627,7 @@ A handful of things you might expect that aren't there:
 
 - **No content hashing.** R2 returns ETags automatically; we don't need to compute one in the app layer. If we ever do, it's a one-method extension to the Protocol.
 - **No retry logic.** Disk writes don't fail transiently in any way retries would help. R2 will need retries; that's R2's problem when we build it.
-- **No request-time image resizing.** All image variants are pre-computed at ingestion (Post 4) and stored as separate keys. Doing transforms at request time is a different ADR — see [`docs/decisions/0003-storage-abstraction.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/docs/decisions/0003-storage-abstraction.md) in the workshop starter.
+- **No request-time image resizing.** All image variants are pre-computed at ingestion (Post 6) and stored as separate keys. Doing transforms at request time is a different ADR — see [`docs/decisions/0003-storage-abstraction.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/docs/decisions/0003-storage-abstraction.md) in the workshop starter.
 
 These omissions are the abstraction earning its keep. Every line that's *not* in `LocalStorage` is a line that doesn't need to be parallelled by an equivalent in `R2Storage` later.
 
@@ -639,7 +639,7 @@ Now the more interesting seam — interesting because we actually build *two* im
 
 > *Plain-English aside: what's an embedding?* An **embedding** is a fixed-length list of numbers — usually 768, 1024, or 1536 of them — that captures the meaning of a piece of text. The trick: two texts with similar meaning land near each other in that high-dimensional space, by some distance metric (usually [cosine similarity](https://en.wikipedia.org/wiki/Cosine_similarity)). Embeddings are what makes "find me the chunks closest in meaning to this question" work in [RAG](https://www.anthropic.com/news/contextual-retrieval) — you embed the question, embed every chunk in your corpus once at ingestion, and the retrieval step is a numerical "which chunk vector is nearest to the question vector?". An **embedding model** like [BGE-M3](https://huggingface.co/BAAI/bge-m3) is the thing that turns text into those numbers.
 >
-> We use 1024-dim BGE-M3 throughout this project. It's [multilingual](https://huggingface.co/BAAI/bge-m3), runs fine on CPU, and is small enough (~2GB) to ship with the Modal GPU image in Post 10.
+> We use 1024-dim BGE-M3 throughout this project. It's [multilingual](https://huggingface.co/BAAI/bge-m3), runs fine on CPU, and is small enough (~2GB) to ship with the Modal GPU image in Post 14.
 
 ### The interface
 
@@ -790,7 +790,7 @@ Six things worth pausing on:
 
 **The endpoint is [`/api/embed`](https://github.com/ollama/ollama/blob/main/docs/api.md#generate-embeddings) (plural), not `/api/embeddings`.** Ollama has *both*: the new `/api/embed` accepts an `input` array and returns `{"embeddings": [...]}`; the older `/api/embeddings` accepts a single `prompt` and is being phased out. Always use the new one — it batches.
 
-**One [`httpx.AsyncClient`](https://www.python-httpx.org/async/) held on the instance, not per-call.** `httpx` is the [`requests`](https://requests.readthedocs.io/) of the async world. Creating a new client per request would re-pay the TCP+TLS handshake on every embedding call — for a 50-page ingestion run that's 50 needless handshakes. Holding one client on the instance reuses the connection. We expose `aclose()` so the FastAPI shutdown hook can release it cleanly; we don't wire that in this post (no app code calls `get_embedding_client` yet) — that wiring happens in Post 6 where the chat orchestrator first holds a long-lived client.
+**One [`httpx.AsyncClient`](https://www.python-httpx.org/async/) held on the instance, not per-call.** `httpx` is the [`requests`](https://requests.readthedocs.io/) of the async world. Creating a new client per request would re-pay the TCP+TLS handshake on every embedding call — for a 50-page ingestion run that's 50 needless handshakes. Holding one client on the instance reuses the connection. We expose `aclose()` so the FastAPI shutdown hook can release it cleanly; we don't wire that in this post (no app code calls `get_embedding_client` yet) — that wiring happens in Post 9 where the chat orchestrator first holds a long-lived client.
 
 **The timeout is 180 seconds, which sounds insane until you see Modal cold starts.** On a laptop, Ollama responds to an embed call in ~50ms. In production on Modal, the first call after the GPU has scaled to zero has to (a) allocate a GPU, (b) pull the bge-m3 weights from disk into VRAM, (c) then do the embed — easily 30–75 seconds for a single call. The same client code runs in both environments, so the timeout has to cover the worst case.
 
@@ -875,9 +875,9 @@ When a configuration choice creeps across two variables, comment them both with 
 
 ---
 
-## Seam 3 — ChatClient: A Preview of What Post 6 Will Use {#seam-chat}
+## Seam 3 — ChatClient: A Preview of What Post 9 Will Use {#seam-chat}
 
-The third Protocol is the chat client. We won't *use* it in this post — the orchestration that calls `stream(...)` lands in Post 6, and the streaming-to-the-browser SSE plumbing lands in Post 7 — but defining it now serves two purposes: it shows the full set of Protocols the project leans on, and it's the most interesting case for the abstraction itself, because Ollama and Anthropic disagree about almost everything except "stream me some tokens for an assistant turn."
+The third Protocol is the chat client. We won't *use* it in this post — the orchestration that calls `stream(...)` lands in Post 9, and the streaming-to-the-browser SSE plumbing lands in Post 10 — but defining it now serves two purposes: it shows the full set of Protocols the project leans on, and it's the most interesting case for the abstraction itself, because Ollama and Anthropic disagree about almost everything except "stream me some tokens for an assistant turn."
 
 ```python
 # backend/app/clients/chat.py
@@ -975,10 +975,10 @@ The Anthropic implementation ignores `json_format` (Claude is reliable enough at
 Both [`OllamaChatClient`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/backend/app/clients/chat.py) and [`AnthropicChatClient`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/backend/app/clients/chat.py) live in `backend/app/clients/chat.py`. We won't walk through them line by line in this post — too much detail for a part that isn't yet wired up — but they're worth a brief tour now:
 
 - `OllamaChatClient.stream` POSTs to [`/api/chat`](https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion) with `stream: true` and iterates the response as newline-delimited JSON, yielding `chunk["message"]["content"]` per token.
-- `AnthropicChatClient.stream` uses [`anthropic.AsyncAnthropic().messages.stream(...)`](https://github.com/anthropics/anthropic-sdk-python) — and additionally turns on [prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) via `cache_control={"type": "ephemeral"}`, which ~90%-discounts repeat tokens across multi-turn chat. (Post 8 explains why this is load-bearing for the cost story.)
+- `AnthropicChatClient.stream` uses [`anthropic.AsyncAnthropic().messages.stream(...)`](https://github.com/anthropics/anthropic-sdk-python) — and additionally turns on [prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) via `cache_control={"type": "ephemeral"}`, which ~90%-discounts repeat tokens across multi-turn chat. (Post 11 explains why this is load-bearing for the cost story.)
 - Both build the `messages` list from the same internal `Message` model — a small Pydantic class with `role` and a list of `ContentBlock`s (text or image). Either provider's wire format is constructed from this neutral representation immediately before the call. Provider-specific encoding stays inside the provider's file.
 
-The same call site — `async for token in client.stream(system, messages, max_tokens=1024):` — drives both. We'll see this in action in Post 6 and 7.
+The same call site — `async for token in client.stream(system, messages, max_tokens=1024):` — drives both. We'll see this in action in Post 9 and 10.
 
 ---
 
@@ -1049,7 +1049,7 @@ This file is small on purpose. Three observations:
 
 **The `Settings` object is the only argument.** Not a `db_url`, an `api_key`, a `model_name` — just `Settings`. The factory unpacks what it needs. If we ever add a new field — say `OLLAMA_CHAT_OPTIONS` — only the factory and the affected client change; no caller in routes/services has to grow a new constructor argument. This is *also* why `Settings` lives in `app/config.py` as a single pydantic-settings class (Post 2): one canonical source of truth, typed, loaded from `.env`.
 
-The `_modal_proxy_headers` helper is one tiny additional flourish: when running against a Modal endpoint, the request needs proxy-auth headers; the helper builds them from `Settings.modal_proxy_token_id` + `modal_proxy_token_secret` and fails loudly if *exactly one* of the two is set (a common "I set the secret but forgot the ID" footgun). It's worth showing because the production deploy in Post 10 is the first time those fields get populated, and the friendly error message is the difference between a five-minute fix and a twenty-minute "why am I getting 401s?" chase.
+The `_modal_proxy_headers` helper is one tiny additional flourish: when running against a Modal endpoint, the request needs proxy-auth headers; the helper builds them from `Settings.modal_proxy_token_id` + `modal_proxy_token_secret` and fails loudly if *exactly one* of the two is set (a common "I set the secret but forgot the ID" footgun). It's worth showing because the production deploy in Post 14 is the first time those fields get populated, and the friendly error message is the difference between a five-minute fix and a twenty-minute "why am I getting 401s?" chase.
 
 ---
 
@@ -1101,11 +1101,11 @@ And the storage smoke test you ran earlier — `curl http://localhost:8000/image
 
 | Protocol | Implementations |
 |---|---|
-| `Storage` | `LocalStorage` (✓) &nbsp;·&nbsp; `R2Storage` (stub; fills in Post 10) |
+| `Storage` | `LocalStorage` (✓) &nbsp;·&nbsp; `R2Storage` (stub; fills in Post 14) |
 | `EmbeddingClient` | `OllamaEmbeddingClient` (✓) &nbsp;·&nbsp; `SentenceTransformersEmbeddingClient` (✓) |
 | `ChatClient` | `OllamaChatClient` (✓ defined) &nbsp;·&nbsp; `AnthropicChatClient` (✓ defined) |
 
-Both `ChatClient` implementations are wired up at the seam now; their first call site lands in Post 6 when the chat orchestrator starts streaming.
+Both `ChatClient` implementations are wired up at the seam now; their first call site lands in Post 9 when the chat orchestrator starts streaming.
 
 ---
 
@@ -1135,13 +1135,13 @@ These rules sound restrictive on paper. In practice the codebase has barely felt
 
 **4. The factory is boring on purpose.** A 30-line `if/elif/raise` is more legible than a 100-line plugin-registry framework, and the only thing it gives up is the ability to load providers you haven't imported — which is exactly the kind of cleverness that produces "why is this string failing at production startup?" puzzles at 11pm. The factory is the one place you want to *see* every concrete class listed.
 
-**5. The same code runs on a laptop and in the cloud. That's not a fluke; it's the design.** When Post 10 sets `STORAGE_BACKEND=r2`, `CHAT_PROVIDER=ollama` with `OLLAMA_BASE_URL` pointing at Modal, and `EMBEDDING_PROVIDER=ollama` pointing at the same Modal — and the deployed backend just works — that's because *the rest of the codebase has been writing against the Protocols this whole time*. The deploy story is short because the architecture work happened in this post.
+**5. The same code runs on a laptop and in the cloud. That's not a fluke; it's the design.** When Post 14 sets `STORAGE_BACKEND=r2`, `CHAT_PROVIDER=ollama` with `OLLAMA_BASE_URL` pointing at Modal, and `EMBEDDING_PROVIDER=ollama` pointing at the same Modal — and the deployed backend just works — that's because *the rest of the codebase has been writing against the Protocols this whole time*. The deploy story is short because the architecture work happened in this post.
 
 ---
 
-Next up: **Post 4 — Claude Skills as an Ingestion Tool: When the Best Vision Model Is the One Driving Your Editor.** We use Claude Code itself as a one-shot batch vision processor: a `.claude/skills/ingest-from-images/SKILL.md` file walks Claude through reading each page of episode 1 and writing a structured `PageDescription` JSON next to the image on disk. Then `JsonFileVisionClient` — the fourth Protocol implementation, also living in `backend/app/clients/`, also obeying the rule we just built — picks those JSONs up. By the end of that post, episode 1 is fully ingested: images in `LocalStorage`, descriptions in Postgres, embeddings in ChromaDB. The chat layer doesn't run a vision model in production; that's the whole point.
+Next up: **Post 5 — Claude Skills as a Vision Provider.** We use Claude Code itself as a one-shot batch vision processor: a `.claude/skills/ingest-from-images/SKILL.md` file walks Claude through reading each page of episode 1 and writing a structured `PageDescription` JSON next to the image on disk. Then `JsonFileVisionClient` — the fourth Protocol implementation, also living in `backend/app/clients/`, also obeying the rule we just built — picks those JSONs up. By the end of that post, episode 1 is fully ingested: images in `LocalStorage`, descriptions in Postgres, embeddings in ChromaDB. The chat layer doesn't run a vision model in production; that's the whole point.
 
-The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>. The **full source repository** and a public live-demo URL go up alongside Post 10 of this series — the deploy guide — once it's published.
+The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>, tagged `post-02-04-starter`. The **full source repository** and a public live-demo URL go up alongside the deploy guide near the end of the series — once it's published.
 
 *Pepper & Carrot* is © [David Revoy](https://www.davidrevoy.com/), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). All credit to him for the source material that made this project possible.
 
