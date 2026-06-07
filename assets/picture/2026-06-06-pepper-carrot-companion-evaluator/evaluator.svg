@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 470" role="img"
+     aria-label="The evaluator as an MCP client. On the right, the deployed pepper-carrot MCP server exposes the search and ask tools. In the middle, the evaluator consumes them: the search tool drives a deterministic retrieval harness (recall@k, nDCG, MRR, spoiler-boundary check); the ask tool drives an LLM-as-judge answer layer (correctness, faithfulness, relevance, completeness) plus a deterministic Voyage similarity. Both feed a deterministic failure-attribution join that classifies each item as pass, generation fault, retrieval fault, or masked gap, producing a scored report and a JSONL trace. On the left, an agentic, offline self-verifying gold generator drafts candidate test cases, verifies each against the live index, auto-discards failures, and — after human review — freezes them into the gold set the harness reads. A colored band marks the deterministic core versus the agentic edge."
+     style="display: block; width: 100%; height: auto; max-width: 1080px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;">
+  <rect x="0" y="0" width="1080" height="470" fill="#ffffff"/>
+  <defs>
+    <marker id="ev-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b45309"/>
+    </marker>
+  </defs>
+
+  <!-- LEFT: agentic gold generation -->
+  <rect x="24" y="60" width="210" height="150" rx="9" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+  <text x="129" y="82" text-anchor="middle" font-size="11.5" font-weight="700" fill="#7c2d12">Agentic (offline)</text>
+  <text x="129" y="100" text-anchor="middle" font-size="9.5" font-style="italic" fill="#7c2d12">self-verifying gold gen</text>
+  <text x="129" y="124" text-anchor="middle" font-size="9.5" fill="#7c2d12">LLM drafts a candidate</text>
+  <text x="129" y="140" text-anchor="middle" font-size="9.5" fill="#7c2d12">→ verify vs. live index</text>
+  <text x="129" y="156" text-anchor="middle" font-size="9.5" fill="#7c2d12">→ auto-discard misses</text>
+  <text x="129" y="180" text-anchor="middle" font-size="9.5" font-weight="700" fill="#7c2d12">→ human review → freeze</text>
+  <line x1="234" y1="170" x2="300" y2="210" stroke="#b45309" stroke-width="1.4" marker-end="url(#ev-arrow)"/>
+  <rect x="60" y="220" width="140" height="26" rx="5" fill="#fff7ed" stroke="#9a3412" stroke-width="1.2"/>
+  <text x="130" y="237" text-anchor="middle" font-size="10" font-weight="700" fill="#7c2d12">gold_*.yaml (frozen)</text>
+  <line x1="200" y1="233" x2="300" y2="250" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#ev-arrow)"/>
+
+  <!-- MIDDLE: evaluator -->
+  <rect x="300" y="40" width="430" height="300" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.6"/>
+  <text x="515" y="62" text-anchor="middle" font-size="13" font-weight="700" fill="#1e3a8a">pepper-carrot-eval · MCP client</text>
+  <text x="515" y="79" text-anchor="middle" font-size="9" font-style="italic" fill="#1e3a8a">deterministic core · agentic edge</text>
+
+  <rect x="318" y="92" width="394" height="58" rx="7" fill="#ecfdf5" stroke="#059669" stroke-width="1.3"/>
+  <text x="515" y="110" text-anchor="middle" font-size="10.5" font-weight="700" fill="#065f46">Retrieval harness (deterministic) ← search</text>
+  <text x="515" y="127" text-anchor="middle" font-size="9.5" fill="#065f46">recall@k · nDCG · MRR · spoiler-boundary check</text>
+  <text x="515" y="141" text-anchor="middle" font-size="9" font-style="italic" fill="#065f46">bit-identical run to run</text>
+
+  <rect x="318" y="158" width="394" height="64" rx="7" fill="#fefce8" stroke="#ca8a04" stroke-width="1.3"/>
+  <text x="515" y="176" text-anchor="middle" font-size="10.5" font-weight="700" fill="#713f12">Answer layer ← ask</text>
+  <text x="515" y="192" text-anchor="middle" font-size="9.5" fill="#713f12">LLM-as-judge (guarded) + Voyage similarity</text>
+  <text x="515" y="206" text-anchor="middle" font-size="9" font-style="italic" fill="#713f12">correctness · faithfulness · relevance · completeness</text>
+
+  <rect x="318" y="230" width="394" height="42" rx="7" fill="#f1f5f9" stroke="#475569" stroke-width="1.3"/>
+  <text x="515" y="248" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1f2937">Failure attribution (deterministic join)</text>
+  <text x="515" y="263" text-anchor="middle" font-size="9" fill="#475569">pass · generation-fault · retrieval-fault · masked-gap</text>
+
+  <rect x="360" y="288" width="140" height="34" rx="6" fill="#fff" stroke="#475569"/>
+  <text x="430" y="309" text-anchor="middle" font-size="10" font-weight="700" fill="#1f2937">report.md / .json</text>
+  <rect x="528" y="288" width="150" height="34" rx="6" fill="#fff" stroke="#475569"/>
+  <text x="603" y="309" text-anchor="middle" font-size="10" font-weight="700" fill="#1f2937">traces/*.jsonl</text>
+
+  <!-- RIGHT: MCP server -->
+  <rect x="800" y="120" width="256" height="150" rx="10" fill="#fde68a" stroke="#b45309" stroke-width="1.6"/>
+  <text x="928" y="146" text-anchor="middle" font-size="12" font-weight="700" fill="#7c2d12">pepper-carrot-mcp</text>
+  <text x="928" y="163" text-anchor="middle" font-size="9" font-style="italic" fill="#7c2d12">the server from Post 17</text>
+  <rect x="820" y="178" width="216" height="30" rx="6" fill="#fff7ed" stroke="#9a3412" stroke-width="1.2"/>
+  <text x="928" y="198" text-anchor="middle" font-size="11" font-weight="700" fill="#7c2d12">tool: search</text>
+  <rect x="820" y="214" width="216" height="30" rx="6" fill="#fff7ed" stroke="#9a3412" stroke-width="1.2"/>
+  <text x="928" y="234" text-anchor="middle" font-size="11" font-weight="700" fill="#7c2d12">tool: ask</text>
+
+  <line x1="730" y1="120" x2="800" y2="180" stroke="#b45309" stroke-width="1.6" marker-end="url(#ev-arrow)"/>
+  <line x1="800" y1="229" x2="732" y2="190" stroke="#b45309" stroke-width="1.6" marker-end="url(#ev-arrow)"/>
+  <text x="772" y="150" text-anchor="middle" font-size="8.5" fill="#7c2d12" font-style="italic">MCP</text>
+
+  <!-- bottom band -->
+  <text x="515" y="372" text-anchor="middle" font-size="10.5" font-style="italic" font-weight="600" fill="#334155">Green = deterministic (reproducible metrics) · Amber = agentic (invents cases, judges prose) · the agentic edge never computes a score</text>
+</svg>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 716" role="img"
+     aria-label="A detailed, field-level reasoning trace for one gold item (qa-wiki-chaosah, answer phase), verbatim from a real run of nine records. The gold item input question is 'What is Chaosah?' in wiki mode. Step 1, the ask tool (3.6 seconds) returns a 443-character answer beginning 'Chaosah is the school of chaos magic and the foundation from which all other magic on Hereva flows. It deals with time, gravity, particle physics', plus three retrieved document ids and two suggestion chips. Step 2, a search at k=3 (0.4 seconds) returns three wiki chunks with cosine scores 0.588, 0.535, and 0.465 — exactly what generation saw; their ids equal the ask call's retrieved_doc_ids, the consistency guarantee. Step 3, the judge (claude-sonnet-4-6) is sampled three times, median-of-3, with request ids msg_01Dj, msg_01CP, msg_01D3 and latencies 6.1, 11.6, 6.1 seconds; its input is the question plus reference plus the must-include fact 'chaos' plus the three chunks, and it returns per-dimension reasoning: correctness 1.0 (every listed fact matches the reference and context), faithfulness 1.0 (all claims supported by the retrieved context), relevance 1.0 (directly addresses the question), completeness 1.0 (the must-include fact is present). Median is all 1.0, variance 0.0, cached. A deterministic Voyage cosine second opinion is 0.89, agreeing. Step 4, a deterministic attribution join: retrieval_ok because the gold wiki chunk chaosah is in the retrieved chunks, and answer_ok because correctness and faithfulness clear 0.6, so the verdict is PASS."
+     style="display: block; width: 100%; height: auto; max-width: 900px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;">
+  <rect x="0" y="0" width="760" height="716" fill="#ffffff"/>
+
+  <text x="14" y="28" font-size="16" font-weight="700" fill="#1f2937">Detailed trace — <tspan font-family="ui-monospace, Menlo, monospace" fill="#7c2d12">qa-wiki-chaosah</tspan> · answer phase</text>
+  <text x="14" y="46" font-size="11" font-style="italic" fill="#64748b">verbatim from traces/run-20260606-223046.jsonl — text, scores, request ids and latencies are real</text>
+
+  <!-- INPUT -->
+  <rect x="14" y="58" width="732" height="34" rx="6" fill="#eff6ff" stroke="#2563eb" stroke-width="1.2"/>
+  <text x="28" y="80" font-size="13" fill="#1e3a8a"><tspan font-weight="700">gold item input</tspan> — question: “What is Chaosah?”   (mode: wiki)</text>
+
+  <!-- ① ask -->
+  <rect x="14" y="104" width="732" height="130" rx="7" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
+  <text x="28" y="130" font-size="13.5" font-weight="700" fill="#065f46">① ask · 3.6s</text>
+  <text x="150" y="130" font-size="12" fill="#065f46">· input {question: "What is Chaosah?", mode: wiki}</text>
+  <text x="28" y="155" font-size="12.5" fill="#065f46">→ the real 443-character answer:</text>
+  <text x="28" y="178" font-size="12.5" font-style="italic" fill="#047857">“Chaosah is the school of chaos magic and the foundation from which all</text>
+  <text x="28" y="197" font-size="12.5" font-style="italic" fill="#047857">other magic on Hereva flows. It deals with time, gravity, particle physics…”</text>
+  <text x="28" y="222" font-size="11.5" fill="#065f46">retrieved_doc_ids: [4f9dbb64…, 5c041e65…, d738cb2d…]  ·  +2 suggestion chips</text>
+
+  <!-- ② search -->
+  <rect x="14" y="246" width="732" height="86" rx="7" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
+  <text x="28" y="272" font-size="13.5" font-weight="700" fill="#065f46">② search · k=3 · 0.4s</text>
+  <text x="222" y="272" font-size="12" fill="#065f46">— recovers the faithfulness context</text>
+  <text x="28" y="296" font-size="12.5" fill="#065f46">wiki #1  score 0.588      ·      #2  score 0.535      ·      #3  score 0.465</text>
+  <text x="28" y="318" font-size="11" font-style="italic" fill="#475569">↳ these ids == ask.retrieved_doc_ids — the consistency guarantee (one retrieval path, both tools)</text>
+
+  <!-- ③ judge -->
+  <rect x="14" y="346" width="732" height="208" rx="7" fill="#fefce8" stroke="#ca8a04" stroke-width="1.4"/>
+  <text x="28" y="372" font-size="13.5" font-weight="700" fill="#713f12">③ judge · claude-sonnet-4-6 · ×3 (median-of-3)</text>
+  <text x="28" y="393" font-size="11" font-family="ui-monospace, Menlo, monospace" fill="#92400e">req msg_01Dj… / msg_01CP… / msg_01D3…   ·   latency 6.1 / 11.6 / 6.1 s</text>
+  <text x="28" y="415" font-size="12" fill="#713f12">input: question + reference + must-include[“chaos”] + the 3 chunks  →  verdict + reasoning:</text>
+  <text x="28" y="440" font-size="12.5" fill="#854d0e">●  <tspan font-weight="700">correctness 1.0</tspan> — every listed fact matches the reference and the retrieved context</text>
+  <text x="28" y="464" font-size="12.5" fill="#854d0e">●  <tspan font-weight="700">faithfulness 1.0</tspan> — all claims are directly supported by the retrieved context</text>
+  <text x="28" y="488" font-size="12.5" fill="#854d0e">●  <tspan font-weight="700">relevance 1.0</tspan> — directly and fully addresses “What is Chaosah?”</text>
+  <text x="28" y="512" font-size="12.5" fill="#854d0e">●  <tspan font-weight="700">completeness 1.0</tspan> — must-include “chaos” present; core reference details covered</text>
+  <text x="28" y="540" font-size="11" font-style="italic" fill="#713f12">median 1.0 / 1.0 / 1.0 / 1.0 · variance 0.00 (samples agree) · cached by (rubric v2, item, answer-hash)</text>
+
+  <!-- similarity -->
+  <text x="28" y="576" font-size="12.5" fill="#334155">＋  deterministic <tspan font-weight="700">Voyage cosine(answer, reference) = 0.89</tspan> — an independent second opinion (agrees)</text>
+
+  <!-- ④ attribution -->
+  <rect x="14" y="588" width="732" height="92" rx="7" fill="#dcfce7" stroke="#16a34a" stroke-width="1.8"/>
+  <text x="28" y="614" font-size="13.5" font-weight="700" fill="#166534">④ failure attribution (deterministic join)</text>
+  <text x="28" y="638" font-size="12.5" fill="#166534"><tspan font-weight="700">retrieval_ok ✓</tspan>  —  gold {wiki: chaosah} ∈ retrieved chunks</text>
+  <text x="28" y="664" font-size="12.5" fill="#166534"><tspan font-weight="700">answer_ok ✓</tspan>  —  correctness ≥ 0.6  AND  faithfulness ≥ 0.6    →    <tspan font-weight="700" font-size="14">VERDICT: PASS</tspan></text>
+
+  <text x="14" y="704" font-size="11" fill="#64748b">Every number in report.md expands into records like these — model, request id, latency, inputs, and the model's own reasoning.</text>
+</svg>
