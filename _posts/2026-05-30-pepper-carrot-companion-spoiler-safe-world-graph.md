@@ -16,7 +16,7 @@ description: >-
 pin: true
 ---
 
-Post 12 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}) series. [Post 9]({% post_url 2026-05-25-pepper-carrot-companion-spoiler-safe-rag %}) made spoiler safety a property of the *retrieval* query; [Post 10]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}) and [Post 11]({% post_url 2026-05-30-pepper-carrot-companion-prompt-hardening %}) made the chat *answers* stream cleanly and hold their format. This post starts a third reading-time affordance — a **world graph** of Pepper, her godmothers, the rival witches, the covens, and the places — but it stops at the data layer. The graph isn't extracted at runtime; it's authored by a **second Claude Code skill** (the first was [`ingest-from-images`]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %}) in Post 5) that walks the wiki sources and the page-description JSONs and writes a YAML pair the workshop loads into Postgres. On top of those rows sits a single FastAPI route that gates what the reader can see behind exactly the same spoiler boundary the chat sits behind — this time expressed as a Postgres row-value comparison. The [next post]({% post_url 2026-05-31-pepper-carrot-companion-world-graph-overlay %}) renders this API as an in-reader React-Flow overlay; here we build the skill, the loader, the scraper, and the spoiler-safe endpoint that feeds it.
+Post 12 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}) series. [Post 9]({% post_url 2026-05-25-pepper-carrot-companion-spoiler-safe-rag %}) made spoiler safety a property of the *retrieval* query; [Post 10]({% post_url 2026-05-25-pepper-carrot-companion-streaming-chat %}) and [Post 11]({% post_url 2026-05-30-pepper-carrot-companion-prompt-hardening %}) made the chat *answers* stream cleanly and hold their format. This post starts a third reading-time affordance: a **world graph** of Pepper, her godmothers, the rival witches, the covens, and the places. But it stops at the data layer. The graph isn't extracted at runtime; it's authored by a **second Claude Code skill** (the first was [`ingest-from-images`]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %}) in Post 5) that walks the wiki sources and the page-description JSONs and writes a YAML pair the workshop loads into Postgres. On top of those rows sits a single FastAPI route that gates what the reader can see behind exactly the same spoiler boundary the chat sits behind, this time expressed as a Postgres row-value comparison. The [next post]({% post_url 2026-05-31-pepper-carrot-companion-world-graph-overlay %}) renders this API as an in-reader React-Flow overlay; here we build the skill, the loader, the scraper, and the spoiler-safe endpoint that feeds it.
 
 > **What you'll build in this post.**
 > - **A second Claude Code skill**, `.claude/skills/extract-world-graph/SKILL.md`, that reads the curated wiki under `data/raw/wiki/*.md` (plus the framagit-scraped `data/raw/wiki-upstream/*.md` when present) + every `data/raw/ep*/pages/page_*.json` + the image manifest and writes `data/world-graph/entities.yaml` + `data/world-graph/relationships.yaml`. The shipped graph carries **45 entities** (19 characters, 6 covens, 5 places, 15 creatures) and **57 relationships**.
@@ -48,7 +48,7 @@ Post 12 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pe
 
 ## The Code in Front of You: Tour + Quick Start {#tour}
 
-Get the running overlay in front of you before any of the concepts land. Skim this even if you plan to read carefully — watching a single node debut as you flip the page makes the rest obvious.
+Get the running overlay in front of you before any of the concepts land. Skim this even if you plan to read carefully: watching a single node debut as you flip the page makes the rest obvious.
 
 ### Get the code at this post's tag
 
@@ -146,7 +146,7 @@ uv run python ingest_wiki.py
 #      • "summarize the wiki"        → re-authors data/wiki-summaries/*.md
 ```
 
-Open <http://localhost:5173>, pick any episode, and click the new **🌐 World** button in the header. A side panel slides in from the right with avatar nodes for every entity that's spoiler-safe at the page you're on. Flip forward into ep11 — Pepper's three godmothers should fade in. Click any avatar — an info card with the entity's portrait, summary, and an **"Ask in wiki mode"** button opens. Click that button, and the overlay closes while the chat panel posts a wiki-mode question about the entity and streams a focused, grounded answer back — courtesy of the third skill (more on that below).
+Open <http://localhost:5173>, pick any episode, and click the new **🌐 World** button in the header. A side panel slides in from the right with avatar nodes for every entity that's spoiler-safe at the page you're on. Flip forward into ep11 and Pepper's three godmothers should fade in. Click any avatar and an info card opens with the entity's portrait, summary, and an **"Ask in wiki mode"** button. Click that button, and the overlay closes while the chat panel posts a wiki-mode question about the entity and streams a focused, grounded answer back, courtesy of the third skill (more on that below).
 
 If you ingested only ep01 through the workshop's starter steps, the graph will show three nodes (Pepper, Carrot, and Chaosah). For the full ep01–ep12 graph used in the screenshots and curl examples below, you'll want to ingest the rest of those episodes via the `ingest-from-images` skill from [Post 5]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %}).
 
@@ -185,7 +185,7 @@ curl -s 'http://localhost:8000/api/world-graph?episode_slug=ep12-autumn-clearout
 # 30 nodes, 42 edges
 ```
 
-Same shape as the `done` audit trail in Post 10's chat: the URL carries the reader's cursor, the server clamps it to the episode's real page count, and the SQL filter is the security boundary. Nothing about the request body can widen what comes back.
+It's the same shape as the `done` audit trail in Post 10's chat: the URL carries the reader's cursor, the server clamps it to the episode's real page count, and the SQL filter is the security boundary. Nothing about the request body can widen what comes back.
 
 ---
 
@@ -203,15 +203,15 @@ Three things this post **isn't**:
 
 - **It isn't an entity extractor at runtime.** The graph is extracted *once* (per episode-ingestion change) by a Claude Code skill running in your editor session. The runtime never calls a model to figure out who's in the world; it queries Postgres and ships the rows. No per-request inference cost, no model dependency on graph correctness.
 - **It isn't a generic knowledge-graph framework.** No SPARQL, no neo4j, no graph-DB. Two SQLAlchemy tables, two SQL `SELECT`s per request, one row-value comparison for the spoiler boundary. A small graph (45 nodes, 57 edges in the workshop) doesn't need graph-native storage to be fast or expressive.
-- **It isn't editorial about which schools or which characters exist.** The skill works only from what the wiki sources and the page JSONs say. An entity that's in the wiki but never appears in any ingested episode lands as a `(1, 1)`-defaulted low-confidence row — visible from page 1, no edges to anything else yet. If the wiki sources don't mention an entity at all, it isn't in the graph. **Coverage grows when the source material grows.**
+- **It isn't editorial about which schools or which characters exist.** The skill works only from what the wiki sources and the page JSONs say. An entity that's in the wiki but never appears in any ingested episode lands as a `(1, 1)`-defaulted low-confidence row, visible from page 1, with no edges to anything else yet. If the wiki sources don't mention an entity at all, it isn't in the graph. Coverage grows when the source material grows.
 
-The architectural through-line connecting Post 9 and Post 12 is one sentence: **the spoiler boundary lives in the data layer, not in the prompt.** Post 9 expressed it as a Chroma `where` clause built from `chat_sessions.current_page`. Post 12 expresses it as a SQL row-value comparison built from a query-string parameter that's clamped against `pages.page_number`. Same shape, different store.
+The architectural through-line connecting Post 9 and Post 12 is one sentence: the spoiler boundary lives in the data layer, not in the prompt. Post 9 expressed it as a Chroma `where` clause built from `chat_sessions.current_page`. Post 12 expresses it as a SQL row-value comparison built from a query-string parameter that's clamped against `pages.page_number`. Same shape, different store.
 
 ---
 
 ## Why a Second Skill? {#why-a-second-skill}
 
-The first skill — [`ingest-from-images`]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %}) from Post 5 — established a pattern: Claude Code, with its image-reading and file-writing tools, **acts as a one-shot author** for a durable on-disk artifact (per-page `PageDescription` JSON files). The runtime never calls a model to produce those descriptions; the ingestion pipeline reads them off disk. Post 5 spent a section on why this matters:
+The first skill — [`ingest-from-images`]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %}) from Post 5 — established a pattern: Claude Code, with its image-reading and file-writing tools, acts as a one-shot author for a durable on-disk artifact (per-page `PageDescription` JSON files). The runtime never calls a model to produce those descriptions; the ingestion pipeline reads them off disk. Post 5 spent a section on why this matters:
 
 - **Zero per-call cost.** The skill runs inside the user's existing Claude Code session.
 - **Durable artifact.** The JSON is committed; hand-edits stick; the skill is for the first pass, not a runtime dependency.
@@ -242,7 +242,7 @@ The same three properties apply to the world graph — only this time the artifa
 
 > *Plain-English aside: what's a "Claude Code skill"?* A **skill** is a file at `.claude/skills/<name>/SKILL.md` that tells Claude Code — the CLI/editor agent reading this very repo — how to perform a specific task, plus what tools (Read / Write / Bash / Glob) it's allowed to use. Skills appear with their description in the interactive skills list; trigger phrases in the description fire them when you type a matching prompt. The full mechanism and the architectural decision to use skills as one-shot artifact authors is in [Post 5]({% post_url 2026-05-16-pepper-carrot-companion-claude-skill-ingestion %}#what-is-a-skill).
 
-If a skill is just "instructions for Claude Code," what makes it valuable? The leverage is that *Claude Code is already in this loop*. When you're editing the repo, you can type "extract the world graph" and the skill walks the source files and writes the YAML. No new service to deploy, no model API to authenticate against, no rate limit. The runtime pipeline reads the YAML on next startup. **The model touches the artifact at authoring time; the artifact touches the runtime.**
+If a skill is just "instructions for Claude Code," what makes it valuable? The leverage is that *Claude Code is already in this loop*. When you're editing the repo, you can type "extract the world graph" and the skill walks the source files and writes the YAML. No new service to deploy, no model API to authenticate against, no rate limit. The runtime pipeline reads the YAML on next startup. The model touches the artifact at authoring time; the artifact touches the runtime.
 
 The contrast worth naming is the alternative: a "smart" runtime that calls a model at every page load to figure out what entities the reader should see. That's a server you have to scale, a cost per visit, and a model whose drift can quietly break the graph. The skill pattern moves all of that to authoring time, where you can `git diff` the output and decide.
 
@@ -250,7 +250,7 @@ The contrast worth naming is the alternative: a "smart" runtime that calls a mod
 
 ## The Pipeline, End to End {#diagram}
 
-One picture for what we're building. Notice that the model is in the loop *only* at the top — the runtime is plain SQL + REST + React, with the spoiler boundary as the load-bearing piece.
+One picture for what we're building. Notice that the model is in the loop *only* at the top; the runtime is plain SQL + REST + React, with the spoiler boundary as the load-bearing piece.
 
 <div style="margin: 1.5rem 0; overflow-x: auto;">
 <a href="/assets/picture/2026-05-30-pepper-carrot-companion-spoiler-safe-world-graph/world-graph-flow.svg" target="_blank" rel="noopener" title="Open the diagram full-size in a new tab" style="display: block; cursor: zoom-in;">
@@ -458,11 +458,11 @@ A handful of design choices worth surfacing:
 - **`slug` is the natural key.** Re-running the loader is upsert-by-slug, so hand-editing the YAML (say, fixing a `summary` line) and re-running `ingest_world_graph.py` mutates the existing row instead of inserting a duplicate.
 - **`character_slug` is optional and bridges to the canonical roster.** When set on a `kind: character` entity, the loader looks up the matching row in the seeded `characters` table by lower-cased name and stores its UUID on `world_entities.character_id`. This is what lets a future frontend (or a future API) jump from the graph to "what page does this character first appear on?" without a duplicate name lookup.
 - **`image_url` is a relative key.** Same convention as `pages.image_url` from Post 7: the DB stores `world-graph/images/pepper-thumb.webp`, and the FastAPI route composes the absolute URL at response time through the `Storage` protocol from [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}). Swapping local disk for Cloudflare R2 in Post 14 won't require a database migration.
-- **`(episode_debut, page_debut)` is the spoiler coordinate.** This is the only field the API filter cares about. Edges have their *own* debut tuple — Cayenne exists from ep11, the `godmother_of` relation is also ep11, but a future edge between two ep1-debut entities (say, a rivalry revealed in ep15) would carry an ep15 debut and stay hidden until then. The phase-12 doc calls out that this is non-negotiable: a hand-edit could in principle put a future debut on a pre-existing entity, and an "edges-only when both endpoints are visible" check alone would leak it.
+- **`(episode_debut, page_debut)` is the spoiler coordinate.** This is the only field the API filter cares about. Edges have their *own* debut tuple. Cayenne exists from ep11, the `godmother_of` relation is also ep11, but a future edge between two ep1-debut entities (say, a rivalry revealed in ep15) would carry an ep15 debut and stay hidden until then. The phase-12 doc calls out that this is non-negotiable: a hand-edit could in principle put a future debut on a pre-existing entity, and an "edges-only when both endpoints are visible" check alone would leak it.
 
 ### The pydantic contract
 
-The shape isn't suggested by the skill's docstring — it's *enforced* by [`ingestion/world_graph_loader.py`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-12-13-worldgraph/ingestion/world_graph_loader.py):
+The shape isn't suggested by the skill's docstring; it's *enforced* by [`ingestion/world_graph_loader.py`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-12-13-worldgraph/ingestion/world_graph_loader.py):
 
 ```python
 # ingestion/world_graph_loader.py (abridged)
@@ -499,7 +499,7 @@ def load_world_graph(graph_dir: Path) -> tuple[list[EntityData], list[Relationsh
 
 Two contracts in one file: **pydantic validation** (the kind is one of five strings, slugs are non-empty, layout has x and y) and **a cross-file consistency check** (every relationship's source/target points at a known entity slug). A typo in `relationships.yaml` fails at load time with a clear error, not at runtime as a missing-row 500.
 
-The same module is what the skill imports when validating its own output before exiting — the skill and the loader share one contract by importing the same pydantic models. That's the **"the contract is the schema"** rule from [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}#one-protocol-many-implementations), reapplied at the YAML seam.
+The same module is what the skill imports when validating its own output before exiting, so the skill and the loader share one contract by importing the same pydantic models. That's the "the contract is the schema" rule from [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}#one-protocol-many-implementations), reapplied at the YAML seam.
 
 > *Plain-English aside: why YAML and not JSON?* The artifact is meant to be *hand-edited* — fixing a summary, nudging a coordinate, correcting a debut episode. YAML wins on readability for that use case (no trailing commas to chase, no `"key":` quoting overhead, comments allowed inline so I can flag a low-confidence row with `# confidence: low — defaulted`). JSON would be marginally faster to parse and trivially friendlier to other tooling, but at ~40 rows of structured data, those don't matter. The discipline of "the artifact is meant to be read, edited, and reviewed by humans" outweighs the parser speed.
 
@@ -513,7 +513,7 @@ Before the skill can run, it needs to know which entities have artwork available
 2. **Download each candidate** from the raw URL and **process to two WebP variants** with Pillow — a 96×96 center-square-crop thumbnail (what the graph node renders) and a 320px-longest-edge display variant (what the info card shows on click). Quality 85 WebP keeps each pair under ~10 KB.
 3. **Write `data/world-graph/image_manifest.json`** with the scraped ref's sha, the timestamp, and the lists of character/creature slugs.
 
-The manifest is the seam between the scraper and the skill — the scraper doesn't know what entities the skill will author, and the skill doesn't know what filenames the scraper found. They meet at the manifest:
+The manifest is the seam between the scraper and the skill. The scraper doesn't know what entities the skill will author, and the skill doesn't know what filenames the scraper found. They meet at the manifest:
 
 ```json
 {
@@ -528,8 +528,8 @@ The manifest is the seam between the scraper and the skill — the scraper doesn
 
 Why bother with a manifest when the skill could just `ls data/world-graph/images/`? Two reasons:
 
-- **The manifest captures the source provenance** (`scraped_from`, `scraped_sha`, `scraped_at`) — the audit trail of where the art came from and when. Committed to the repo even though the image bytes aren't (gitignored). Anyone running the project from a fresh clone runs the scraper once and gets the same manifest.
-- **The skill needs to know whether a slug is a `character` or a `creature` to assign the right `kind`** — and that information is in the filename prefix, which gets normalized away by the time the variants are written. Putting the prefix info in the manifest as two parallel lists keeps the skill from having to parse filenames itself.
+- **The manifest captures the source provenance** (`scraped_from`, `scraped_sha`, `scraped_at`), the audit trail of where the art came from and when. It's committed to the repo even though the image bytes aren't (gitignored). Anyone running the project from a fresh clone runs the scraper once and gets the same manifest.
+- **The skill needs to know whether a slug is a `character` or a `creature` to assign the right `kind`.** That information is in the filename prefix, which gets normalized away by the time the variants are written. Putting the prefix info in the manifest as two parallel lists keeps the skill from having to parse filenames itself.
 
 Run the scraper once per fresh clone (or whenever the framagit wiki updates):
 
@@ -547,7 +547,7 @@ Done. Downloaded 40 new image(s); skipped 0 already-present.
   manifest:   ../data/world-graph/image_manifest.json
 ```
 
-The skill (next section) is the *only* code in the repo that reads this manifest. The runtime never consults it; it only reads `world_entities.image_url`, which the skill set based on the manifest at authoring time.
+The skill (next section) is the *only* code in the repo that reads this manifest. The runtime never consults it; it only reads `world_entities.image_url`, which the skill sets based on the manifest at authoring time.
 
 ---
 
@@ -574,7 +574,7 @@ The body walks Claude Code through six steps. Here's the shape; the full SKILL.m
 
 - **Align the slug with the image manifest where possible** so `image_url` lights up. *"The Sage"* in the wiki becomes `slug: sage` (matching `chara_sage.jpg`) with `name: The Sage`. *"Mayor of Komona"* becomes `slug: mayor`, `name: Mayor of Komona`. Slug mismatches are the most common reason an entity falls back to the SVG icon when it shouldn't.
 - **Summary is 1–2 sentences of plain prose**, paraphrased from the wiki sources and/or the page JSONs. The skill's body explicitly bans markdown headers, bullet lists, and recitation — same anti-recitation discipline from [Post 11]({% post_url 2026-05-30-pepper-carrot-companion-prompt-hardening %}#anti-recitation), applied to the artifact this time.
-- **Layout coordinates** follow clustering rules: Pepper at origin, covens at the four compass points, witches in small rings around their coven, geography as a horizontal strip below. These are starting positions — the human edits the YAML to tune them — and the skill's STEP 2a is **non-negotiable**: when re-running, **preserve hand-tweaked layouts** by reading the existing `entities.yaml` and reusing each slug's `layout.{x, y}`.
+- **Layout coordinates** follow clustering rules: Pepper at origin, covens at the four compass points, witches in small rings around their coven, geography as a horizontal strip below. These are starting positions (the human edits the YAML to tune them), and the skill's STEP 2a is non-negotiable: when re-running, preserve hand-tweaked layouts by reading the existing `entities.yaml` and reusing each slug's `layout.{x, y}`.
 
 **Step 4 — build the relationship list.** A short taxonomy of kinds (`member_of`, `godmother_of`, `apprentice_of`, `familiar_of`, `lives_in`, `located_in`, `rival_of`, `friend_of`, `family_of`) keeps the frontend's edge-coloring table small. When the source doesn't pin a reveal episode, default to the later of the two endpoints' debuts and flag the row with `# confidence: low`.
 
@@ -589,27 +589,27 @@ print(f'OK: {len(entities)} entities, {len(rels)} relationships')
 "
 ```
 
-If validation fails, **the skill is required to fix the YAML and re-validate before reporting success**. Don't leave a broken YAML on disk — better to abort with a clear error than to falsely report progress.
+If validation fails, the skill is required to fix the YAML and re-validate before reporting success. Don't leave a broken YAML on disk; better to abort with a clear error than to falsely report progress.
 
 **Step 6 — report.** Counts by kind, image coverage, low-confidence rows for human review.
 
 ### A real run
 
-Trigger the skill in Claude Code (open the repo in the editor, type "extract the world graph"). The skill picked up the workshop's state — ep01-12 ingested, the curated + framagit-scraped wiki sources on disk, the manifest fresh from the scraper — and produced:
+Trigger the skill in Claude Code (open the repo in the editor, type "extract the world graph"). The skill picked up the workshop's state — ep01-12 ingested, the curated and framagit-scraped wiki sources on disk, the manifest fresh from the scraper — and produced:
 
 - **45 entities**: 19 characters (Pepper, Carrot, the three Chaosah godmothers, Saffron, Coriander, Shichimi, Yuzu, Truffel, Mango, Spirulina, Apiaceae, Camomile, Quassia, Torreya, the Mayor of Komona, Prince Acren, the Sage), 6 covens (Chaosah, Hippiah, Magmah, Aquah, Zombiah, Ah), 5 places (Hereva, Komona, Squirrel's End, Qualicity, the Temples of Ah), and 15 creatures (the bestiary plus the three Chaosah demons Hornuk / Eyeük / Spidük).
 - **57 relationships**: familiars (Carrot → Pepper, Yuzu → Shichimi, Truffel → Saffron, Mango → Coriander), the godmother edges, the coven memberships, the rivalries, the friendships across schools, and the structural `lives_in` / `located_in` edges that anchor characters to places.
 - **Image coverage**: 18 of 19 characters and 12 of 15 creatures have matching framagit art via the manifest; the remaining 3 (plus all 6 covens and all 5 places) use the kind-based SVG fallbacks.
 
-The numbers grow with what the project ingests. A fresh clone with only ep01 ingested and only the curated `data/raw/wiki/` will produce ~10 entities from this skill; pull `data/raw/wiki-upstream/` with `wiki_scraper.py` and the count climbs as the framagit bestiary becomes visible. Hand-edit the YAML to fix anything. Re-run `ingest_world_graph.py` to push the edits to Postgres. The skill is for first passes and source-material refreshes; **subsequent fixes go straight into the YAML**, and the loader's idempotent upsert handles the rest.
+The numbers grow with what the project ingests. A fresh clone with only ep01 ingested and only the curated `data/raw/wiki/` will produce ~10 entities from this skill; pull `data/raw/wiki-upstream/` with `wiki_scraper.py` and the count climbs as the framagit bestiary becomes visible. Hand-edit the YAML to fix anything. Re-run `ingest_world_graph.py` to push the edits to Postgres. The skill is for first passes and source-material refreshes; subsequent fixes go straight into the YAML, and the loader's idempotent upsert handles the rest.
 
 ---
 
 ## The Spoiler Filter, This Time in Postgres {#api}
 
-The runtime side of Post 12 is a single FastAPI route — `GET /api/world-graph` — with four query parameters: `episode_slug`, `page`, an optional `right_page` (the right page of a two-page spread, so the spoiler cursor uses the rightmost visible page), and `mode` (`full` or `focus`, default `full`). The route runs at most two SQL `SELECT`s — one for entities, one for relationships — and the *shape* of the spoiler filter is the same as Post 9 and worth dwelling on.
+The runtime side of Post 12 is a single FastAPI route, `GET /api/world-graph`, with four query parameters: `episode_slug`, `page`, an optional `right_page` (the right page of a two-page spread, so the spoiler cursor uses the rightmost visible page), and `mode` (`full` or `focus`, default `full`). The route runs at most two SQL `SELECT`s, one for entities and one for relationships, and the *shape* of the spoiler filter is the same as Post 9 and worth dwelling on.
 
-The mental model: the reader's position is an integer pair `(episode_number, page_number)`. An entity (or edge) is **visible** when its `(episode_debut, page_debut)` is **lexicographically less than or equal to** the cursor. "Lexicographic" means we compare first by episode number, then by page number — exactly the way you'd order words in a dictionary. The reader on ep5 page 2 sees:
+The mental model: the reader's position is an integer pair `(episode_number, page_number)`. An entity (or edge) is **visible** when its `(episode_debut, page_debut)` is **lexicographically less than or equal to** the cursor. "Lexicographic" means we compare first by episode number, then by page number, exactly the way you'd order words in a dictionary. The reader on ep5 page 2 sees:
 
 - every entity from ep1–4 (any page)
 - entities from ep5 pages 1–2
@@ -638,7 +638,7 @@ SELECT * FROM world_entities
  ORDER BY kind, slug;
 ```
 
-And **Postgres compares the row values lexicographically by default** ([SQL standard §8.2, supported by Postgres since at least 9.0](https://www.postgresql.org/docs/current/functions-comparisons.html#ROW-WISE-COMPARISON)). One operator, one expression. The SQL reads like the math.
+And Postgres compares the row values lexicographically by default ([SQL standard §8.2, supported by Postgres since at least 9.0](https://www.postgresql.org/docs/current/functions-comparisons.html#ROW-WISE-COMPARISON)). One operator, one expression. The SQL reads like the math.
 
 > *Plain-English aside: row-value comparison.* Most SQL comparisons are scalar — `a <= 5`. **Row-value comparison** lets you compare a *tuple* against another tuple: `(a, b) <= (5, 2)`. It evaluates left-to-right, in lexicographic order: first compare the first elements; if they're equal, compare the second; and so on. So `(1, 9) <= (5, 2)` is true (because `1 < 5`), `(5, 1) <= (5, 2)` is true (because `5 = 5` and `1 < 2`), `(5, 9) <= (5, 2)` is false. This is exactly how a dictionary orders strings letter-by-letter. The advantage over `a < 5 OR (a = 5 AND b <= 2)` is that the row form is one expression instead of three, and harder to typo into a subtly-wrong shape.
 
@@ -646,7 +646,7 @@ And **Postgres compares the row values lexicographically by default** ([SQL stan
 
 The route's edge SQL has a second requirement that's non-negotiable. The phase-12 design doc spells out the failure mode the workshop must avoid:
 
-> Spoiler leaks via edges. It's tempting to filter edges only by checking "both endpoints are visible." That's wrong — an edge can carry plot meaning that debuts later than both nodes (e.g. Pepper and Coriander exist from ep1; their rivalry might be revealed in ep5). Filter edges by their own `(episode_debut, page_debut)` AND require both endpoints to satisfy the same predicate. Both checks, not either.
+> Spoiler leaks via edges. It's tempting to filter edges only by checking "both endpoints are visible." That's wrong: an edge can carry plot meaning that debuts later than both nodes (e.g. Pepper and Coriander exist from ep1; their rivalry might be revealed in ep5). Filter edges by their own `(episode_debut, page_debut)` AND require both endpoints to satisfy the same predicate. Both checks, not either.
 
 In SQL:
 
@@ -667,11 +667,11 @@ Three where clauses; all three mandatory. If you drop the first, a hand-edited "
 
 ### Two modes, one boundary
 
-The `mode=focus` branch layers on top of the same spoiler predicate — it just narrows the visible set further before returning it. The seed is the canonical characters drawn on any page in `[page, right_page]` (joined through `page_characters` → `characters` → `world_entities.character_id`), still gated by the lexicographic debut tuple so a hand-edited future-debut entity that's also on the page can't slip past. From the seed, the route runs one more SELECT for edges of three structural kinds (`member_of`, `lives_in`, `familiar_of`) where either endpoint is in the seed and the edge's own debut is at or before the cursor; the *other* endpoint of each surviving edge joins the visible set; then the same edge-filter from full mode runs over the expanded set to pull every spoiler-safe edge among the focused nodes (not just the structural-expansion kinds — so a `rival_of` edge between two members of the focus subset still shows when both rivals are in scope).
+The `mode=focus` branch layers on top of the same spoiler predicate; it just narrows the visible set further before returning it. The seed is the canonical characters drawn on any page in `[page, right_page]` (joined through `page_characters` → `characters` → `world_entities.character_id`), still gated by the lexicographic debut tuple so a hand-edited future-debut entity that's also on the page can't slip past. From the seed, the route runs one more SELECT for edges of three structural kinds (`member_of`, `lives_in`, `familiar_of`) where either endpoint is in the seed and the edge's own debut is at or before the cursor. The *other* endpoint of each surviving edge joins the visible set; then the same edge-filter from full mode runs over the expanded set to pull every spoiler-safe edge among the focused nodes (not just the structural-expansion kinds, so a `rival_of` edge between two members of the focus subset still shows when both rivals are in scope).
 
 If the seed comes back empty — a wordless action panel, a landscape painting, or pages that haven't been ingested yet — the route falls back to the full subset rather than returning an empty graph. That's a UX call: most readers' next action after "empty graph" is "ok then show me the whole world", and the kind-filter bar is right there in the UI to narrow it again.
 
-The `right_page` parameter is a small but load-bearing detail. The chat layer from [Post 9]({% post_url 2026-05-25-pepper-carrot-companion-spoiler-safe-rag %}) reads the page from server-side session state (`chat_sessions.current_page`), but the world-graph route is per-request — the cursor lives in the URL. A landscape reader looking at pages 5–6 has *seen* page 6, so the spoiler cursor is `(episode_number, 6)`; sending only `page=5` would gate them out of an entity that debuts on the very page they're looking at. The flipbook passes both pages on landscape spreads; the route uses `right_page` for the spoiler cursor and `[page, right_page]` for the focus-mode seed.
+The `right_page` parameter is a small but load-bearing detail. The chat layer from [Post 9]({% post_url 2026-05-25-pepper-carrot-companion-spoiler-safe-rag %}) reads the page from server-side session state (`chat_sessions.current_page`), but the world-graph route is per-request, so the cursor lives in the URL. A landscape reader looking at pages 5–6 has *seen* page 6, so the spoiler cursor is `(episode_number, 6)`; sending only `page=5` would gate them out of an entity that debuts on the very page they're looking at. The flipbook passes both pages on landscape spreads; the route uses `right_page` for the spoiler cursor and `[page, right_page]` for the focus-mode seed.
 
 ### Proving it: 10 tests, in-memory SQLite
 
@@ -710,7 +710,7 @@ async def test_edge_debut_is_filtered_independently(override_deps: None) -> None
     assert edge_kinds == ["friend_of", "member_of"]
 ```
 
-Plus nine more covering the happy path, the unknown-episode 404, the page-past-end clamp, the lexicographic later-episode-unlocks-earlier rule, the image-URL composition through the storage abstraction, the focus-mode fallback when no characters are on the page, the `right_page` cursor (right-edge of a two-page spread), and the silent collapse when a flipbook ordering glitch sends `right_page < page`. All ten pass; the workshop's total test count is now 43.
+Nine more cover the happy path, the unknown-episode 404, the page-past-end clamp, the lexicographic later-episode-unlocks-earlier rule, the image-URL composition through the storage abstraction, the focus-mode fallback when no characters are on the page, the `right_page` cursor (right-edge of a two-page spread), and the silent collapse when a flipbook ordering glitch sends `right_page < page`. All ten pass; the workshop's total test count is now 43.
 
 > *A small infra trade-off worth flagging:* the workshop's production runtime uses Postgres-only column types — `ARRAY(String)` for tag lists, `JSONB` for blob metadata. SQLite doesn't have those. The fix is a one-line `with_variant(JSON, "sqlite")` on the five affected columns in [`backend/app/db/models.py`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-12-13-worldgraph/backend/app/db/models.py): Postgres still uses `ARRAY` / `JSONB` at runtime, SQLite gets a portable JSON column at test time. The diff is mechanical, the runtime is unchanged, and tests stay hermetic — they don't need a docker-compose Postgres to run.
 >

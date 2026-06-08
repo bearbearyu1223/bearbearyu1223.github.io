@@ -24,10 +24,10 @@ Postgres), and Cloudflare R2 (image bytes behind the [Post 4]({% post_url 2026-0
 `Storage` interface), and built the two-stage container that bakes the small
 data and streams the big data. Everything is provisioned; nothing is public
 yet. This post finishes the job: it deploys the backend to Fly.io, the
-frontend to Cloudflare Pages, and then verifies the whole thing — five
-providers, one container, one public URL — end to end. The interesting part
-isn't the typing. **The interesting part is that the typing is small** —
-because the abstractions from [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %})
+frontend to Cloudflare Pages, and then verifies the whole thing end to end
+(five providers, one container, one public URL). The interesting part isn't
+the typing; it's that the typing is small, because the abstractions from
+[Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %})
 were designed for exactly this seam-by-seam migration, and the runtime never
 notices the change.
 
@@ -109,7 +109,7 @@ primary_region = 'iad'
   memory_mb = 512
 ```
 
-The `[env]` block is the one with the most architectural weight: those six lines are *the entire config-flip* that swings the application from the local-first defaults to the cloud production stack. **No code change is required to make any of those switches** — the factory in `clients/__init__.py` has been respecting these env vars since Post 4.
+The `[env]` block is the one with the most architectural weight: those six lines are the entire config-flip that swings the application from the local-first defaults to the cloud production stack. No code change is required to make any of those switches; the factory in `clients/__init__.py` has been respecting these env vars since Post 4.
 
 The `[http_service]` block tells Fly to expose the container on port 8000, behind HTTPS termination, with the following scale-to-zero behavior:
 
@@ -117,7 +117,7 @@ The `[http_service]` block tells Fly to expose the container on port 8000, behin
 - **`auto_start_machines = true`** — wake the machine on the next inbound request. The wake adds ~5–10 s to the first request after idle.
 - **`min_machines_running = 0`** — don't keep a baseline number warm. Idle = $0.
 
-The concurrency limits (`soft_limit = 20`, `hard_limit = 25`) are sized for a 512 MB shared-CPU VM. They're low because the backend's chat handler holds an SSE connection open for the duration of an answer (5–30 seconds typically) and qwen2.5:7b can only stream so fast — twenty concurrent chats are already more than the GPU on Modal would saturate at. For portfolio traffic this is generous.
+The concurrency limits (`soft_limit = 20`, `hard_limit = 25`) are sized for a 512 MB shared-CPU VM. They're low because the backend's chat handler holds an SSE connection open for the duration of an answer (5–30 seconds typically) and qwen2.5:7b can only stream so fast. Twenty concurrent chats are already more than the GPU on Modal would saturate at. For portfolio traffic this is generous.
 
 Pushing the secrets is one shell command:
 
@@ -139,9 +139,9 @@ set -a && source .env.production && set +a && fly secrets set \
 fly deploy
 ```
 
-The first deploy takes ~5 minutes — Docker builds the image, pushes the layers to Fly's registry, boots a 512 MB machine, the entrypoint runs `psql < /app/data/seed.sql` against the empty Neon database (~30 seconds for ~1 MB of seed). After that, every subsequent deploy is ~1–2 minutes (cached layers, no seed restore).
+The first deploy takes ~5 minutes: Docker builds the image, pushes the layers to Fly's registry, boots a 512 MB machine, and the entrypoint runs `psql < /app/data/seed.sql` against the empty Neon database (~30 seconds for ~1 MB of seed). After that, every subsequent deploy is ~1–2 minutes (cached layers, no seed restore).
 
-**`fly logs` is the single best diagnostic** when something goes wrong. The most common first-deploy failure is the asyncpg-vs-pgbouncer interaction from the Neon provisioning step in [Post 14]({% post_url 2026-05-31-pepper-carrot-companion-shipping-it %}) — if `/health` returns 200 but `/api/episodes` returns 500, `fly logs` will print an asyncpg traceback in the last 30 lines that names the problem exactly. The troubleshooting table in [`docs/deployment.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-14-15-deploy/docs/deployment.md#troubleshooting) is a compressed version of every wrong-secret and wrong-URL failure mode I've hit while bringing this stack up.
+`fly logs` is the single best diagnostic when something goes wrong. The most common first-deploy failure is the asyncpg-vs-pgbouncer interaction from the Neon provisioning step in [Post 14]({% post_url 2026-05-31-pepper-carrot-companion-shipping-it %}): if `/health` returns 200 but `/api/episodes` returns 500, `fly logs` will print an asyncpg traceback in the last 30 lines that names the problem exactly. The troubleshooting table in [`docs/deployment.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-14-15-deploy/docs/deployment.md#troubleshooting) is a compressed version of every wrong-secret and wrong-URL failure mode I've hit while bringing this stack up.
 
 ---
 
@@ -160,26 +160,26 @@ The `VITE_API_BASE_URL` is the one variable that does all the work. Vite inlines
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
 ```
 
-In dev, the env var is unset, so the frontend calls relative URLs and Vite's dev-server proxy from [`vite.config.ts`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-14-15-deploy/frontend/vite.config.ts) forwards them to `localhost:8000`. In prod, the env var is set, so the frontend calls the Fly URL directly. **Same code, different env**.
+In dev, the env var is unset, so the frontend calls relative URLs and Vite's dev-server proxy from [`vite.config.ts`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-14-15-deploy/frontend/vite.config.ts) forwards them to `localhost:8000`. In prod, the env var is set, so the frontend calls the Fly URL directly. Same code, different env.
 
-The single sharp edge: **`CORS_ORIGINS` on Fly must match the Pages URL exactly**, scheme included, no trailing slash. If they don't match, every request from the browser is blocked by the same-origin policy and you get inscrutable CORS errors in the DevTools console. Fix is one secret push:
+The single sharp edge: **`CORS_ORIGINS` on Fly must match the Pages URL exactly**, scheme included, no trailing slash. If they don't match, every request from the browser is blocked by the same-origin policy and you get inscrutable CORS errors in the DevTools console. The fix is one secret push:
 
 ```bash
 fly secrets set CORS_ORIGINS='["https://your-app.pages.dev"]'
 # Fly auto-redeploys when secrets change.
 ```
 
-Pages prints a URL like `https://your-app.pages.dev`. Open it in a browser. The flipbook loads. **The local-first workshop, now globally distributed, on free tiers, costing ~$5/mo for the GPU seconds.**
+Pages prints a URL like `https://your-app.pages.dev`. Open it in a browser. The flipbook loads. The local-first workshop is now globally distributed, on free tiers, costing ~$5/mo for the GPU seconds.
 
-> *Diagram for the live demo.* The picker → Modal cold-start path is worth drawing for a recruiter. When the reader opens an episode, the frontend fires `POST /api/sessions` — and a natural production-polish addition (the workshop ships without it, but the architecture is positioned to bolt it on) is to use that handler as the cue to send a fire-and-forget warmup request to Modal, so the GPU is allocated and the model is in VRAM by the time the reader types their first question. The warmup doesn't change the GPU cost, only the *perceived* latency of the first answer. Showing recruiters where you *would* hide the cost is part of the design story.
+> *Diagram for the live demo.* The picker → Modal cold-start path is worth drawing for a recruiter. When the reader opens an episode, the frontend fires `POST /api/sessions`. A natural production-polish addition (the workshop ships without it, but the architecture is positioned to bolt it on) is to use that handler as the cue to send a fire-and-forget warmup request to Modal, so the GPU is allocated and the model is in VRAM by the time the reader types their first question. The warmup doesn't change the GPU cost, only the *perceived* latency of the first answer. Showing recruiters where you *would* hide the cost is part of the design story.
 
 ---
 
 ## The First Cold Start Is the Demo {#cold-start}
 
-There is one place this architecture's honesty is most visible: **the first chat request after idle takes 15–30 seconds**. Two stacked cold starts — Fly waking the backend (~8 s) and Modal allocating a GPU plus loading qwen2.5:7b into VRAM (~15–25 s). Subsequent answers within 5 minutes are instant. After 5 minutes idle, both clocks reset.
+There is one place this architecture's honesty is most visible: the first chat request after idle takes 15–30 seconds. That's two stacked cold starts, Fly waking the backend (~8 s) and Modal allocating a GPU plus loading qwen2.5:7b into VRAM (~15–25 s). Subsequent answers within 5 minutes are instant. After 5 minutes idle, both clocks reset.
 
-The shape of "first request after idle" matters enough to draw. Every arrow below is something the architecture chose; reading the diagram is reading the trade-offs:
+The shape of "first request after idle" matters enough to draw. Every arrow below is something the architecture chose, so reading the diagram is reading the trade-offs:
 
 <div style="margin: 1.5rem 0; overflow-x: auto;">
 <a href="/assets/picture/2026-05-31-pepper-carrot-companion-shipping-it/cold-start-sequence.svg" target="_blank" rel="noopener" title="Open the diagram full-size in a new tab" style="display: block; cursor: zoom-in;">
@@ -311,20 +311,20 @@ The shape of "first request after idle" matters enough to draw. Every arrow belo
 
 Three things the diagram makes legible that the prose alone can't:
 
-- **The warmup is a latency-hider, not a cost-hider.** It doesn't make Modal cold-start faster; it makes the cold start happen during the human seconds the reader was going to spend reading the cover and typing a question anyway. The cost in GPU seconds and the cost in user-perceived latency are *separate dimensions* — and architecting the system to spend the GPU cost during the moments you weren't going to spend the latency anyway is the trick.
-- **The Fly + Neon cold starts are small enough to absorb in the session-create response.** Five to ten seconds for Fly waking, plus a one-second Neon wake, plus the entrypoint's `information_schema` check. The reader sees a brief loading state on the episode picker after they click "Open this episode" — and by the time the flipbook has rendered page one, both Fly and Neon are warm.
+- **The warmup is a latency-hider, not a cost-hider.** It doesn't make Modal cold-start faster; it makes the cold start happen during the human seconds the reader was going to spend reading the cover and typing a question anyway. The cost in GPU seconds and the cost in user-perceived latency are separate dimensions, and the trick is to architect the system so the GPU cost lands during the moments you weren't going to spend the latency anyway.
+- **The Fly + Neon cold starts are small enough to absorb in the session-create response.** Five to ten seconds for Fly waking, plus a one-second Neon wake, plus the entrypoint's `information_schema` check. The reader sees a brief loading state on the episode picker after they click "Open this episode," and by the time the flipbook has rendered page one, both Fly and Neon are warm.
 - **Modal is the only cold start the user is allowed to see** — and only if the warmup loses the race against typing. A natural companion to the warmup is a one-shot retry plus a friendly fallback message ("the witch's familiars need a moment to wake up…") on the chat panel, for the rare case both attempts hit the cold start.
 
 The trade-off matrix below distills what the diagram leaves implicit:
 
-That latency is not a bug. It's the cost of the architecture choice that gave us $0 idle. The trade-off has two reasonable shapes:
+That latency is the cost of the architecture choice that gave us $0 idle. The trade-off has two reasonable shapes:
 
 | Stance | Modal config | Monthly cost | First request | Sustained traffic |
 |---|---|---|---|---|
 | **Workshop default** | `min_containers=0`, `scaledown_window=300` | $5 – $10 | 15–30 s | Instant within 5 min |
 | **Always warm** | `min_containers=1` on T4 | ~$430 | Instant | Instant always |
 
-The workshop ships the first one. **Picking the right point on a cost-vs-latency curve is part of the design judgement the portfolio is supposed to show**, and the right point for a portfolio demo is "$0 idle, slow first answer, fast subsequent." A reviewer who's deployed something real before recognizes the math the moment they see the table.
+The workshop ships the first one. Picking the right point on a cost-vs-latency curve is part of the design judgement the portfolio is supposed to show, and the right point for a portfolio demo is "$0 idle, slow first answer, fast subsequent." A reviewer who's deployed something real before recognizes the math the moment they see the table.
 
 The natural mitigation is the warmup pattern mentioned earlier: have the `POST /api/sessions` handler fire a fire-and-forget request against Modal the moment a session opens, so the model is loading into VRAM during the *interesting* seconds when the reader is choosing what to read. The cost stays the same; the perceived latency for a typical visitor is much smaller. The workshop doesn't ship the warmup so that this section can be honest about where the cost sits — the warmup is real production polish, and a follow-up exercise the reader can add in ~30 lines of code (a `httpx.AsyncClient.get(f"{OLLAMA_BASE_URL}/api/tags", headers=…)` task kicked off inside the session-create handler with `asyncio.create_task(...)`).
 
@@ -334,23 +334,23 @@ The natural mitigation is the warmup pattern mentioned earlier: have the `POST /
 
 Five things to name plainly, because the portfolio framing this series chose lives or dies by whether the post can tell you what it didn't ship.
 
-**The Chroma vector store is baked into the Docker image.** That's the operational reality of the abstraction discipline from [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}#what-deserves-an-abstraction) — Chroma wasn't given a Protocol because it has no swap target, and so the production path bakes the persistent directory into the image. The consequence: **re-ingesting episodes requires a re-deploy**. For portfolio cadence (a new episode every few weeks) this is invisible; for a real product (a new episode every day) it would be a problem and the right fix would be to factor Chroma onto its own host or switch to a hosted vector DB (Qdrant Cloud, Pinecone). The series said no to that hedge on purpose; Posts 14–15 honor it.
+**The Chroma vector store is baked into the Docker image.** That's the operational reality of the abstraction discipline from [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}#what-deserves-an-abstraction): Chroma wasn't given a Protocol because it has no swap target, so the production path bakes the persistent directory into the image. The consequence is that re-ingesting episodes requires a re-deploy. For portfolio cadence (a new episode every few weeks) this is invisible; for a real product (a new episode every day) it would be a problem, and the right fix would be to factor Chroma onto its own host or switch to a hosted vector DB (Qdrant Cloud, Pinecone). The series said no to that hedge on purpose; Posts 14–15 honor it.
 
 **There's no CI/CD pipeline.** The workshop's deploy is `./infra/dump_seed.sh && fly deploy` from a developer's laptop. The right CI/CD adds three things: a workflow that runs the test suite on every PR, a workflow that runs `dump_seed.sh` against a dev Neon and pushes a Fly review-app on merge, and a manual-trigger workflow for prod. Adding those is a half-day's GitHub Actions work and it's a separate post in spirit. The portfolio story I wanted Posts 14–15 to tell is *the architecture*; the automation is downstream of that.
 
 **The cold-start tax is real.** The first chat request after Modal is idle takes 15–30 s. The workshop is honest about it; the natural mitigation is a fire-and-forget warmup tied to session creation, sketched above as a ~30-line follow-up. Neither path solves the problem at the always-on-GPU level; both accept the trade-off for the cost ratio. A real product with sustained traffic would re-evaluate.
 
-**The world-graph art on R2 isn't gated by the spoiler boundary at the CDN layer.** The DB-level filter from [Post 12]({% post_url 2026-05-30-pepper-carrot-companion-spoiler-safe-world-graph %}) decides whether a `<img src=...>` for a given entity ever gets *rendered* — but the URL itself is public-readable on R2. A reader who scraped the bucket prefix would find every avatar regardless of their reading position. **The spoiler boundary protects the application UI, not the underlying CDN keys.** The same property would apply to the `pages/` bucket if the demo ever extended to gating page images at the CDN — making them private and signing each URL would add a `head_object` round-trip per page and would not change the threat model for a portfolio demo. If the demo were ever about a paid IP, the architecture would shift to signed URLs and signed cookies — and that's a different kind of post.
+**The world-graph art on R2 isn't gated by the spoiler boundary at the CDN layer.** The DB-level filter from [Post 12]({% post_url 2026-05-30-pepper-carrot-companion-spoiler-safe-world-graph %}) decides whether a `<img src=...>` for a given entity ever gets *rendered*, but the URL itself is public-readable on R2. A reader who scraped the bucket prefix would find every avatar regardless of their reading position. The spoiler boundary protects the application UI, not the underlying CDN keys. The same property would apply to the `pages/` bucket if the demo ever extended to gating page images at the CDN: making them private and signing each URL would add a `head_object` round-trip per page and would not change the threat model for a portfolio demo. If the demo were ever about a paid IP, the architecture would shift to signed URLs and signed cookies, and that's a different kind of post.
 
 **Single region, single tenant.** Fly's primary region is `iad` (US-east); Neon is `us-east-2`. A reader in Tokyo would see ~150 ms more first-byte latency than a reader in Boston. Adding a second Fly region is one `fly regions add` away; replicating Neon needs branching; replicating R2 needs a custom replication. All of those are real engineering and all of them are outside Posts 14–15's scope. The demo lives in one region because the demo's *visitors* are mostly in one timezone.
 
-**The R2Storage implementation doesn't tier through CloudFront or a custom domain.** The bucket's `pub-XXXX.r2.dev` URL is the path of least resistance — Cloudflare-served, with a small subdomain. A real product would point a `images.your-domain.com` CNAME at the bucket so the URL on the wire is branded. The R2 setup step in the deploy guide notes the custom-domain option but takes the dev subdomain by default; the swap is a Cloudflare DNS row and a one-value change to `R2_PUBLIC_URL_PREFIX`.
+**The R2Storage implementation doesn't tier through CloudFront or a custom domain.** The bucket's `pub-XXXX.r2.dev` URL is the path of least resistance: Cloudflare-served, with a small subdomain. A real product would point a `images.your-domain.com` CNAME at the bucket so the URL on the wire is branded. The R2 setup step in the deploy guide notes the custom-domain option but takes the dev subdomain by default; the swap is a Cloudflare DNS row and a one-value change to `R2_PUBLIC_URL_PREFIX`.
 
 ---
 
 ## Verify Before You Publish: A 40-Minute Walkthrough {#verify}
 
-The post above describes an architecture and a deploy procedure; honesty about what's been *tested* means walking through the procedure once against real provider accounts before you trust the URL to recruiters. Here's the checklist that catches the most common breakages. If every line below returns what its comment predicts, the deploy is real.
+The post above describes an architecture and a deploy procedure; honesty about what's been *tested* means walking through the procedure once against real provider accounts before you trust the URL to recruiters. The checklist below catches the most common breakages. If every line returns what its comment predicts, the deploy is real.
 
 ### Layer-by-layer, narrowing failures to one provider
 
@@ -421,13 +421,13 @@ I did not deploy the workshop-tagged code to live provider accounts before writi
 
 That gives me high confidence the workshop deploy works. But high confidence is not deployed-and-confirmed, and you should treat the six checks above as the experiment that turns one into the other before you put the URL in front of anyone.
 
-If something breaks, the failure mode is concrete (a Docker layer that doesn't build, a `fly logs` traceback, an asyncpg error, a CORS console message) and the fix is one of the rows in [`docs/deployment.md`'s troubleshooting table](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-14-15-deploy/docs/deployment.md#troubleshooting). The seams are designed to fail fast and name themselves; the recovery is documented per failure mode; what's not documented is the failure I haven't seen, which is the one you might find first. If you do, the post can be patched.
+If something breaks, the failure mode is concrete (a Docker layer that doesn't build, a `fly logs` traceback, an asyncpg error, a CORS console message) and the fix is one of the rows in [`docs/deployment.md`'s troubleshooting table](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-14-15-deploy/docs/deployment.md#troubleshooting). The seams are designed to fail fast and name themselves, and the recovery is documented per failure mode. What's not documented is the failure I haven't seen, which is the one you might find first. If you do, the post can be patched.
 
 ---
 
 ## Key Takeaways {#key-takeaways}
 
-**1. The seams worth abstracting are the ones whose implementation changes between dev and prod.** [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) named three (chat, embedding, storage) and abstracted them; Posts 14–15 swapped all three implementations and changed *no code outside `clients/`*. The corollary is just as important — Chroma was the seam that *didn't* earn a Protocol because it had no swap target, and Posts 14–15 honored that by baking it into the image rather than hedging against a problem the project doesn't have.
+**1. The seams worth abstracting are the ones whose implementation changes between dev and prod.** [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) named three (chat, embedding, storage) and abstracted them; Posts 14–15 swapped all three implementations and changed *no code outside `clients/`*. The corollary is just as important: Chroma was the seam that *didn't* earn a Protocol because it had no swap target, and Posts 14–15 honored that by baking it into the image rather than hedging against a problem the project doesn't have.
 
 **2. Pick the right tier per shape.** A static frontend wants a CDN; a bursty I/O backend wants scale-to-zero containers; a stateful database wants managed Postgres that sleeps; large static images want object storage; a GPU workload wants serverless GPU. Run all five on one VPS and you pay the worst-case cost of all five combined. Fan out and each provider gets paid only for what it actually serves. The architecture pattern is the same whether the budget is $10/mo or $10k/mo; only the tier-within-tier choices differ.
 
@@ -435,17 +435,17 @@ If something breaks, the failure mode is concrete (a Docker layer that doesn't b
 
 **4. asyncpg, prepared statements, and pgbouncer in transaction mode don't mix.** This is the single most common first-deploy failure mode against managed Postgres. Neon gives you two endpoints — pooled and unpooled — and the backend's async driver wants the unpooled one. The seam from [`db/session.py`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/post-14-15-deploy/backend/app/db/session.py) that translates `?sslmode=require` into `connect_args` is two helpful lines that save an hour of debugging; design the config layer so operators don't have to know the difference.
 
-**5. Bake small, stream big.** The Docker image carries the venv (~200 MB), the app code, `data/chroma`, `data/world-graph`, and `data/seed.sql` — a few hundred MB total. The episode page images (~700 MB) go to R2. The split is operational: anything baked is replaced on the next deploy, anything in object storage is incremental. **Don't bake what you'd be re-uploading every push.**
+**5. Bake small, stream big.** The Docker image carries the venv (~200 MB), the app code, `data/chroma`, `data/world-graph`, and `data/seed.sql` — a few hundred MB total. The episode page images (~700 MB) go to R2. The split is operational: anything baked is replaced on the next deploy, anything in object storage is incremental. Don't bake what you'd be re-uploading every push.
 
 **6. Idempotent first-boot scripts beat one-shot CI steps for demos.** The `entrypoint.sh` checks for the `episodes` table via `information_schema` and conditionally restores `seed.sql`. A hundred container restarts; one seed restore. No CI step needed; no manual coordination between deploy steps; the application self-heals on a fresh Neon database. The cost is rebuild-time (Docker has to re-bake `seed.sql` whenever it changes); the benefit is operational simplicity, which is what a demo deploy wants.
 
-**7. Build-time env vars are an under-used seam.** The Cloudflare Pages frontend reads `VITE_API_BASE_URL` at *build time*, not at runtime — so the deployed bundle calls the Fly URL directly without ever having to discover it. The frontend's source carries one line of `import.meta.env.VITE_API_BASE_URL ?? '/api'`, the dev path keeps the Vite proxy, and the prod path knows the absolute URL of the backend. Same code, different env. **The cost of doing this right in the first place is one ternary expression; the cost of doing it wrong is a build-time secret you discover at deploy time.**
+**7. Build-time env vars are an under-used seam.** The Cloudflare Pages frontend reads `VITE_API_BASE_URL` at *build time*, not at runtime — so the deployed bundle calls the Fly URL directly without ever having to discover it. The frontend's source carries one line of `import.meta.env.VITE_API_BASE_URL ?? '/api'`, the dev path keeps the Vite proxy, and the prod path knows the absolute URL of the backend. Same code, different env. The cost of doing this right in the first place is one ternary expression; the cost of doing it wrong is a build-time secret you discover at deploy time.
 
 **8. The portfolio framing is "knowing what to abstract, knowing what to leave alone, knowing what to pay for."** The series chose three Protocols on purpose; left Chroma raw on purpose; ignored CI/CD on purpose; declined the always-warm GPU on purpose. Each of those is a *no* that strengthens the architecture by saying what the project is for. A reviewer who's deployed real systems before recognizes the no's and reads them as judgement, not omission.
 
-**9. Cold starts are honest about themselves.** A 15-second first answer is what you get when you optimize for `$0` idle. Hiding it behind a session-creation warmup is fine production polish; pretending it isn't there is not. The workshop ships without the warmup so this post can be honest about where the cost sits — and so the architecture is clearly *positioned* to bolt the warmup on as ~30 lines of follow-up code. **The architecture should make the trade-off explicit; the UX layer can choose how to surface it.**
+**9. Cold starts are honest about themselves.** A 15-second first answer is what you get when you optimize for `$0` idle. Hiding it behind a session-creation warmup is fine production polish; pretending it isn't there is not. The workshop ships without the warmup so this post can be honest about where the cost sits, and so the architecture is clearly *positioned* to bolt the warmup on as ~30 lines of follow-up code. The architecture should make the trade-off explicit; the UX layer can choose how to surface it.
 
-**10. The whole deploy is roughly 40 minutes of typing once you know the steps.** ~3 min for `modal deploy`, ~5 min for `fly deploy`, ~2 min for the Pages connect-and-build, plus the time spent in three web UIs setting up accounts. The new code in this post is ~80 lines of `R2Storage`. **The rest is configuration, scripts, and the discipline of having decided what to abstract two months ago.** That ratio is the whole point.
+**10. The whole deploy is roughly 40 minutes of typing once you know the steps.** ~3 min for `modal deploy`, ~5 min for `fly deploy`, ~2 min for the Pages connect-and-build, plus the time spent in three web UIs setting up accounts. The new code in this post is ~80 lines of `R2Storage`. The rest is configuration, scripts, and the discipline of having decided what to abstract two months ago. That ratio is the whole point.
 
 ---
 
@@ -483,7 +483,7 @@ The reason this post's backend runs on Fly instead of Workers is **what the back
 - **The dependency tree is large and binary-rich.** `chromadb`, `sentence-transformers`, `boto3`, `asyncpg` — the whole venv is ~200 MB. Workers' isolate runtime is sized for scripts under a megabyte.
 - **SSE streams need persistent TCP connections** to a single backend that holds state across the lifetime of the stream. Workers can do response streaming, but pairing it with the server-side state of the streaming chat orchestrator (the token-by-token answer, the second non-streaming call for suggestion chips) is exactly the shape that wants a container, not an edge function.
 
-If the backend were a stateless TypeScript REST API with no model dependencies, Workers would be the obvious choice — cheaper, more geographically distributed, no cold start to speak of. For a Python LLM backend, a serverless *container* on Fly is the right tier. **Picking the right tier of serverless for what your code actually is, is half the architectural skill.**
+If the backend were a stateless TypeScript REST API with no model dependencies, Workers would be the obvious choice: cheaper, more geographically distributed, no cold start to speak of. For a Python LLM backend, a serverless *container* on Fly is the right tier. Picking the right tier of serverless for what your code actually is, is half the architectural skill.
 
 ### The broader Cloudflare product ecosystem
 
@@ -497,7 +497,7 @@ Worth a quick orientation since two of the five providers in this stack are Clou
 - **[KV](https://developers.cloudflare.com/kv/)** — globally-distributed key-value store. Read-heavy, eventually-consistent. Useful for config and feature flags; not the right shape for chat-session state with hard consistency requirements.
 - **[Durable Objects](https://developers.cloudflare.com/durable-objects/)** — single-threaded stateful objects at the edge, addressable by ID. Could be the right shape for chat-session state in a Workers-based reimplementation; outside scope here.
 
-The reason this post uses Pages + R2 (not the full Cloudflare stack end-to-end) is the same reason it uses Fly instead of Workers: **the application's runtime shape — Python, stateful, GPU-dependent — points at a different tier of serverless than what Cloudflare's compute products optimise for**. For a *different* application — say, a TypeScript reading companion calling an external LLM API — the same five-piece architecture could deploy end-to-end on one provider (`Workers + Workers AI + D1 + KV + R2`) for less money and less operational surface. **Architecture choice is downstream of what the code actually is.**
+The reason this post uses Pages + R2 (not the full Cloudflare stack end-to-end) is the same reason it uses Fly instead of Workers: **the application's runtime shape — Python, stateful, GPU-dependent — points at a different tier of serverless than what Cloudflare's compute products optimise for**. For a *different* application — say, a TypeScript reading companion calling an external LLM API — the same five-piece architecture could deploy end-to-end on one provider (`Workers + Workers AI + D1 + KV + R2`) for less money and less operational surface. Architecture choice is downstream of what the code actually is.
 
 > *A small naming gotcha.* "Workers" is also the term Cloudflare uses for the *runtime* their other products are built on. So you'll see "Pages Functions" described as "Workers", "Workers AI" referred to as "running on Workers", and so on. When someone says "I deployed a Worker," they usually mean a standalone edge function (the product); when they say "running on Workers," they often mean the runtime layer underneath multiple products. Same word, two zoom levels.
 
@@ -523,7 +523,7 @@ Sixteen posts, one architecture, one workshop. The arc started at [Post 1]({% po
 - **Post 15 — this one. Shipping It: Containerize, Deploy to Fly + Pages, and Verify.** The backend to Fly, the frontend to Pages, the whole thing verified end to end. Five services, one container, ~$10/mo, a public URL.
 - **[Post 16]({% post_url 2026-06-01-pepper-carrot-companion-skip-the-gpu %}) — Skip the GPU: A Managed-API Deploy on Anthropic + Voyage.** The same app shipped without a GPU at all — chat on the Anthropic API, embeddings on Voyage — as a config change, not a code change.
 
-The single thread connecting all sixteen is *put the load-bearing decisions in the data and structure layers; let the model and the UX be the polish on top*. The spoiler boundary lives in retrieval, not prompts. The provider implementations live behind Protocols, not factories of factories. The world graph lives in Postgres rows, not in a model call. The deploy lives in five small configurations, not in a Kubernetes manifest. **Each layer keeps its own responsibilities; each layer earns its own honesty about what it can and can't promise.**
+The single thread connecting all sixteen is *put the load-bearing decisions in the data and structure layers; let the model and the UX be the polish on top*. The spoiler boundary lives in retrieval, not prompts. The provider implementations live behind Protocols, not factories of factories. The world graph lives in Postgres rows, not in a model call. The deploy lives in five small configurations, not in a Kubernetes manifest. Each layer keeps its own responsibilities, and each layer earns its own honesty about what it can and can't promise.
 
 ---
 

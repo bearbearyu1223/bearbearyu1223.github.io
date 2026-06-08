@@ -54,13 +54,13 @@ verification step below.
 
 If you've followed AI tutorials before, you've seen this pattern: install five things, run a magic script, look at a chatbot. It works on the author's machine. Then a week later you try to debug a retrieval issue and discover the model server was never actually serving the model you thought, the migrations were never applied, and your code is silently importing the wrong embedding library.
 
-A "workshop" phase is the antidote. Each tool gets installed, configured, and **verified to work in isolation** before any application code touches it. You write zero feature code in this post — but you finish it with a green-lit, reproducible base camp.
+A "workshop" phase is the antidote. Each tool gets installed, configured, and **verified to work in isolation** before any application code touches it. You write zero feature code in this post, but you finish it with a green-lit, reproducible base camp.
 
-There's a portfolio judgement here worth naming: real production systems live or die by their setup story. A demo that needs ten paragraphs of caveats to run for the reviewer is — at the level of professional impression — worse than a smaller demo that "just works." Investing one post in setup is the cost of being able to write the next eight posts without "did you remember to also..." sprinkled through each one.
+There's a portfolio judgement here worth naming: real production systems live or die by their setup story. At the level of professional impression, a demo that needs ten paragraphs of caveats to run for the reviewer is worse than a smaller demo that "just works." Investing one post in setup is the cost of being able to write the next eight posts without "did you remember to also..." sprinkled through each one.
 
 The project encodes this same idea as a hard rule it calls **provider
-abstraction**: every external service — database, model server, image
-store — sits behind a typed interface, so local Postgres and cloud
+abstraction**: every external service (database, model server, image
+store) sits behind a typed interface, so local Postgres and cloud
 Postgres look identical to the code, and local Ollama and serverless
 GPU Ollama look identical to the code. Post 3 makes the rule
 explicit and writes the first two of those abstractions. The workshop
@@ -102,7 +102,7 @@ All four should print a version string. If any errors, fix that one before movin
 
 ## The Project Skeleton, at a Glance {#project-skeleton}
 
-Before any `cd backend` or `cp .env.example .env`, a one-screen orientation to what's on disk. From the next section onward, the post will start `cd`-ing into specific subdirectories and editing specific files — and that's a lot less confusing once you've seen the whole layout once.
+Before any `cd backend` or `cp .env.example .env`, here's a one-screen orientation to what's on disk. From the next section onward, the post starts `cd`-ing into specific subdirectories and editing specific files, and that's a lot less confusing once you've seen the whole layout once.
 
 ```
 pepper-carrot-companion-workshop/
@@ -146,8 +146,8 @@ pepper-carrot-companion-workshop/
 
 Two things to take away from that tree:
 
-- **You'll only touch a handful of these in this post.** Top-level `docker-compose.yml` and `.env.example`; `backend/pyproject.toml` and the `backend/alembic/` migration directory; the SQLAlchemy models under `backend/app/db/`; and `ingestion/acquire.py`. Every other path is structural placeholder for code that arrives in later posts — they're listed so you can see where things will land as the series builds out.
-- **`data/` is gitignored — it's not part of the source.** It's a working directory each developer creates as they run the workshop. By the end of this post you'll have `./data/postgres/` (live Postgres data files), `./data/raw/ep01-potion-of-flight/` (one downloaded episode of comic source), and a placeholder for `./data/chroma/` that gets populated in Post 4.
+- **You'll only touch a handful of these in this post.** Top-level `docker-compose.yml` and `.env.example`; `backend/pyproject.toml` and the `backend/alembic/` migration directory; the SQLAlchemy models under `backend/app/db/`; and `ingestion/acquire.py`. Every other path is a structural placeholder for code that arrives in later posts, listed so you can see where things will land as the series builds out.
+- **`data/` is gitignored, so it's not part of the source.** It's a working directory each developer creates as they run the workshop. By the end of this post you'll have `./data/postgres/` (live Postgres data files), `./data/raw/ep01-potion-of-flight/` (one downloaded episode of comic source), and a placeholder for `./data/chroma/` that gets populated in Post 4.
 
 > **About the repo URL.** The code that backs this post (and Posts 3–4) is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop> — a deliberately scoped workshop starter. Clone it and the tree above is exactly what you'll find on disk. The full project repository (frontend, chat orchestrator, world-graph, cloud deploy) goes up alongside the deploy guide near the end of the series. Until then, the file paths in every later command (`backend/app/clients/`, `backend/app/db/models.py`, etc.) are the same paths in both the starter and the eventual full repo.
 >
@@ -202,21 +202,21 @@ A walk through every block:
 
 - **`container_name: peppercarrot-postgres`** names the *running* container (the live instance, not the image) so it shows up legibly in `docker ps` and you can run `docker exec -it peppercarrot-postgres psql -U peppercarrot` without copying a random hash.
 
-- **`environment:`** is a map of environment variables passed into the container's process. The Postgres image is designed to read three of them on first boot — `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` — and create the initial superuser and database from those values. Set them once at first boot, they're baked into the data directory thereafter.
+- **`environment:`** is a map of environment variables passed into the container's process. The Postgres image is designed to read three of them on first boot — `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` — and create the initial superuser and database from those values. Set them once at first boot and they're baked into the data directory thereafter.
 
   The `${VAR:-default}` syntax is straight from [POSIX shells](https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html#tag_18_06_02): "use the value of `$VAR` if it's set in the environment, otherwise use this fallback." Compose reads `.env` automatically, so a `POSTGRES_PASSWORD=hunter2` line in your `.env` propagates here without any further wiring. (This is why we copied `.env.example` to `.env` before running `docker compose up`.)
 
 - **`ports:`** maps `host_port:container_port`. Postgres listens on 5432 inside the container; we expose it on `localhost:5432` on your laptop, so any tool on your machine can connect with `postgresql://...@localhost:5432/...`. If you already have a system Postgres on 5432, override `POSTGRES_PORT=5433` in `.env` — the `${POSTGRES_PORT:-5432}` substitution then maps host port 5433 to container port 5432.
 
-- **`volumes:`** mounts a directory from your host into the container — a [*bind mount*](https://docs.docker.com/storage/bind-mounts/). `./data/postgres` on your laptop becomes `/var/lib/postgresql/data` inside the container, which is where Postgres stores every byte of every table. Without this, `docker compose down` would also delete your database; with it, your data survives container restarts, image upgrades, and laptop reboots.
+- **`volumes:`** mounts a directory from your host into the container, a [*bind mount*](https://docs.docker.com/storage/bind-mounts/). `./data/postgres` on your laptop becomes `/var/lib/postgresql/data` inside the container, which is where Postgres stores every byte of every table. Without this, `docker compose down` would also delete your database; with it, your data survives container restarts, image upgrades, and laptop reboots.
 
   Two follow-on points worth knowing:
   - `./data/postgres` is **gitignored** — binary database files belong in backups, not version control.
   - If you ever want to start fresh: `docker compose down && rm -rf data/postgres && docker compose up -d` gets you a virgin database with all the initial-boot setup re-run.
 
-- **`healthcheck:`** tells Docker how to find out whether the container is *actually ready*, not just running. The image starts the moment the process launches, but Postgres takes a couple of seconds before it accepts connections. The check runs [`pg_isready`](https://www.postgresql.org/docs/current/app-pg-isready.html) — Postgres's own "are you up?" command — every 5 seconds, gives up on a single probe after 5 seconds, and tolerates 5 consecutive failures before marking the container *unhealthy*. `docker compose ps` shows `(healthy)` once the first probe succeeds, which is also the signal the FastAPI app uses in Post 3 to know it's safe to open its DB connection pool.
+- **`healthcheck:`** tells Docker how to find out whether the container is *actually ready*, not just running. The image starts the moment the process launches, but Postgres takes a couple of seconds before it accepts connections. The check runs [`pg_isready`](https://www.postgresql.org/docs/current/app-pg-isready.html), Postgres's own "are you up?" command, every 5 seconds, gives up on a single probe after 5 seconds, and tolerates 5 consecutive failures before marking the container *unhealthy*. `docker compose ps` shows `(healthy)` once the first probe succeeds, which is also the signal the FastAPI app uses in Post 3 to know it's safe to open its DB connection pool.
 
-- **`restart: unless-stopped`** auto-restarts the container if it crashes, and brings it back up automatically when you reboot your laptop — but stays out of the way if you explicitly `docker compose stop`. A reasonable default for a dev database you don't want to think about.
+- **`restart: unless-stopped`** auto-restarts the container if it crashes, and brings it back up automatically when you reboot your laptop, but stays out of the way if you explicitly `docker compose stop`. A reasonable default for a dev database you don't want to think about.
 
 ### Optional: pgAdmin for browsing the database visually
 
@@ -307,7 +307,7 @@ psql "postgresql://peppercarrot:peppercarrot_dev@localhost:5432/peppercarrot" -c
 
 You should see `PostgreSQL 16.x on x86_64-pc-linux-musl, ...`.
 
-That single line is doing four things, all of which would be the *first* things to fail if your setup is broken. Worth taking apart:
+That single line is doing four things, all of which would be the *first* things to fail if your setup is broken. It's worth taking apart:
 
 | Piece | What it is |
 |---|---|
@@ -318,13 +318,13 @@ That single line is doing four things, all of which would be the *first* things 
 
 So this isn't just a "did it install?" check. It's an end-to-end probe of the whole local Postgres setup in one line.
 
-**Option B — skip the install and use the `psql` that's already inside the container.** Slightly more typing, zero new software on your laptop:
+**Option B — skip the install and use the `psql` that's already inside the container.** Slightly more typing, but zero new software on your laptop:
 
 ```bash
 docker exec -it peppercarrot-postgres psql -U peppercarrot -d peppercarrot -c "SELECT version();"
 ```
 
-Same idea as Option A, but with a different connection mechanism. Worth taking apart in the same way:
+Same idea as Option A, but with a different connection mechanism. Here it is taken apart the same way:
 
 | Piece | What it is |
 |---|---|
@@ -340,9 +340,9 @@ Two things you'll notice are *missing* compared to Option A: there's no host, no
 
 Both options produce the same result. The rest of the post shows the Option A form (the bare `psql ...` command) since it's the one you'll use most often, but every command works identically if you prefix it with `docker exec -it peppercarrot-postgres` and swap the URL for `-U peppercarrot -d peppercarrot`.
 
-That's it — you now have a real relational database, running locally, with a known username, password, port, and database name. Every later post talks to it through this URL.
+That's it: you now have a real relational database, running locally, with a known username, password, port, and database name. Every later post talks to it through this URL.
 
-Here's a snapshot of what your laptop looks like at the end of this post — three local services on three known ports, each persisting to a known directory. The third box (FastAPI + an embedded ChromaDB) doesn't start until Post 3, but it's drawn in so the picture stays complete:
+Here's a snapshot of what your laptop looks like at the end of this post — three local services on three known ports, each persisting to a known directory. The third box (FastAPI plus an embedded ChromaDB) doesn't start until Post 3, but it's drawn in so the picture stays complete:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -371,7 +371,7 @@ Here's a snapshot of what your laptop looks like at the end of this post — thr
 Three things worth noticing in this picture:
 
 - **Three different ports, three different protocols.** Postgres speaks the [Postgres wire protocol](https://www.postgresql.org/docs/current/protocol.html) on `:5432`, Ollama speaks plain HTTP on `:11434`, and FastAPI will speak HTTP on `:8000`. Nothing overlaps, so all three can run at the same time without conflict.
-- **ChromaDB is not a server.** Unlike Postgres or Ollama, ChromaDB is a *library* — it runs inside the FastAPI process, reads/writes a directory on disk, and has no port of its own. This is why it's drawn *inside* the FastAPI box, not next to it. (Post 3 explains why this is the right call for a portfolio-scale project, and Post 10 covers when you'd outgrow it.)
+- **ChromaDB is not a server.** Unlike Postgres or Ollama, ChromaDB is a *library*: it runs inside the FastAPI process, reads and writes a directory on disk, and has no port of its own. This is why it's drawn *inside* the FastAPI box, not next to it. (Post 3 explains why this is the right call for a portfolio-scale project, and Post 10 covers when you'd outgrow it.)
 - **Everything that matters persists under `./data/`** (except Ollama's model weights, which Ollama manages in its own home directory). That whole tree is gitignored — `git status` should never show database rows or model files. To start completely fresh, `rm -rf data/` and re-run the workshop.
 
 ---
@@ -382,11 +382,11 @@ Three things worth noticing in this picture:
 
 ### Why "local-first" is a real design decision, not just a budget call
 
-You could absolutely build this project against the [Anthropic API](https://docs.claude.com/en/api/getting-started) or the [OpenAI API](https://openai.com/api/). The project's [`anthropic`](https://github.com/anthropics/anthropic-sdk-python) Python SDK is even in the dependencies — switching is a config change (Post 3 covers exactly how). But starting local-first has three benefits worth naming explicitly:
+You could absolutely build this project against the [Anthropic API](https://docs.claude.com/en/api/getting-started) or the [OpenAI API](https://openai.com/api/). The project's [`anthropic`](https://github.com/anthropics/anthropic-sdk-python) Python SDK is even in the dependencies, and switching is a config change (Post 3 covers exactly how). But starting local-first has three benefits worth naming explicitly:
 
 1. **You iterate without watching a meter.** During development, you'll hit the model thousands of times — embedding test corpora, debugging prompts, replaying conversations. A free local model removes the small cognitive tax of "is this experiment worth $0.40?".
 2. **You'll discover provider abstractions you would have skipped.** Once your code has to talk to a model at `http://localhost:11434` *and* a hosted API behind a Bearer token, you stop hard-coding either one. That [interface](https://docs.python.org/3/library/typing.html#typing.Protocol) is the whole topic of Post 3.
-3. **The cloud port becomes a one-day project.** In Post 10, we move the *same* Ollama process onto a serverless GPU on [Modal](https://modal.com/). It's the identical HTTP API — only the URL changes. No model swap. No prompt rewriting.
+3. **The cloud port becomes a one-day project.** In Post 10, we move the *same* Ollama process onto a serverless GPU on [Modal](https://modal.com/). It's the identical HTTP API, so only the URL changes. No model swap, no prompt rewriting.
 
 ### Install and pull two models
 
@@ -437,7 +437,7 @@ curl http://localhost:11434/api/tags | jq '.models[].name'
 
 If both names appear in both commands, you have a working local LLM stack.
 
-> **A note on the vision model that *isn't* there.** Ollama also ships a `qwen2.5vl` *vision* variant. We don't use it. Page descriptions in this project come from a Claude Code [skill](https://docs.claude.com/en/docs/claude-code/skills) — Claude itself reads each comic page image and writes a structured JSON description next to it. Post 4 explains why this is a deliberate architectural call (better quality, cost-effective at portfolio scale since it rides on an existing Claude subscription rather than a per-request API bill, auditable artifacts on disk) rather than a workaround. Don't pull `qwen2.5vl` — it's 1–2 GB you don't need.
+> **A note on the vision model that *isn't* there.** Ollama also ships a `qwen2.5vl` *vision* variant. We don't use it. Page descriptions in this project come from a Claude Code [skill](https://docs.claude.com/en/docs/claude-code/skills): Claude itself reads each comic page image and writes a structured JSON description next to it. Post 4 explains why this is a deliberate architectural call (better quality, cost-effective at portfolio scale since it rides on an existing Claude subscription rather than a per-request API bill, auditable artifacts on disk) rather than a workaround. Don't pull `qwen2.5vl` — it's 1–2 GB you don't need.
 
 ---
 
@@ -486,9 +486,9 @@ dependencies = [
 ]
 ```
 
-Each line is a deliberate choice — a one-sentence-each tour:
+Each line is a deliberate choice. Here's a one-sentence tour of each:
 
-- **fastapi + uvicorn** — async web framework + an [ASGI](https://asgi.readthedocs.io/en/latest/) server to run it. The async story matters because we stream model output token-by-token in Post 7.
+- **fastapi + uvicorn** — async web framework plus an [ASGI](https://asgi.readthedocs.io/en/latest/) server to run it. The async story matters because we stream model output token-by-token in Post 7.
 - **sse-starlette** — clean [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) support, which is how the browser receives streamed tokens.
 - **pydantic / pydantic-settings** — typed data models and typed environment-variable config (no `os.getenv("…")` strings sprayed across the code).
 - **sqlalchemy[asyncio] + asyncpg + alembic** — the database stack: ORM, async Postgres driver, migrations.
@@ -511,7 +511,7 @@ disallow_untyped_defs = true
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 ```
 
-> *What are these?* [**mypy**](https://mypy-lang.org/) is Python's most widely used static type checker — it reads your type annotations and flags places where the types don't line up. [**ruff**](https://docs.astral.sh/ruff/) is a [Rust](https://www.rust-lang.org/)-based linter and formatter from the same team behind `uv`. Where `mypy` catches type bugs, `ruff` catches style bugs, dead imports, undefined variables, and a few hundred other classes of mistake — all in well under a second on a project this size.
+> *What are these?* [**mypy**](https://mypy-lang.org/) is Python's most widely used static type checker; it reads your type annotations and flags places where the types don't line up. [**ruff**](https://docs.astral.sh/ruff/) is a [Rust](https://www.rust-lang.org/)-based linter and formatter from the same team behind `uv`. Where `mypy` catches type bugs, `ruff` catches style bugs, dead imports, undefined variables, and a few hundred other classes of mistake, all in well under a second on a project this size.
 
 `strict = true` is a strong opinion. It enforces:
 
@@ -592,7 +592,7 @@ That's the migration applied. **What it actually created — how Alembic generat
 
 The last preflight step: get one episode of the comic onto disk in a structured way that the ingestion pipeline (Post 4) can consume.
 
-Lots of "chat with X" demos start by web-scraping HTML. *Pepper & Carrot* has a much nicer path: David Revoy's project [publishes a fully structured source archive](https://www.peppercarrot.com/0_sources/) with three JSON manifests that make the whole corpus programmatically accessible:
+Lots of "chat with X" demos start by web-scraping HTML. *Pepper & Carrot* has a much nicer path. David Revoy's project [publishes a fully structured source archive](https://www.peppercarrot.com/0_sources/) with three JSON manifests that make the whole corpus programmatically accessible:
 
 - **`/0_sources/episodes-v1.json`** — master list of every episode and the canonical filename for each page slot.
 - **`/0_sources/{slug}/info.json`** — per-episode metadata: publication date, original language, software credits.
@@ -600,7 +600,7 @@ Lots of "chat with X" demos start by web-scraping HTML. *Pepper & Carrot* has a 
 
 Page filenames follow a deterministic pattern (`{lang}_Pepper-and-Carrot_by-David-Revoy_E{NN}P{NN}.{ext}`), so an acquisition script can build every URL it needs without scraping any HTML at all.
 
-> *A small portfolio judgement worth saying out loud.* The "right" way to ingest someone else's content is almost always: read their data the way they meant you to read it. Web scraping HTML is a fragile fallback that breaks the moment the publisher restyles a button. Looking for a JSON or RSS feed *first* — even if it takes an extra hour of investigation — is the move. In this case, half a day spent reading `/0_sources/` instead of scraping pays off across the rest of the project.
+> *A small portfolio judgement worth saying out loud.* The "right" way to ingest someone else's content is almost always to read their data the way they meant you to read it. Web scraping HTML is a fragile fallback that breaks the moment the publisher restyles a button. Looking for a JSON or RSS feed *first*, even if it takes an extra hour of investigation, is the move. In this case, half a day spent reading `/0_sources/` instead of scraping pays off across the rest of the project.
 
 The project includes `ingestion/acquire.py`, a small CLI that does exactly that. Run it once to grab episode 1 in English:
 
@@ -643,7 +643,7 @@ commentary_url: https://www.davidrevoy.com/...
 
 ## The `.env` File That Ties It Together {#env}
 
-`.env` is the single source of truth for "what URLs and credentials does this project use?" — it's gitignored, lives at the project root, and is loaded by [`pydantic-settings`](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) at startup into a typed `Settings` object.
+`.env` is the single source of truth for "what URLs and credentials does this project use?" It's gitignored, lives at the project root, and is loaded by [`pydantic-settings`](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) at startup into a typed `Settings` object.
 
 Copy the template and edit only what you need:
 
@@ -678,7 +678,7 @@ EMBEDDING_PROVIDER=ollama
 EMBEDDING_MODEL=bge-m3
 ```
 
-> *Why two keys for the embedding model?* `EMBEDDING_PROVIDER` says *which client library* to talk to (Ollama or [`sentence-transformers`](https://www.sbert.net/)). `EMBEDDING_MODEL` says *which model name* to ask for — and the naming convention is provider-specific. Ollama wants `bge-m3`; sentence-transformers wants `BAAI/bge-m3`. Same underlying weights, same 1024-dimensional vectors, but the strings differ. We pry these apart in Post 3 and you'll see exactly why.
+> *Why two keys for the embedding model?* `EMBEDDING_PROVIDER` says *which client library* to talk to (Ollama or [`sentence-transformers`](https://www.sbert.net/)). `EMBEDDING_MODEL` says *which model name* to ask for, and the naming convention is provider-specific. Ollama wants `bge-m3`; sentence-transformers wants `BAAI/bge-m3`. Same underlying weights, same 1024-dimensional vectors, but the strings differ. We pry these apart in Post 3 and you'll see exactly why.
 
 The point of the file isn't to memorize what every key does — most of them get explained in the post that first uses them. The point is that *all* runtime configuration lives in one well-known file, and the code never reads `os.environ` directly. The `Settings` class in `backend/app/config.py` is the only door.
 
@@ -718,7 +718,7 @@ ls ../data/raw/ep01-potion-of-flight/pages/                              # at le
 
 If every line in that block prints what's expected, you're done. The workshop is built. Every later post in this series — from "make the page descriptions" in Post 3, through "stream tokens to the browser" in Post 7, through "deploy to Modal and Fly" in Post 10 — assumes a working version of this checklist.
 
-If something fails, **fix it now**. Setup bugs that survive into application development become two-day debugging sessions because they masquerade as application bugs.
+If something fails, fix it now. Setup bugs that survive into application development become two-day debugging sessions because they masquerade as application bugs.
 
 ---
 
@@ -732,7 +732,7 @@ If something fails, **fix it now**. Setup bugs that survive into application dev
 
 **4. Read the data publisher's data, not their HTML.** *Pepper & Carrot* publishes machine-readable JSON manifests at `/0_sources/`. Spending half a day reading those instead of scraping HTML pays off across the rest of the project — and it's a habit that generalizes far beyond webcomics.
 
-**5. Local-first isn't free, but it's worth the cost.** Ollama with `qwen2.5:7b` is genuinely slower than calling [Claude Haiku](https://www.anthropic.com/news/claude-haiku-4-5) or OpenAI's `gpt-4o-mini`. What you get in exchange is unmetered iteration, a forcing function for provider abstraction, and a deploy story (Post 10) where the same `httpx.AsyncClient` talks to a serverless GPU in production. The free iteration loop is what makes prompt engineering (Post 8) feasible at all.
+**5. Local-first isn't free, but it's worth the cost.** Ollama with `qwen2.5:7b` is genuinely slower than calling [Claude Haiku](https://www.anthropic.com/news/claude-haiku-4-5) or OpenAI's `gpt-4o-mini`. What you get in exchange is unmetered iteration, a forcing function for provider abstraction, and a deploy story (Post 10) where the same `httpx.AsyncClient` talks to a serverless GPU in production. That free iteration loop is what makes prompt engineering (Post 8) feasible at all.
 
 ---
 

@@ -15,7 +15,7 @@ description: >-
 pin: true
 ---
 
-Post 8 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}) series. [Post 7]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}) built the backend half: two typed FastAPI routes — `GET /api/episodes` and `GET /api/episodes/{slug}` — that return episode JSON with `pages.image_url` relative keys already resolved into absolute URLs at response time, with the OpenAPI spec as the written-down wire-format contract. All of it `curl`-able, none of it visible in a browser. This post crosses the wire. We hand-write a TypeScript mirror of the Pydantic response models, build a tiny `fetch` client and an episode picker, and wrap [StPageFlip](https://github.com/Nodlik/StPageFlip) in a React component so a reader can flip through a real page-turning book — single page in portrait, a two-page spread in landscape. By the end, a reader can pick an episode and flip through it like a real book, and three appendices go deeper on the two SQLAlchemy idioms behind the [Post 7]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}) handlers and on how `Settings` reads your `.env`.
+Post 8 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}) series. [Post 7]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}) built the backend half: two typed FastAPI routes, `GET /api/episodes` and `GET /api/episodes/{slug}`, that return episode JSON with `pages.image_url` relative keys already resolved into absolute URLs at response time, with the OpenAPI spec as the written-down wire-format contract. All of it `curl`-able, none of it visible in a browser. This post crosses the wire. We hand-write a TypeScript mirror of the Pydantic response models, build a tiny `fetch` client and an episode picker, and wrap [StPageFlip](https://github.com/Nodlik/StPageFlip) in a React component so a reader can flip through a real page-turning book — single page in portrait, a two-page spread in landscape. By the end, a reader can pick an episode and flip through it like a real book, and three appendices go deeper on the two SQLAlchemy idioms behind the [Post 7]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}) handlers and on how `Settings` reads your `.env`.
 
 > **What you'll build in this post.**
 > - A `frontend/` directory at the repo root: [Vite](https://vitejs.dev/) + React + TypeScript scaffold, a small typed `fetch` wrapper, a hand-rolled `types.ts` that mirrors the Pydantic models from [Post 7]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}), a minimal episode-picker, and a real flipbook reader.
@@ -54,11 +54,11 @@ Post 8 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pep
 
 ## The Frontend's Type Contract: Hand-Rolled, For Now {#type-contract}
 
-Now we cross the wire. The frontend's job is to call those two URLs, parse the JSON, and render it. The two real choices about how to keep its types in sync with the backend:
+Now we cross the wire. The frontend's job is to call those two URLs, parse the JSON, and render it. There are two real choices about how to keep its types in sync with the backend:
 
-**Option A: Generate the types.** Run [openapi-typescript](https://github.com/openapi-ts/openapi-typescript) over the FastAPI `/openapi.json` and let it emit a `schema.d.ts` file the frontend imports from. The backend renames `episode_number` to `number`, the next `npm run gen:api` regenerates, the frontend's TypeScript compilation breaks loudly. **Drift becomes a compile error.**
+**Option A: Generate the types.** Run [openapi-typescript](https://github.com/openapi-ts/openapi-typescript) over the FastAPI `/openapi.json` and let it emit a `schema.d.ts` file the frontend imports from. The backend renames `episode_number` to `number`, the next `npm run gen:api` regenerates, the frontend's TypeScript compilation breaks loudly. Drift becomes a compile error.
 
-**Option B: Hand-write the types.** A `frontend/src/api/types.ts` file with TypeScript interfaces that mirror the Pydantic models. The backend renames a field, somebody has to remember to edit `types.ts` to match. **Drift can sneak in.**
+**Option B: Hand-write the types.** A `frontend/src/api/types.ts` file with TypeScript interfaces that mirror the Pydantic models. The backend renames a field, and somebody has to remember to edit `types.ts` to match. Drift can sneak in.
 
 Option A is what you want at any non-trivial API size. The drift problem is real, the cost of the generator is one CLI invocation, and the resulting types are exact reflections of the spec.
 
@@ -105,7 +105,7 @@ export interface EpisodeDetail extends Episode {
 }
 ```
 
-You can read this whole file at a glance and see whether it matches the Pydantic models on the other side. Adding a generator at this scale would mean adding a dev dependency, a build step, a generated file in version control with merge-conflict noise, and a `npm run gen:api` ritual that doesn't earn its keep until the API surface is large enough that humans actually miss drift. **The hand-rolled version is honest about what's happening — both sides own the contract, both sides need to read it when they edit.** Once the API hits ~6 endpoints or starts adding nested response shapes (think enum fields, discriminated unions, paginated wrappers), graduate to a generator. The seam is one `import type { ... }` line in the API client — that's the place that doesn't change.
+You can read this whole file at a glance and see whether it matches the Pydantic models on the other side. Adding a generator at this scale would mean adding a dev dependency, a build step, a generated file in version control with merge-conflict noise, and a `npm run gen:api` ritual that doesn't earn its keep until the API surface is large enough that humans actually miss drift. The hand-rolled version is honest about what's happening: both sides own the contract, and both sides need to read it when they edit. Once the API hits ~6 endpoints or starts adding nested response shapes (think enum fields, discriminated unions, paginated wrappers), graduate to a generator. The seam is one `import type { ... }` line in the API client, and that's the place that doesn't change.
 
 The actual API client is a tiny fetch wrapper:
 
@@ -129,7 +129,7 @@ export const api = {
 };
 ```
 
-`VITE_API_BASE_URL` is read from `frontend/.env` (or empty string in dev, when Vite's proxy intercepts `/api`). At two endpoints the indirection of a query library or a typed-fetch wrapper costs more than it pays — but the `Promise<T>` return types here are the seam any future migration to [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) or [TanStack Query](https://tanstack.com/query/latest) would slot into. **Build the seam; defer the library.**
+`VITE_API_BASE_URL` is read from `frontend/.env` (or empty string in dev, when Vite's proxy intercepts `/api`). At two endpoints the indirection of a query library or a typed-fetch wrapper costs more than it pays, but the `Promise<T>` return types here are the seam any future migration to [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) or [TanStack Query](https://tanstack.com/query/latest) would slot into. Build the seam; defer the library.
 
 ---
 
@@ -143,7 +143,7 @@ The full frontend stack for this post is three primary tools — chosen because 
 | [React](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) | UI library + type system. | The UI surface is small enough that any framework would work. React + TypeScript is the default in the industry; using anything else here trades signal for novelty. |
 | [page-flip](https://www.npmjs.com/package/page-flip) (StPageFlip) | A real page-flipping flipbook: corner peel, physics, the works. | The whole *point* of this UI is that pages flip like a real book. Re-implementing that is a deep rabbit hole; the [StPageFlip](https://github.com/Nodlik/StPageFlip) library is well-maintained, framework-agnostic, ~30 KB minified, and has the right primitives (orientation switching, page-flip events) baked in. |
 
-That's it. No router, no query library, no CSS framework, no state-management library. The picker ↔ reader switch is one `useState`. Data fetching is `useEffect` + `fetch`. CSS is a hand-written stylesheet using CSS variables for the palette. **Anything else gets added when something concrete demands it** — `react-router-dom` lands when deep-linking to a page becomes a real feature, a query library lands when caching or focus-refetch starts mattering, an animation library lands when there's animation to write.
+That's it. No router, no query library, no CSS framework, no state-management library. The picker ↔ reader switch is one `useState`. Data fetching is `useEffect` + `fetch`. CSS is a hand-written stylesheet using CSS variables for the palette. Anything else gets added when something concrete demands it: `react-router-dom` lands when deep-linking to a page becomes a real feature, a query library lands when caching or focus-refetch starts mattering, an animation library lands when there's animation to write.
 
 Scaffold the project:
 
@@ -173,7 +173,7 @@ export default defineConfig({
 });
 ```
 
-> *Why a proxy if we already have CORS?* The [§ Cross-origin requests subsection]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}#rest-api) in [Post 7]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}) covered the conceptual side — `http://localhost:5173` and `http://localhost:8000` are different origins, and `backend/app/main.py` already configures the CORS middleware to allow the dev origin. The proxy is the *second* mechanism: it routes `/api/*` and `/images/*` through Vite at `:5173`, which makes those fetches look same-origin to the browser and skips the CORS check entirely. The pay-off is a cleaner DevTools network tab in dev. CORS still earns its keep in production, where the dev proxy isn't running and the frontend (Cloudflare Pages) lives on a different origin than the backend (Fly).
+> *Why a proxy if we already have CORS?* The [§ Cross-origin requests subsection]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}#rest-api) in [Post 7]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}) covered the conceptual side: `http://localhost:5173` and `http://localhost:8000` are different origins, and `backend/app/main.py` already configures the CORS middleware to allow the dev origin. The proxy is the *second* mechanism. It routes `/api/*` and `/images/*` through Vite at `:5173`, which makes those fetches look same-origin to the browser and skips the CORS check entirely. The pay-off is a cleaner DevTools network tab in dev. CORS still earns its keep in production, where the dev proxy isn't running and the frontend (Cloudflare Pages) lives on a different origin than the backend (Fly).
 
 The entry point is a four-line `main.tsx`:
 
@@ -197,9 +197,9 @@ Everything else is `App.tsx` and two components — we'll get to all three below
 
 ## The Flipbook Component: Wrapping StPageFlip Cleanly {#flipbook-component}
 
-[StPageFlip](https://github.com/Nodlik/StPageFlip) is a vanilla-JS library that takes a container element and a list of page elements and gives you a real, physics-y page-flipping flipbook — clicking the corner of a page peels it like a paperback. There's no official React wrapper, and the imperative API is a square peg for React's render-time-only model. Wrapping it correctly is the bulk of this section.
+[StPageFlip](https://github.com/Nodlik/StPageFlip) is a vanilla-JS library that takes a container element and a list of page elements and gives you a real, physics-y page-flipping flipbook, where clicking the corner of a page peels it like a paperback. There's no official React wrapper, and the imperative API is a square peg for React's render-time-only model. Wrapping it correctly is the bulk of this section.
 
-The pattern that works: **let React own a wrapper `<div>`, give StPageFlip an inner element React doesn't render**, and destroy/recreate the inner element across episodes. This keeps the two ownership models — declarative for the surrounding chrome, imperative for the library's DOM subtree — from stepping on each other.
+The pattern that works: let React own a wrapper `<div>`, give StPageFlip an inner element React doesn't render, and destroy/recreate the inner element across episodes. This keeps the two ownership models, declarative for the surrounding chrome and imperative for the library's DOM subtree, from stepping on each other.
 
 The full component, abridged for the page-flow but preserving every load-bearing bit:
 
@@ -349,7 +349,7 @@ A few details earn their lines:
 - **The defensive wrapper wipe (`while (wrapper.firstChild) wrapper.removeChild(...)`).** Belt-and-suspenders for the wrapper/inner split. React StrictMode's dev-only *setup → cleanup → setup* cycle is supposed to leave the wrapper empty between iterations because `flip.destroy()` removes the flipRoot — but if any part of PageFlip's destroy chain throws or races with a pending init `setTimeout`, the stale flipbook stays in the DOM and the next iteration's flipbook renders on top of it. Visually you'd see ghost pages stacked vertically during a flip animation, or the active spread appearing to "move up" because there's a leftover spread underneath. One short while-loop wipes any leftover children before we appendChild the fresh root, which costs nothing and rules the failure mode out structurally.
 - **Callbacks live in refs, not in the effect's dep array.** `onPageChangeRef` and `onOrientationChangeRef` are updated by tiny effects of their own. The big "build the flipbook" effect doesn't depend on them — only on `[detail]` — so it doesn't rebuild every time the parent passes a new lambda. (A common bug in this kind of wrapper is depending on the callback identity in the heavy effect; cue a full rebuild on every parent re-render.)
 - **`flip.destroy()` in the cleanup is non-negotiable.** Without it, navigating away from the reader and back leaks event listeners and DOM nodes. In React strict mode (which the project uses) you'd see it immediately as a double-instance; without strict mode you'd see it as gradual performance degradation in production.
-- **`onPageChange` reports a 1-indexed page number, read from PageFlip's own state.** Three event handlers — `flip`, `init`, and `changeOrientation` — share a `reportPage()` helper that does `flip.getCurrentPageIndex() + 1` and dispatches the result. **We deliberately do not trust the `e.data` payload of the `flip` event.** That value is the page index PageFlip *just stored internally*, which can briefly diverge from what's actually drawn on screen — most reliably on the single-page spread that an odd-page-count episode produces in landscape (e.g. page 3 alone in a 3-page episode), and across landscape↔portrait transitions that rebuild the spread layout. Reading the library's current state inside each handler sidesteps the drift. (We learned this the hard way; the page-indicator pill briefly read *"Page 3 of 3"* while the spread visibly showed pages 1 and 2 until we switched to the `getCurrentPageIndex()` approach.) Post 9's chat layer will subscribe to exactly this callback to learn what the reader is looking at, so the value being correct matters here, not just in the header.
+- **`onPageChange` reports a 1-indexed page number, read from PageFlip's own state.** Three event handlers (`flip`, `init`, and `changeOrientation`) share a `reportPage()` helper that does `flip.getCurrentPageIndex() + 1` and dispatches the result. We deliberately do not trust the `e.data` payload of the `flip` event. That value is the page index PageFlip *just stored internally*, which can briefly diverge from what's actually drawn on screen — most reliably on the single-page spread that an odd-page-count episode produces in landscape (e.g. page 3 alone in a 3-page episode), and across landscape↔portrait transitions that rebuild the spread layout. Reading the library's current state inside each handler sidesteps the drift. (We learned this the hard way: the page-indicator pill briefly read *"Page 3 of 3"* while the spread visibly showed pages 1 and 2, until we switched to the `getCurrentPageIndex()` approach.) Post 9's chat layer will subscribe to exactly this callback to learn what the reader is looking at, so the value being correct matters here, not just in the header.
 - **The `data-page-number` attribute powers a pure-CSS page badge.** Each `.page` element gets `el.dataset.pageNumber = String(page.page_number)`; the stylesheet renders that value as a small parchment pill at the bottom-right via `content: attr(data-page-number)` on the `::after` pseudo-element. No JavaScript needed to render the per-page indicator; the data flows from JSON → DOM attribute → CSS.
 - **Preload of current ± 2 pages.** Browsers don't preload images that aren't in the visible DOM yet. A `<link rel="preload">` injected into `<head>` for the next two and previous two pages keeps the next flip's image ready when the reader gets there. Five `<link>` tags is cheap; a stuttering flip animation looks bad.
 
@@ -359,7 +359,7 @@ The CSS for the badge, the flipbook frame, and the soft shadow lives in `fronten
 
 ## Single Page vs Two-Page Spread {#orientation}
 
-The flipbook component above already handles this — `flip.on('changeOrientation', ...)` fires whenever StPageFlip switches between portrait (single page) and landscape (two-page spread) based on viewport dimensions, and the component forwards the new mode through `onOrientationChange` *and* re-emits the visible page via `reportPage()` (so the page-indicator pill stays accurate when the spread layout rebuilds). But the *why* is worth a section, because portrait/landscape rendering is a constant source of buggy comic readers and StPageFlip gives us the right primitive almost for free.
+The flipbook component above already handles this: `flip.on('changeOrientation', ...)` fires whenever StPageFlip switches between portrait (single page) and landscape (two-page spread) based on viewport dimensions, and the component forwards the new mode through `onOrientationChange` *and* re-emits the visible page via `reportPage()` (so the page-indicator pill stays accurate when the spread layout rebuilds). But the *why* is worth a section, because portrait/landscape rendering is a constant source of buggy comic readers and StPageFlip gives us the right primitive almost for free.
 
 The behavior we want:
 
@@ -430,7 +430,7 @@ export function EpisodePicker({ onSelect }: { onSelect: (e: Episode) => void }) 
 }
 ```
 
-The pattern worth pulling out is the **`fetch` + `useState` data path**. Three lines: a `useEffect` fires the request on mount, success calls `setEpisodes`, failure calls `setError`. The JSX branches on `error` and `episodes === null` to render three states (error / loading / loaded) declaratively. **No library involved.** This is the part that, in a larger app, would get caching, dedup, and focus-refetch via TanStack Query or SWR — and it's worth knowing when to graduate. Three signals: (1) the same data is being refetched in multiple components, (2) loading states are flickering on quick re-mounts, (3) you start writing your own cache. None of those bite at one screen.
+The pattern worth pulling out is the **`fetch` + `useState` data path**. Three lines: a `useEffect` fires the request on mount, success calls `setEpisodes`, failure calls `setError`. The JSX branches on `error` and `episodes === null` to render three states (error / loading / loaded) declaratively. No library involved. This is the part that, in a larger app, would get caching, dedup, and focus-refetch via TanStack Query or SWR, and it's worth knowing when to graduate. Three signals: (1) the same data is being refetched in multiple components, (2) loading states are flickering on quick re-mounts, (3) you start writing your own cache. None of those bite at one screen.
 
 The inner `EpisodeCard` (not shown — see [the source](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/frontend/src/components/EpisodePicker.tsx)) renders the cover image, a "Episode N" badge in the corner, the title, the plot summary with the optional "Read more" toggle, and a footer with the page count plus a "Read →" CTA. The whole card has `role="button"` plus a keyboard handler so it's accessible to keyboard users without nested-interactive-element warnings — the inner toggle uses `stopPropagation` so clicking it doesn't also open the episode.
 
@@ -484,7 +484,7 @@ export function App() {
 
 Three pieces of state lifted up here — `selectedEpisode`, `currentPage`, `orientation` — are the seams Post 9 (chat) and later posts (world graph) will plug into. The chat panel needs `selectedEpisode.slug` to scope its retrieval, `currentPage` to scope spoiler filtering, and `orientation` to phrase its context hint ("Reading pages 4–5"). All three are already here, lifted to where any sibling component can read them.
 
-What's *not* here: no `react-router-dom`, no URL synced to the selected episode, no deep-link to a specific page. Those are absolutely worth adding — and Post 9 will, when the chat panel needs durable page state across reloads — but they're not what this post is about, and adding them now would muddle the picker/reader narrative.
+What's *not* here: no `react-router-dom`, no URL synced to the selected episode, no deep-link to a specific page. Those are worth adding, and Post 9 will add them when the chat panel needs durable page state across reloads. But they're not what this post is about, and adding them now would muddle the picker/reader narrative.
 
 ---
 
@@ -593,13 +593,13 @@ Here's everything we just built, in one picture. A reader clicks an episode in t
 
 *The full request flow. The browser issues one JSON request and gets back absolute image URLs; the `<img>` tags then fetch the bytes directly from FastAPI's static-files mount (or, in production, from R2 with the same key shape). The `Storage` Protocol is the only place URLs are composed — flipping `STORAGE_BACKEND=r2` in `.env` rewires the same key shape to a different URL prefix with zero migration. Click the diagram to open it full-size in a new tab.*
 
-The architectural property to notice: **there is no shared state between the two halves except the JSON contract.** The frontend has no idea what database is on the other end of the API; the backend has no idea what frontend framework is consuming the spec. Either side can be replaced — swap React for SolidJS, swap FastAPI for [Litestar](https://litestar.dev/) — with the other untouched. The OpenAPI spec is what makes this true in practice rather than just in slogan.
+The architectural property to notice is that there is no shared state between the two halves except the JSON contract. The frontend has no idea what database is on the other end of the API; the backend has no idea what frontend framework is consuming the spec. Either side can be replaced — swap React for SolidJS, swap FastAPI for [Litestar](https://litestar.dev/) — with the other untouched. The OpenAPI spec is what makes this true in practice rather than just in slogan.
 
 ---
 
 ## Running It on Your Laptop {#running-it}
 
-The [§ Tour + Quick Start]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}#tour) at the top of [Post 7]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}) covered the three commands you need to *see* the app render — Postgres up, backend on `:8000`, frontend on `:5173`. This section is the **verification recipe** that complements it: the proofs that the seams in the post actually hold, plus the GIF of the end result so you know what to expect.
+The [§ Tour + Quick Start]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}#tour) at the top of [Post 7]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}) covered the three commands you need to *see* the app render: Postgres up, backend on `:8000`, frontend on `:5173`. This section is the **verification recipe** that complements it: the proofs that the seams in the post actually hold, plus the GIF of the end result so you know what to expect.
 
 ### What it looks like running
 
@@ -629,27 +629,27 @@ npm run type-check                            # tsc -b --noEmit, no output = pas
 npm run build                                 # Vite production build
 ```
 
-If the backend ever renames a Pydantic field in a way that drifts from `frontend/src/api/types.ts`, this is the place you'll catch it — either a TypeScript compile error during `type-check` or a runtime undefined when a component reads the renamed-away field. **The hand-rolled contract earns its keep when you run these two commands after every API change.** (When that becomes annoying — see [§ The Frontend's Type Contract](#type-contract) for when to graduate to `openapi-typescript`.)
+If the backend ever renames a Pydantic field in a way that drifts from `frontend/src/api/types.ts`, this is the place you'll catch it: either a TypeScript compile error during `type-check`, or a runtime undefined when a component reads the renamed-away field. The hand-rolled contract earns its keep when you run these two commands after every API change. (When that becomes annoying, see [§ The Frontend's Type Contract](#type-contract) for when to graduate to `openapi-typescript`.)
 
 ### One more sanity check: the bookmarkable URL isn't here yet
 
-If you try copy-pasting the reader URL — it stays `http://localhost:5173/` even after you click into Episode 1, because we haven't wired up `react-router-dom`. That's a feature gap, not a bug, and it's the right call for this post: nothing yet *uses* a deep link. Post 9 introduces the chat session, which is where a URL-synced page index becomes necessary — and that's when a router earns its place. Until then, the picker → reader switch is one `useState` and that's enough.
+Try copy-pasting the reader URL and you'll notice it stays `http://localhost:5173/` even after you click into Episode 1, because we haven't wired up `react-router-dom`. That's a feature gap, not a bug, and it's the right call for this post: nothing yet *uses* a deep link. Post 9 introduces the chat session, which is where a URL-synced page index becomes necessary, and that's when a router earns its place. Until then, the picker → reader switch is one `useState` and that's enough.
 
 ---
 
 ## Key Takeaways {#key-takeaways}
 
-**1. Design the API surface backwards from screens, not forward from tables.** Two screens, two endpoints. Designing forward from the `episodes` and `pages` tables would have given you three or four "RESTful" endpoints that match nothing the UI actually loads. Backwards-from-screens produces fatter, fewer responses that match how the frontend renders — which is what minimizes round-trips and removes the "do I need to make another call?" loop from every component.
+**1. Design the API surface backwards from screens, not forward from tables.** Two screens, two endpoints. Designing forward from the `episodes` and `pages` tables would have given you three or four "RESTful" endpoints that match nothing the UI actually loads. Backwards-from-screens produces fatter, fewer responses that match how the frontend renders, which is what minimizes round-trips and removes the "do I need to make another call?" loop from every component.
 
-**2. Make the wire format an artifact, not folklore.** FastAPI's OpenAPI spec is the contract; the Pydantic response models are the source of truth that produces it; the frontend's `types.ts` mirrors the same shapes. At two endpoints, mirroring by hand is *honest* and *legible* — both sides own the contract and both sides can read it. **Graduate to `openapi-typescript` (or similar) when the API surface hits ~6 endpoints or when nested response shapes start showing up.** The seam is the same either way.
+**2. Make the wire format an artifact, not folklore.** FastAPI's OpenAPI spec is the contract; the Pydantic response models are the source of truth that produces it; the frontend's `types.ts` mirrors the same shapes. At two endpoints, mirroring by hand is honest and legible: both sides own the contract and both sides can read it. Graduate to `openapi-typescript` (or similar) when the API surface hits ~6 endpoints or when nested response shapes start showing up. The seam is the same either way.
 
-**3. The URL-composition seam from Post 4 paid off the moment the frontend showed up.** Storing relative keys in the DB and composing absolute URLs at API response time is invisible discipline while no one's looking — but it's *what makes the frontend possible without a migration when storage swaps from local to R2*. The route handler doesn't even know which storage is on the other side of `url_for()`. **That's the whole point of an abstraction earning its keep.**
+**3. The URL-composition seam from Post 4 paid off the moment the frontend showed up.** Storing relative keys in the DB and composing absolute URLs at API response time is invisible discipline while no one's looking, but it's what makes the frontend possible without a migration when storage swaps from local to R2. The route handler doesn't even know which storage is on the other side of `url_for()`. That's the whole point of an abstraction earning its keep.
 
-**4. StPageFlip is a vanilla-JS library held inside a React component via wrapper + inner div + cleanup.** The instance lives in a `useRef`, not in state, because flipping a page should not re-render React. A wrapper `<div>` belongs to React; an inner `<div>` belongs to StPageFlip; `flip.destroy()` in the effect cleanup keeps the two ownership models from stepping on each other. This pattern — *imperative third-party library wrapped in a declarative component* — generalizes to most "DOM library + React" cases: Mapbox, Three.js, CodeMirror, anything that wants to own a DOM subtree. It's worth being fluent at; it shows up everywhere.
+**4. StPageFlip is a vanilla-JS library held inside a React component via wrapper + inner div + cleanup.** The instance lives in a `useRef`, not in state, because flipping a page should not re-render React. A wrapper `<div>` belongs to React; an inner `<div>` belongs to StPageFlip; `flip.destroy()` in the effect cleanup keeps the two ownership models from stepping on each other. This pattern (an imperative third-party library wrapped in a declarative component) generalizes to most "DOM library + React" cases: Mapbox, Three.js, CodeMirror, anything that wants to own a DOM subtree. It's worth being fluent at; it shows up everywhere.
 
 **5. Plain fetch + `useState` is enough for two endpoints.** Three signals to graduate to TanStack Query / SWR / react-query: (a) the same data is being refetched in multiple components, (b) loading states flicker on quick re-mounts, (c) you find yourself writing your own cache. None of those bite at one screen. Adding a library before the pain hits is just speculative complexity; deferring it until the third signal lights up is when you get the most signal from the upgrade.
 
-**6. Single-page versus two-page spread is one library event plus a media-query.** `flip.on('changeOrientation', ...)` fires whenever the viewport flips between portrait and landscape; the component forwards the new mode through a callback; the parent reshapes the page-indicator pill. The fact that real comics have facing spreads — *Pepper & Carrot* episode 6 has at least one cross-gutter watercolor — is an artist decision the reader UI should honor, and the spread mode honors it for free. Single-page mode is the safety net for narrow viewports, not the canonical view.
+**6. Single-page versus two-page spread is one library event plus a media-query.** `flip.on('changeOrientation', ...)` fires whenever the viewport flips between portrait and landscape; the component forwards the new mode through a callback; the parent reshapes the page-indicator pill. Real comics have facing spreads — *Pepper & Carrot* episode 6 has at least one cross-gutter watercolor — and that's an artist decision the reader UI should honor, which the spread mode does for free. Single-page mode is the safety net for narrow viewports, not the canonical view.
 
 ---
 
@@ -811,7 +811,7 @@ This seems simpler — one query, no subquery. And it would work. But it has two
 1. **Grouping is awkward.** When you `GROUP BY Episode.id`, strict SQL dialects (like Postgres) require every non-aggregated column to appear in the `GROUP BY` clause too. So you'd need `.group_by(Episode.id, Episode.title, Episode.slug, ...)` — tedious and fragile every time you add a column to `episodes`.
 2. **It mixes concerns.** The `pages` table is joined directly into a query about episodes, which means the query planner has to figure out how to deduplicate. With many pages per episode, the intermediate result set is large before the `GROUP BY` collapses it.
 
-The subquery approach computes the per-episode counts first (small result: one row per episode), then joins that compact summary to the `episodes` table. **Cleaner SQL, cleaner planner work**, and the main `select(Episode, ...)` doesn't need a `GROUP BY` at all because the join is one-to-one — each episode matches at most one row in `page_counts`.
+The subquery approach computes the per-episode counts first (small result: one row per episode), then joins that compact summary to the `episodes` table. Cleaner SQL, cleaner planner work, and the main `select(Episode, ...)` doesn't need a `GROUP BY` at all because the join is one-to-one: each episode matches at most one row in `page_counts`.
 
 #### The whole picture, in one mental snapshot
 
@@ -886,7 +886,7 @@ If the episode has 10 pages, that's:
 
 12 queries for one API request. Scale to 50 pages → 52 queries. **This is the N+1 problem**: 1 initial query, then N extra queries, one per parent row.
 
-In async mode it's even worse: SQLAlchemy's default lazy loading actually **raises an error** in an async session, because the implicit query would block the event loop. So you'd see a crash, not just slowness — which is the `MissingGreenlet` traceback a beginner hits the first time they reach for `episode.pages` inside an async handler without thinking about eager loading.
+In async mode it's even worse: SQLAlchemy's default lazy loading actually raises an error in an async session, because the implicit query would block the event loop. So you'd see a crash, not just slowness — the `MissingGreenlet` traceback a beginner hits the first time they reach for `episode.pages` inside an async handler without thinking about eager loading.
 
 `selectinload` tells SQLAlchemy: *"when you load these episodes, also load their pages — in a separate but bulk query."*
 
@@ -941,7 +941,7 @@ There's a sibling strategy called `joinedload` that *does* use a SQL JOIN:
 .options(joinedload(Episode.pages))
 ```
 
-This pulls episode + pages in one query with a `JOIN`. Sounds better, right? Fewer queries! But JOINs have a problem for collections: if an episode has 10 pages, the JOIN duplicates the episode row 10 times in the result set. With a second JOIN to characters, you get a **cartesian explosion** — 10 pages × 5 characters each = 50 rows where many fields repeat. SQLAlchemy deduplicates in Python, but you've still paid to transfer the redundant bytes over the wire.
+This pulls episode + pages in one query with a `JOIN`. Sounds better, right? Fewer queries. But JOINs have a problem for collections: if an episode has 10 pages, the JOIN duplicates the episode row 10 times in the result set. With a second JOIN to characters, you get a **cartesian explosion** — 10 pages × 5 characters each = 50 rows where many fields repeat. SQLAlchemy deduplicates in Python, but you've still paid to transfer the redundant bytes over the wire.
 
 `selectinload` avoids this. Each table is queried separately and cleanly, with no row multiplication. For one-to-many and many-to-many relationships (like `Episode → Pages` and `Page ↔ Characters`), it's usually the right default.
 
@@ -1020,7 +1020,7 @@ The logic decomposes neatly:
 2. Zero matches is **normal**. The user might request a slug that doesn't exist. That's a `404`, not a `500`. `_or_none` returns `None` instead of raising, and the next line handles it with a clean `HTTPException`.
 3. You want the **ORM object, not a tuple**. The `scalar` prefix unwraps `(Episode,)` to just `Episode`, so `episode.pages` works directly without `row[0].pages`.
 
-All three concerns are addressed by that one method call. **It's the precise tool for "look up a single record by a unique key."**
+All three concerns are addressed by that one method call. It's the precise tool for "look up a single record by a unique key."
 
 #### Mental model
 
@@ -1038,13 +1038,13 @@ And for `scalar_one_or_none` and its siblings, the mental model is just **say wh
 | Zero or one row, missing is OK | `scalar_one_or_none()` ← what `get_episode` does |
 | A list of rows | `scalars().all()` |
 
-Pick the method that matches your real expectation about the data, and SQLAlchemy will enforce it for you. Code that says what it means is code that fails loudly when the world doesn't match — which is exactly the kind of failure you want.
+Pick the method that matches your real expectation about the data, and SQLAlchemy will enforce it for you. Code that says what it means is code that fails loudly when the world doesn't match, and that's exactly the kind of failure you want.
 
 ---
 
 ### How `Settings` Reads Your `.env` {#appendix-settings}
 
-If you've been wondering how `settings.cors_origins` in `backend/app/main.py` ends up containing `["http://localhost:5173"]` without anyone explicitly opening a file or parsing anything, this appendix walks the chain. It's optional reading — every other post in the series uses `Settings` without needing this depth — but if you're new to [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) the magic can feel like, well, magic. The same questions resurface when an env-var change doesn't seem to take effect or when you want to know exactly what overrides what.
+If you've been wondering how `settings.cors_origins` in `backend/app/main.py` ends up containing `["http://localhost:5173"]` without anyone explicitly opening a file or parsing anything, this appendix walks the chain. It's optional reading — every other post in the series uses `Settings` without needing this depth — but if you're new to [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) the magic can feel like, well, magic. The same questions resurface when an env-var change doesn't seem to take effect, or when you want to know exactly what overrides what.
 
 #### The class definition
 
@@ -1080,7 +1080,7 @@ class Settings(BaseSettings):
 Three things to notice before we get to the four `SettingsConfigDict` arguments:
 
 1. **`BaseSettings` is from pydantic-settings**, not from pydantic itself. Pydantic-settings is a separate package layered on top of pydantic for the specific job of *"load typed config from environment variables and `.env` files."* The split exists because most pydantic models don't need that machinery — only application config does.
-2. **`model_config` is a magic attribute name.** Pydantic v2's metaclass reads any class attribute named `model_config` at class-definition time to configure model behavior. **You never reference it from application code.** It's pydantic v2's replacement for the older `class Config:` inner class you might have seen in v1 tutorials — same idea, cleaner syntax.
+2. **`model_config` is a magic attribute name.** Pydantic v2's metaclass reads any class attribute named `model_config` at class-definition time to configure model behavior. You never reference it from application code. It's pydantic v2's replacement for the older `class Config:` inner class you might have seen in v1 tutorials — same idea, cleaner syntax.
 3. **Every field has a default.** That means `Settings()` works even with no `.env` file at all — it falls back to the in-code defaults. The `.env` file is an *override*, not a requirement. This is what lets a brand-new contributor `git clone` the repo and run `pytest` without touching anything.
 
 #### The four `SettingsConfigDict` arguments, one by one
@@ -1116,7 +1116,7 @@ This is subtle but important. `_PROJECT_ROOT = Path(__file__).resolve().parents[
 - `cd ingestion && uv run python ingest.py` (CWD = `ingestion/`)
 - `pytest` from the repo root (CWD = repo root)
 
-Without anchoring — i.e., if `env_file=".env"` were passed as a plain relative path — pydantic-settings would resolve it against whichever CWD was active when the process launched. Three different CWDs → three different effective `.env` paths → "why does the backend find my `.env` but the ingestion script doesn't?" three months from now. **Anchoring to `__file__`-derived path solves this once.** Every consumer of `Settings` sees the same single file.
+Without anchoring — i.e., if `env_file=".env"` were passed as a plain relative path — pydantic-settings would resolve it against whichever CWD was active when the process launched. Three different CWDs → three different effective `.env` paths → "why does the backend find my `.env` but the ingestion script doesn't?" three months from now. Anchoring to a `__file__`-derived path solves this once. Every consumer of `Settings` sees the same single file.
 
 #### The precedence chain
 
@@ -1127,7 +1127,7 @@ When you call `Settings()` (or, more commonly, `get_settings()` which caches the
 3. **`.env` file values** — what's written in the file at `env_file=…`.
 4. **In-code defaults** — the right-hand side of each `: str = "..."` declaration on the class.
 
-**Highest match wins.** So if you want to override `.env` for one run, just prefix the command:
+Highest match wins. So if you want to override `.env` for one run, just prefix the command:
 
 ```bash
 POSTGRES_HOST=other-host uv run uvicorn app.main:app
@@ -1135,11 +1135,11 @@ POSTGRES_HOST=other-host uv run uvicorn app.main:app
 # even though .env says POSTGRES_HOST=postgres (rank 3).
 ```
 
-**The same chain governs production**, but the *source* shifts — rank 2 (`os.environ`) becomes where everything comes from, because containers don't typically ship a `.env` file. The next subsection unpacks that.
+The same chain governs production, but the *source* shifts: rank 2 (`os.environ`) becomes where everything comes from, because containers don't typically ship a `.env` file. The next subsection unpacks that.
 
 #### Where the values come from in production (Docker, Fly, Modal) {#prod-env-vars}
 
-In local dev, `Settings` reads from your `.env` file at rank 3. In any containerized deployment, it usually doesn't — and the question that always comes up the first time you deploy is *"how does the container even get those env vars set?"* This subsection answers that.
+In local dev, `Settings` reads from your `.env` file at rank 3. In any containerized deployment, it usually doesn't, and the question that always comes up the first time you deploy is *"how does the container even get those env vars set?"* This subsection answers that.
 
 ##### Two unrelated files share the name `.env`
 
@@ -1150,7 +1150,7 @@ Before anything else: there are **two completely different `.env` mechanisms** i
 | **pydantic-settings `.env`** (this appendix) | The Python process, inside `Settings()`, via `env_file=…`. | At runtime, on whatever filesystem Python is running on. |
 | **Docker Compose `.env`** | The `docker compose` CLI, before processing `docker-compose.yml`. | At orchestration time, to interpolate `${VARS}` inside the compose file. |
 
-These are unrelated. They sometimes contain different keys. People mix them up all the time. **For the rest of this subsection, `.env` means the pydantic-settings one.**
+These are unrelated. They sometimes contain different keys. People mix them up all the time. For the rest of this subsection, `.env` means the pydantic-settings one.
 
 ##### How env vars get into a container
 
@@ -1162,7 +1162,7 @@ Every Linux process inherits an `environ` block — a list of `KEY=VALUE` string
 - **`docker-compose.yml` with `env_file:`** — declarative form of `--env-file`.
 - **Platform secrets** — `fly secrets set KEY=VALUE` on Fly.io, `modal.Secret` on Modal, `Secret` and `ConfigMap` resources on Kubernetes. The platform injects them into the container at boot.
 
-All five end up in the same place: **`os.environ` inside the container**. From there, pydantic-settings finds them at rank 2 of the precedence chain.
+All five end up in the same place: `os.environ` inside the container. From there, pydantic-settings finds them at rank 2 of the precedence chain.
 
 ##### What goes inside the image, and what doesn't
 
@@ -1176,7 +1176,7 @@ WORKDIR /app/backend
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-**`COPY .env /app/.env` is intentionally missing.** Baking secrets into an image is a leak — anyone who pulls the image (or scrapes the registry, or recovers a backup) can extract them. Instead:
+**`COPY .env /app/.env` is intentionally missing.** Baking secrets into an image is a leak: anyone who pulls the image (or scrapes the registry, or recovers a backup) can extract them. Instead:
 
 - Your `.env` file stays on developer laptops only.
 - In production, your orchestrator (Compose / Fly / Modal / K8s / whatever) injects the same keys as `os.environ` entries on the running container.
@@ -1185,7 +1185,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
   2. Reads `os.environ` → finds `POSTGRES_HOST`, `CORS_ORIGINS`, etc. set by the orchestrator → uses those.
   3. Anything not in `os.environ` falls through to the in-code defaults.
 
-**The precedence chain is unchanged; one of its rungs (the `.env` file) is just empty in prod.**
+The precedence chain is unchanged; one of its rungs (the `.env` file) is just empty in prod.
 
 The chain, redrawn for the two scenarios side by side:
 
@@ -1223,11 +1223,11 @@ Fly stores those encrypted, and on every container boot it injects them as env v
 - `get_storage(settings)` sees `storage_backend == 'r2'` → returns an `R2Storage` instance.
 - The same code that talked to `LocalStorage` in dev now talks to Cloudflare R2 in prod.
 
-**No code in the workshop changes between dev and prod.** Only the *origin* of the values does. That's the property the [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) `Storage` Protocol was designed to land cleanly.
+No code in the workshop changes between dev and prod. Only the *origin* of the values does. That's the property the [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) `Storage` Protocol was designed to land cleanly.
 
 ##### One non-obvious gotcha
 
-If you mistakenly `COPY .env /app/.env` into the production image *and* your orchestrator sets the same keys via secrets, both happen — but `os.environ` wins (rank 2 > rank 3 in the precedence chain). So nothing visibly breaks. But you've leaked the dev secrets into the image regardless, which is the real cost. **Pin the lesson: never bake secrets into an image layer. Use the orchestrator's secret-injection path instead.**
+If you mistakenly `COPY .env /app/.env` into the production image *and* your orchestrator sets the same keys via secrets, both happen, but `os.environ` wins (rank 2 > rank 3 in the precedence chain). So nothing visibly breaks. You've still leaked the dev secrets into the image, though, which is the real cost. The lesson to pin: never bake secrets into an image layer. Use the orchestrator's secret-injection path instead.
 
 #### Inspecting a loaded `Settings` instance
 
@@ -1240,7 +1240,7 @@ print(get_settings().model_dump_json(indent=2))
 "
 ```
 
-That dumps every field on `Settings` with its currently-loaded value, regardless of whether the value came from `.env`, an env var, or the in-code default. **If the value you see isn't what you expect, the env var didn't make it through one of the four layers above** — and looking at the precedence chain usually tells you which.
+That dumps every field on `Settings` with its currently-loaded value, regardless of whether the value came from `.env`, an env var, or the in-code default. If the value you see isn't what you expect, the env var didn't make it through one of the four layers above, and looking at the precedence chain usually tells you which.
 
 #### Where this shows up in the workshop
 
@@ -1250,11 +1250,11 @@ That dumps every field on `Settings` with its currently-loaded value, regardless
 - **`backend/app/api/episodes.py`** — via the `get_storage_client` FastAPI dependency, which calls `get_settings()` and hands the result to `get_storage(settings)` to build the right `Storage` implementation.
 - **`backend/app/db/session.py`** (indirectly) — `main.py` reads `settings.database_url` and passes it to `init_engine`.
 
-In every case the consumer treats `Settings` as a plain typed object. None of them know or care where the values came from. **That decoupling is what makes "swap local for cloud" a config change** — `STORAGE_BACKEND=r2` in `.env` (plus the R2 credentials) is the only edit needed to point the same code at Cloudflare R2 instead of `LocalStorage`. The factory in `backend/app/clients/__init__.py` reads the new `storage_backend` value through `Settings` and returns a different implementation; no caller has to change.
+In every case the consumer treats `Settings` as a plain typed object. None of them know or care where the values came from. That decoupling is what makes "swap local for cloud" a config change: `STORAGE_BACKEND=r2` in `.env` (plus the R2 credentials) is the only edit needed to point the same code at Cloudflare R2 instead of `LocalStorage`. The factory in `backend/app/clients/__init__.py` reads the new `storage_backend` value through `Settings` and returns a different implementation; no caller has to change.
 
 ---
 
-Next up: **[Post 9 — The RAG Layer: Spoiler-Safe Retrieval]({% post_url 2026-05-25-pepper-carrot-companion-spoiler-safe-rag %}).** With a working reader telling the parent component which page the user is on (the `onPageChange` callback we wired up but didn't consume yet), we can build the chat pipeline that actually grounds answers in *only* the pages the reader has reached. We'll write a `RetrievalService` that filters Chroma queries by `(episode_number, page_number)` at the data layer, exercise it with `curl`, and prove the spoiler filter holds even when the user explicitly tries to jailbreak it. No chat panel UI yet — the streaming React panel lands in Post 10.
+Next up: **[Post 9 — The RAG Layer: Spoiler-Safe Retrieval]({% post_url 2026-05-25-pepper-carrot-companion-spoiler-safe-rag %}).** With a working reader telling the parent component which page the user is on (the `onPageChange` callback we wired up but didn't consume yet), we can build the chat pipeline that actually grounds answers in *only* the pages the reader has reached. We'll write a `RetrievalService` that filters Chroma queries by `(episode_number, page_number)` at the data layer, exercise it with `curl`, and prove the spoiler filter holds even when the user explicitly tries to jailbreak it. No chat panel UI yet; the streaming React panel lands in Post 10.
 
 The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>, tagged `post-07-08-fullstack` (shared with the [Post 7]({% post_url 2026-05-23-pepper-carrot-companion-rest-api-flipbook %}) REST-API post) — pull the latest to pick up the Vite frontend and the `<Flipbook>` component. The **full source repository** and the public live-demo URL go up alongside the final post — the deploy guide — once it's published.
 

@@ -45,7 +45,7 @@ a laptop or on a five-piece free-tier cloud deploy.
 
 ## The Premise {#the-premise}
 
-Most "chat with X" demos sit on top of a pile of text — PDFs, docs,
+Most "chat with X" demos sit on top of a pile of text: PDFs, docs,
 transcripts, web pages. The interesting cases start when X *isn't* text.
 I covered one of those in
 [my last post]({% post_url 2026-04-05-contextual-retrieval-for-photo-albums %}) —
@@ -59,7 +59,7 @@ the AI which page is visible. Three things make this harder than
 chat-with-PDF:
 
 - **It's visual.** There is no native text to retrieve over. You have to
-  *describe* every page into prose before any RAG technique can touch it —
+  *describe* every page into prose before any RAG technique can touch it,
   which raises a real architectural question about who does the describing,
   and when.
 - **It's sequential.** Page order carries plot. "Spoiler" is a meaningful
@@ -71,7 +71,7 @@ chat-with-PDF:
   I on" into a first-class runtime signal the chat layer can ground in.
 
 The comic in question is [**Pepper & Carrot**](https://www.peppercarrot.com/),
-made by French illustrator [David Revoy](https://www.davidrevoy.com/) — a
+made by French illustrator [David Revoy](https://www.davidrevoy.com/): a
 young witch and her cat get into trouble across 40+ episodes of stunning
 watercolor-style panels. The whole thing is licensed
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), which means
@@ -80,8 +80,8 @@ anyone can build on top of it as long as the author is credited.
 I wanted a reading experience that did one specific thing: as you flip
 through the pages, you can ask questions about what you're looking at —
 *who is this character, why is the cat angry, what just happened on the
-previous page* — and the AI **knows exactly which page you're on, and
-refuses to spoil anything past it.**
+previous page* — and the AI knows exactly which page you're on, and
+refuses to spoil anything past it.
 
 To pull that off you need:
 
@@ -95,7 +95,7 @@ To pull that off you need:
 5. A bonus: a knowledge graph of characters, places, and covens that
    reveals itself as you read further into the comic.
 
-This is a sixteen-part series about how I built that, end to end — from the
+This is a sixteen-part series about how I built that, end to end, from the
 first `docker compose up` on my laptop through a public deployment on
 free- and low-cost cloud services. The audience I had in mind: someone
 who has read about RAG and "AI agents" but hasn't yet built a full-stack
@@ -134,10 +134,10 @@ walkthrough of the same app running locally:
 *A live walkthrough of the Pepper & Carrot AI-powered flipbook — opening an episode, flipping pages, and chatting with the page-aware AI. (Click to enlarge.)*
 
 A few honest words about what to expect when the live link does go up.
-The cloud deploy is engineered for *cost*, not snappiness — both the
+The cloud deploy is engineered for *cost*, not snappiness: both the
 FastAPI backend (on [Fly.io](https://fly.io)) and the language model
-server (on [Modal](https://modal.com)) **scale to zero when nobody is
-using them**. That means the first request after a period of idleness
+server (on [Modal](https://modal.com)) scale to zero when nobody is
+using them. That means the first request after a period of idleness
 pays for waking the machines back up:
 
 - Fly boots a small Firecracker VM (~5–10 seconds).
@@ -149,7 +149,7 @@ that, it's quick.
 
 The app papers over this with a trick I'll explain in the deploy post:
 when you open an episode, the backend fires off a **fire-and-forget
-warmup** — a tiny throwaway request to the model server in the
+warmup**, a tiny throwaway request to the model server in the
 background, before you've typed a thing. By the time you finish reading
 the cover and ask your first question, the GPU is usually already warm.
 
@@ -167,7 +167,7 @@ Three features carry the whole product:
 ### 1. A real flipbook reader
 
 The reading view is a real page-flipping flipbook (using
-[StPageFlip](https://github.com/Nodlik/StPageFlip)) — single page in
+[StPageFlip](https://github.com/Nodlik/StPageFlip)): single page in
 portrait, two-page spread in landscape. A small parchment-pill page
 indicator at the top shows you where you are. Clicking the corner of a
 page flips it.
@@ -215,8 +215,8 @@ already debuted by your current page are shown. Click a node and you get a
 "Ask in wiki mode" button that pipes a starter question into the chat.
 
 These three features together are what makes this feel like an
-*AI-powered flipbook* — the reading and the chat are one experience,
-grounded in the page that's literally in front of you — rather than a
+*AI-powered flipbook*, where the reading and the chat are one experience
+grounded in the page that's literally in front of you, rather than a
 generic Q&A bot stapled onto a comic viewer.
 
 ---
@@ -278,7 +278,7 @@ ChromaDB on disk, the local filesystem for images, and a local
 [Ollama](https://ollama.com/) instance for chat and embeddings. Same code
 paths, different config.
 
-That's not an accident — it's the first of the two ideas this whole
+That's not an accident. It's the first of the two ideas this whole
 project is built on.
 
 ---
@@ -326,8 +326,8 @@ Here's the wrong way to prevent spoilers in a RAG app:
 
 You can write that prompt. You can write it ten different ways. And on a
 different day, with a different model, in a different chat context, the
-model will spoil things anyway. **Prompt instructions are guidance, not
-guarantees.** A serious app cannot rely on the model's good behavior for
+model will spoil things anyway. Prompt instructions are guidance, not
+guarantees, and a serious app cannot rely on the model's good behavior for
 correctness-critical properties.
 
 The right way is to make the spoiler structurally impossible: filter the
@@ -350,14 +350,14 @@ where = {
 ```
 
 The world graph uses the same idea, expressed in SQL with a row-value
-comparison so a single line covers "any entity that debuted by this point
+comparison, so a single line covers "any entity that debuted by this point
 in the story":
 
 ```sql
 WHERE (episode_debut, page_debut) <= (:current_episode, :current_page)
 ```
 
-The model couldn't spoil a future page if it tried — that data isn't in
+The model couldn't spoil a future page if it tried, because that data isn't in
 its prompt. This pattern (push correctness-critical filters down to the
 data layer; let the prompt focus on tone and synthesis) is one of the most
 broadly useful lessons from the project, and it shows up in
@@ -467,7 +467,7 @@ use:
   scale-to-zero GPU for the model, hosted Postgres for the database, and
   an object store for images.
 
-If you mostly want one of those, individual posts stand alone — Post 5 is
+If you mostly want one of those, individual posts stand alone. Post 5 is
 worth reading on its own if you're curious about Claude Skills, and
 Posts 14–15 are worth reading on their own if you're curious about the
 deploy shape.
@@ -477,8 +477,8 @@ deploy shape.
 ## Key Takeaways {#key-takeaways}
 
 **1. AI is a feature, not the product.** The whole demo is about reading
-a webcomic. The AI makes that better — it doesn't replace the reading.
-Designing for that ordering — UX first, model second — produces very
+a webcomic. The AI makes that better; it doesn't replace the reading.
+Designing for that ordering, UX first and model second, produces very
 different decisions than "let's build a chatbot." The flipbook itself
 has to be good even with the chat panel closed.
 
@@ -503,12 +503,12 @@ a local VLM in production." Post 5 makes this case in detail.
 **5. Cold start is a design parameter, not a bug.** Scale-to-zero hosting
 is what makes a portfolio app cost ~$10/mo instead of ~$200/mo. The
 right move isn't to disable scale-to-zero; it's to design the UX around
-it (warmup pings, friendly fallback messages, clear expectation-setting).
+it: warmup pings, friendly fallback messages, clear expectation-setting.
 
 **6. The deploy story matters as much as the build story.** Half the
 "can I actually use this?" judgement on a portfolio project is whether
 there's a live URL the reviewer can click. Picking a deploy shape early
-shapes everything upstream — image keys are relative, the backend reads
+shapes everything upstream: image keys are relative, the backend reads
 storage through an interface, secrets live in env vars from day one.
 
 ---

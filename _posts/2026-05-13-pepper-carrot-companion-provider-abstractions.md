@@ -19,9 +19,9 @@ series. With the workshop standing from
 write the first code that the rest of the project will sit on top of:
 three small Python [`Protocol`](https://docs.python.org/3/library/typing.html#typing.Protocol)
 interfaces and a factory that picks the right implementation from a
-`.env` file. Nothing fancy — ~250 lines of code total — but everything
-the next seven posts touches is going to flow through these three
-seams.
+`.env` file. It's nothing fancy, about 250 lines of code total, but
+everything the next seven posts touches is going to flow through these
+three seams.
 
 > **What you'll build in this post.**
 > - A `Storage` Protocol with a working `LocalStorage` implementation that writes to `./data/images/` and serves images via FastAPI's [`StaticFiles`](https://fastapi.tiangolo.com/tutorial/static-files/).
@@ -64,15 +64,15 @@ The project's [`CLAUDE.md`](https://github.com/bearbearyu1223/pepper-carrot-comp
 
 That's the whole rule. Everything in this post is what it takes to make that rule cheap to follow.
 
-If you've worked on a codebase that *didn't* follow this rule, you know the texture of the pain: someone added an `import openai` to a route handler nine months ago because it was easy; a year later, switching to a different provider means grepping for `openai` across 40 files, untangling differences in parameter names, and discovering you've subtly relied on OpenAI-specific behavior in three places. The fix takes a week. The damage isn't the week — it's the *next* time you want to swap something, when you already know the cost up front and don't bother.
+If you've worked on a codebase that *didn't* follow this rule, you know the texture of the pain. Someone added an `import openai` to a route handler nine months ago because it was easy; a year later, switching to a different provider means grepping for `openai` across 40 files, untangling differences in parameter names, and discovering you've subtly relied on OpenAI-specific behavior in three places. The fix takes a week. And the real damage isn't the week — it's the *next* time you want to swap something, when you already know the cost up front and don't bother.
 
-A typed [`Protocol`](https://peps.python.org/pep-0544/) interface is the cheapest possible insurance policy against that. Cheaper than picking a "right" provider; cheaper than building a [DI framework](https://en.wikipedia.org/wiki/Dependency_injection); cheaper than a config-loading library. Roughly 30 lines of Python, *most of which is the docstring*. We'll see exactly how cheap as we walk through the file.
+A typed [`Protocol`](https://peps.python.org/pep-0544/) interface is the cheapest possible insurance policy against that. Cheaper than picking a "right" provider, cheaper than building a [DI framework](https://en.wikipedia.org/wiki/Dependency_injection), cheaper than a config-loading library. Roughly 30 lines of Python, most of which is the docstring. We'll see exactly how cheap as we walk through the file.
 
 ---
 
 ## What "Provider Abstraction" Actually Means {#what-it-means}
 
-> *Plain-English aside.* The phrase "provider abstraction" sounds bigger than it is. It just means: **the calling code doesn't know which concrete service is on the other end of the call**. A route handler says "give me an embedding for this string"; whatever object answers that call could be talking to a local Ollama, a hosted Anthropic API, or a stub returning zeros for tests. The route handler can't tell the difference, and — this is the whole point — *doesn't have to*.
+> *Plain-English aside.* The phrase "provider abstraction" sounds bigger than it is. It just means: **the calling code doesn't know which concrete service is on the other end of the call**. A route handler says "give me an embedding for this string," and whatever object answers that call could be talking to a local Ollama, a hosted Anthropic API, or a stub returning zeros for tests. The route handler can't tell the difference, and — this is the whole point — doesn't have to.
 >
 > In statically typed languages this pattern usually shows up as an "interface" (Java, C#, Go). Python doesn't have a keyword for it, but `Protocol` from the [`typing`](https://docs.python.org/3/library/typing.html) module is the equivalent.
 
@@ -88,7 +88,7 @@ class Storage(Protocol):
     async def exists(self, key: str) -> bool: ...
 ```
 
-That's the entire interface. Three async methods. The `...` is Python syntax for "no body" — a Protocol declares the *shape*, not the *behavior*. Any class that defines those three methods with those signatures *is* a `Storage` as far as the type-checker is concerned, even without inheriting from anything.
+That's the entire interface. Three async methods. The `...` is Python syntax for "no body" — a Protocol declares the *shape*, not the *behavior*. Any class that defines those three methods with those signatures is a `Storage` as far as the type-checker is concerned, even without inheriting from anything.
 
 > *Why "structural"?* In [nominal](https://en.wikipedia.org/wiki/Nominal_type_system) typing — Java, C#, etc. — a class only implements an interface if it explicitly says `class LocalStorage implements Storage`. In [structural](https://en.wikipedia.org/wiki/Structural_type_system) typing, the relationship is inferred from the shape: if `LocalStorage` has those three methods, it *is* a `Storage`. Python's `Protocol` is structural by default. [`mypy --strict`](https://mypy-lang.org/) catches the mismatch if a method signature drifts; the runtime doesn't need to know anything about the relationship.
 >
@@ -104,15 +104,15 @@ Before we look at code, three concrete payoffs from the next ~250 lines. Each on
 
 **1. Local↔cloud swap is a config change.**
 
-The same backend binary boots two different deployment shapes depending on the value of three environment variables. Run it with `STORAGE_BACKEND=local CHAT_PROVIDER=ollama EMBEDDING_PROVIDER=ollama` and you get the all-local workshop you built in Post 2. Run it with `STORAGE_BACKEND=r2 OLLAMA_BASE_URL=<modal-url>` and it talks to [Cloudflare R2](https://www.cloudflare.com/developer-platform/products/r2/) for images and a Modal-hosted Ollama for chat — same code, same imports, same call sites. Post 15 is just a long checklist of "set this env var to that production value"; the codebase changes by zero lines.
+The same backend binary boots two different deployment shapes depending on the value of three environment variables. Run it with `STORAGE_BACKEND=local CHAT_PROVIDER=ollama EMBEDDING_PROVIDER=ollama` and you get the all-local workshop you built in Post 2. Run it with `STORAGE_BACKEND=r2 OLLAMA_BASE_URL=<modal-url>` and it talks to [Cloudflare R2](https://www.cloudflare.com/developer-platform/products/r2/) for images and a Modal-hosted Ollama for chat — same code, same imports, same call sites. Post 15 is just a long checklist of "set this env var to that production value," and the codebase changes by zero lines.
 
 **2. Hybrid setups become free.**
 
-You might want local embeddings (cheap, no rate limits, runs while you sleep ingesting 39 episodes) but cloud chat (better quality on small models, no GPU on your laptop). With three independent provider selectors — `STORAGE_BACKEND`, `CHAT_PROVIDER`, `EMBEDDING_PROVIDER` — this is literally just `CHAT_PROVIDER=anthropic EMBEDDING_PROVIDER=ollama` in your `.env`. There's no "hybrid mode" feature to design — every combination already works, because none of the three seams knows the others exist.
+You might want local embeddings (cheap, no rate limits, runs while you sleep ingesting 39 episodes) but cloud chat (better quality on small models, no GPU on your laptop). With three independent provider selectors — `STORAGE_BACKEND`, `CHAT_PROVIDER`, `EMBEDDING_PROVIDER` — this is just `CHAT_PROVIDER=anthropic EMBEDDING_PROVIDER=ollama` in your `.env`. There's no "hybrid mode" feature to design: every combination already works, because none of the three seams knows the others exist.
 
 **3. Tests stop touching the network.**
 
-When the only place SDKs are imported is `clients/`, every other module can be tested with a stub that implements the Protocol in five lines. The integration tests in Post 9 (retrieval) and Post 11 (prompt assembly) will use this — neither one hits a real model. The pattern: pass the test a `FakeChatClient` whose `stream()` yields pre-recorded tokens, and assert on the prompt assembly. Zero network, deterministic, runs in milliseconds.
+When the only place SDKs are imported is `clients/`, every other module can be tested with a stub that implements the Protocol in five lines. The integration tests in Post 9 (retrieval) and Post 11 (prompt assembly) will use this, and neither one hits a real model. The pattern: pass the test a `FakeChatClient` whose `stream()` yields pre-recorded tokens, and assert on the prompt assembly. Zero network, deterministic, runs in milliseconds.
 
 A worked example, since this comes up often enough to be worth pinning:
 
@@ -131,7 +131,7 @@ class FakeChatClient:
         return "".join(self._tokens)
 ```
 
-That's the *whole* test double. The retrieval logic in Post 9 can be tested by handing this to the orchestrator and asserting on what got streamed back. None of the real provider code is exercised; none of it needs to be — that code is tested separately, against real model servers.
+That's the whole test double. The retrieval logic in Post 9 can be tested by handing this to the orchestrator and asserting on what got streamed back. None of the real provider code is exercised, and none of it needs to be — that code is tested separately, against real model servers.
 
 ---
 
@@ -275,7 +275,7 @@ Three things worth noticing in the picture:
 
 - **All the SDK imports happen on the bottom row.** `anthropic`, `httpx`, `aiofiles`, `boto3`, `sentence-transformers` — these names appear *only* inside the leaf implementations in `backend/app/clients/`. Routes and services see Protocols.
 - **The factory is the only code that knows which leaves exist.** `clients/__init__.py` reads `Settings` and instantiates one of the leaves. Every other caller asks the factory for a `Storage` or a `ChatClient` and gets back an opaque object whose type is the Protocol.
-- **Today there's a hole on the bottom-left.** `R2Storage` is a stub that raises `NotImplementedError` — we fill it in for the cloud deploy in Post 14. The fact that we can ship Post 5–13 with that stub raising is itself a small piece of evidence the abstraction is working: nobody outside `clients/` knows or cares which storage backend is mounted.
+- **Today there's a hole on the bottom-left.** `R2Storage` is a stub that raises `NotImplementedError`; we fill it in for the cloud deploy in Post 14. The fact that we can ship Post 5–13 with that stub raising is itself a small piece of evidence the abstraction is working: nobody outside `clients/` knows or cares which storage backend is mounted.
 
 Let's build each seam in turn.
 
@@ -287,9 +287,9 @@ This is the smallest of the three Protocols, so it's a clean place to start.
 
 ### Why store images behind a Protocol at all?
 
-The naive answer is: just write images to disk and have FastAPI serve them. Done. Why dress it up?
+The naive answer is to just write images to disk and have FastAPI serve them. Done. Why dress it up?
 
-The non-naive answer is: in production, images don't live on disk next to the backend. They live in object storage like [Cloudflare R2](https://www.cloudflare.com/developer-platform/products/r2/), [AWS S3](https://aws.amazon.com/s3/), or [Google Cloud Storage](https://cloud.google.com/storage), fronted by a [CDN](https://en.wikipedia.org/wiki/Content_delivery_network) so a reader in Tokyo doesn't have to fetch them from a single server in Frankfurt. The two backends *answer the same questions* — "where can I read this image?", "is this image already uploaded?", "please write these bytes at this key" — but they answer them in totally different ways. Local disk says "your filesystem has it"; R2 says "issue an [S3 `PutObject`](https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html) with these headers."
+Because in production, images don't live on disk next to the backend. They live in object storage like [Cloudflare R2](https://www.cloudflare.com/developer-platform/products/r2/), [AWS S3](https://aws.amazon.com/s3/), or [Google Cloud Storage](https://cloud.google.com/storage), fronted by a [CDN](https://en.wikipedia.org/wiki/Content_delivery_network) so a reader in Tokyo doesn't have to fetch them from a single server in Frankfurt. The two backends answer the same questions — "where can I read this image?", "is this image already uploaded?", "please write these bytes at this key" — but they answer them in totally different ways. Local disk says "your filesystem has it"; R2 says "issue an [S3 `PutObject`](https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html) with these headers."
 
 The Protocol is the place where those two backends look the same to the rest of the codebase.
 
@@ -329,9 +329,9 @@ class Storage(Protocol):
 Three methods, each chosen because *both* backends need to do them and *neither* call site needs to do more. A handful of design choices in those few lines are worth pausing on:
 
 - **Keys, not paths.** The argument to every method is a `key: str` — a relative path like `episodes/ep01-potion-of-flight/pages/001-display.webp`. Never a full URL, never an absolute filesystem path. That's the same string the database stores in `pages.image_url` (from Post 3's design decision #2). It's *meaningful in the application*, not in the storage backend. `LocalStorage` turns the key into `./data/images/episodes/...`; `R2Storage` turns the same key into an R2 object key — and both compose the same key into a URL via `url_for`. A reader of `pages.image_url` doesn't know or care which backend resolved it.
-- **`content_type` is a parameter even though `LocalStorage` ignores it.** Filesystems don't care about MIME types — but R2 does (it goes on the `Content-Type` HTTP response header so browsers render `image/webp` as an image, not a download). Putting the parameter on the Protocol now means R2 doesn't need a wider interface later; `LocalStorage` just discards it. **The Protocol is the union of what implementations *might* need.** This is one of the few places it's worth designing for a use case you don't have yet.
+- **`content_type` is a parameter even though `LocalStorage` ignores it.** Filesystems don't care about MIME types, but R2 does (it goes on the `Content-Type` HTTP response header so browsers render `image/webp` as an image, not a download). Putting the parameter on the Protocol now means R2 doesn't need a wider interface later; `LocalStorage` just discards it. The Protocol is the union of what implementations *might* need, and this is one of the few places it's worth designing for a use case you don't have yet.
 - **`url_for` is async even though `LocalStorage` doesn't need to await anything.** R2's [signed URLs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/ShareObjectPreSignedURL.html) require a network call or at least async-friendly crypto in some configurations; making the whole Protocol async keeps the door open. Async is contagious — fix the contagion at the interface level, not the call site level.
-- **`exists` exists.** It's not strictly required for writes (we could just always `put`) — but the ingestion pipeline (Post 6) uses it to skip re-uploading variants that are already in place. R2 round-trips are slower than disk reads; a cheap `HEAD` check is worth defining.
+- **`exists` exists.** It's not strictly required for writes (we could just always `put`), but the ingestion pipeline (Post 6) uses it to skip re-uploading variants that are already in place. R2 round-trips are slower than disk reads, so a cheap `HEAD` check is worth defining.
 
 > *Why Protocols and not an Abstract Base Class? An aside for readers new to Python typing.*
 >
@@ -455,9 +455,9 @@ class LocalStorage:
 
 Four things in this code earn their lines:
 
-**The path-traversal guard.** `_path_for` resolves the requested key against the storage root and then checks the result is still *under* the root. Why? Because in a generic version of "the caller can name any file," an unfriendly caller could pass `../../etc/passwd` and write bytes outside the storage root. In *this* application all the keys come from the ingestion pipeline, not from end users, so it's defense in depth — but it's three lines, and the alternative (forgetting the guard and discovering it the day someone wires this Protocol into a user-facing route) is a bad day. The [OWASP path-traversal cheat sheet](https://owasp.org/www-community/attacks/Path_Traversal) makes the case for this kind of check at every storage boundary.
+**The path-traversal guard.** `_path_for` resolves the requested key against the storage root and then checks the result is still *under* the root. Why? Because in a generic version of "the caller can name any file," an unfriendly caller could pass `../../etc/passwd` and write bytes outside the storage root. In *this* application all the keys come from the ingestion pipeline, not from end users, so it's defense in depth. But it's three lines, and the alternative (forgetting the guard and discovering it the day someone wires this Protocol into a user-facing route) is a bad day. The [OWASP path-traversal cheat sheet](https://owasp.org/www-community/attacks/Path_Traversal) makes the case for this kind of check at every storage boundary.
 
-**The idempotency check.** Ingestion is the kind of pipeline you re-run a lot — when a page description changes, when an image variant gets re-encoded, when you fix a bug. Without idempotency, every re-run rewrites every page image on disk, which is fast but messy (mtimes change, file watchers fire, OS page caches get blown). With it, re-running ingestion against unchanged content is a near-no-op. The "compare bytes" approach is intentionally crude: no hashing, no checksums — just `len(content)` first as a cheap gate, then `read+compare` for files under 5MB. The 5MB cap is because Pepper & Carrot's page images are all in the ~500KB–2MB range; for the few cover images that approach the cap, we fall through to the "just rewrite it" branch and the world doesn't end.
+**The idempotency check.** Ingestion is the kind of pipeline you re-run a lot: when a page description changes, when an image variant gets re-encoded, when you fix a bug. Without idempotency, every re-run rewrites every page image on disk, which is fast but messy (mtimes change, file watchers fire, OS page caches get blown). With it, re-running ingestion against unchanged content is a near-no-op. The "compare bytes" approach is intentionally crude: no hashing, no checksums, just `len(content)` first as a cheap gate, then `read+compare` for files under 5MB. The 5MB cap is because Pepper & Carrot's page images are all in the ~500KB–2MB range; for the few cover images that approach the cap, we fall through to the "just rewrite it" branch and the world doesn't end.
 
 > *Plain-English aside: what does `len(content)` return when `content` is `bytes`?* It returns the **number of bytes** — one element per byte. So `len(b"hello")` is `5`, not 40 (the bit count) or 4.5 (anything character-shaped). A `bytes` object is just a sequence of integers in 0–255, and `len` counts how many of those integers are in it. For non-ASCII text, the count depends on the encoding: `len("é".encode("utf-8"))` is `2`, `len("é".encode("latin-1"))` is `1`. `bytes` objects don't know about characters — only raw bytes.
 >
@@ -465,7 +465,7 @@ Four things in this code earn their lines:
 
 > *Plain-English aside: what's `mtime`?* Short for **modification time** — the Unix filesystem metadata field that records when a file's contents were last written. Every file carries three timestamps you can see with `stat`: **atime** (last read), **mtime** (last write), and **ctime** (last metadata change like permissions or rename). The detail that matters here is that **every write bumps mtime to "now" — even if the bytes are identical to what was already on disk**. That trips a lot of downstream tools that subscribe to mtime as a "file changed" signal: [file watchers](https://github.com/emcrisostomo/fswatch) like Vite's hot-reload and IDE auto-rebuilders, build systems like [`make`](https://www.gnu.org/software/make/) and [Bazel](https://bazel.build/) (which compare mtimes to decide what to rebuild), and rsync-style backup tools (default mode uses size + mtime as the "is this different?" check). Rewriting a file with identical content lights all of those up to think something changed. Preserving the original mtime when the content really hasn't changed keeps them quiet. This codebase doesn't plug any watchers into `data/images/` *yet*, but getting the convention right on day one beats remembering to retrofit it the day you do.
 
-**`async` + `aiofiles`.** The FastAPI request handler that ingest-write paths touch is async; if we did blocking disk I/O directly, we'd stall the event loop and starve every other concurrent request. [`aiofiles`](https://github.com/Tinche/aiofiles) wraps file operations in a thread pool so they cooperate with [`asyncio`](https://docs.python.org/3/library/asyncio.html). For a laptop-scale workload this is mild overkill — but it keeps the async story uniform, which matters in Post 9 when we have streaming chat responses and an ingestion run happening in parallel and the whole thing needs to not stutter. (For `exists`, we don't bother with `aiofiles` — just `asyncio.to_thread(path.exists)`, which threads the one-syscall check.)
+**`async` + `aiofiles`.** The FastAPI request handler that ingest-write paths touch is async; if we did blocking disk I/O directly, we'd stall the event loop and starve every other concurrent request. [`aiofiles`](https://github.com/Tinche/aiofiles) wraps file operations in a thread pool so they cooperate with [`asyncio`](https://docs.python.org/3/library/asyncio.html). For a laptop-scale workload this is mild overkill, but it keeps the async story uniform, which matters in Post 9 when we have streaming chat responses and an ingestion run happening in parallel and the whole thing needs to not stutter. (For `exists`, we don't bother with `aiofiles` — just `asyncio.to_thread(path.exists)`, which threads the one-syscall check.)
 
 **`url_for` is dead simple.** Just `f"{self._url_prefix}/{key}"`. The whole point is that `LocalStorage` doesn't *do* any URL signing or routing — it relies on FastAPI to serve the file at that URL, which is the next piece.
 
@@ -493,7 +493,7 @@ if settings.storage_backend == "local":
 
 ### Storage data flow in one picture
 
-Two paths share a single file on disk: ingestion writes it once; every browser request reads it back. The relative `key` is the thread that ties them together — it lives in `pages.image_url`, gets composed into a URL on the way out, and resolves to the same path on disk on the way back in.
+Two paths share a single file on disk: ingestion writes it once, and every browser request reads it back. The relative `key` is the thread that ties them together — it lives in `pages.image_url`, gets composed into a URL on the way out, and resolves to the same path on disk on the way back in.
 
 <div style="margin: 1.5rem 0; overflow-x: auto;">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 540" role="img"
@@ -626,16 +626,16 @@ When that prints what you put in, the whole storage seam — `LocalStorage.put` 
 A handful of things you might expect that aren't there:
 
 - **No content hashing.** R2 returns ETags automatically; we don't need to compute one in the app layer. If we ever do, it's a one-method extension to the Protocol.
-- **No retry logic.** Disk writes don't fail transiently in any way retries would help. R2 will need retries; that's R2's problem when we build it.
+- **No retry logic.** Disk writes don't fail transiently in any way retries would help. R2 will need retries, but that's R2's problem when we build it.
 - **No request-time image resizing.** All image variants are pre-computed at ingestion (Post 6) and stored as separate keys. Doing transforms at request time is a different ADR — see [`docs/decisions/0003-storage-abstraction.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/docs/decisions/0003-storage-abstraction.md) in the workshop starter.
 
-These omissions are the abstraction earning its keep. Every line that's *not* in `LocalStorage` is a line that doesn't need to be parallelled by an equivalent in `R2Storage` later.
+These omissions are the abstraction earning its keep. Every line that's not in `LocalStorage` is a line that doesn't need to be parallelled by an equivalent in `R2Storage` later.
 
 ---
 
 ## Seam 2 — EmbeddingClient: Two Implementations of the Same Protocol {#seam-embedding}
 
-Now the more interesting seam — interesting because we actually build *two* implementations, both backed by real model code, and the test at the bottom proves they're interchangeable.
+Now the more interesting seam. It's interesting because we actually build *two* implementations, both backed by real model code, and the test at the bottom proves they're interchangeable.
 
 > *Plain-English aside: what's an embedding?* An **embedding** is a fixed-length list of numbers — usually 768, 1024, or 1536 of them — that captures the meaning of a piece of text. The trick: two texts with similar meaning land near each other in that high-dimensional space, by some distance metric (usually [cosine similarity](https://en.wikipedia.org/wiki/Cosine_similarity)). Embeddings are what makes "find me the chunks closest in meaning to this question" work in [RAG](https://www.anthropic.com/news/contextual-retrieval) — you embed the question, embed every chunk in your corpus once at ingestion, and the retrieval step is a numerical "which chunk vector is nearest to the question vector?". An **embedding model** like [BGE-M3](https://huggingface.co/BAAI/bge-m3) is the thing that turns text into those numbers.
 >
@@ -663,7 +663,7 @@ class EmbeddingClient(Protocol):
 
 A method and two read-only properties. Three small design notes:
 
-- **Batch by default.** `embed_batch(texts: list[str])` not `embed(text: str)`. Embedding models are *much* faster on a batch than on `N` single calls — the GPU/CPU spends most of its time on per-call overhead otherwise. Even Ollama's HTTP endpoint accepts a batch. We don't expose a single-text convenience method on the Protocol; if you only have one string, pass `[text]` and unpack the single result. One method, no overlap.
+- **Batch by default.** `embed_batch(texts: list[str])`, not `embed(text: str)`. Embedding models are *much* faster on a batch than on `N` single calls — the GPU/CPU spends most of its time on per-call overhead otherwise. Even Ollama's HTTP endpoint accepts a batch. We don't expose a single-text convenience method on the Protocol; if you only have one string, pass `[text]` and unpack the single result. One method, no overlap.
 - **`dimension` is a property, not a method.** It's a static fact about the model, not a question that needs an `await`. Implementations cache it after first probe.
 
   > *Plain-English aside: what's `@property`?* `@property` is a [decorator](https://docs.python.org/3/glossary.html#term-decorator) that turns a method into something callers read like an attribute — **no parentheses needed at the call site**. The same getter code runs underneath; the call just looks like a plain field access. Quick example:
@@ -734,7 +734,7 @@ A method and two read-only properties. Three small design notes:
 
 ### `OllamaEmbeddingClient` — the project default
 
-If you followed Post 2, you already have Ollama running with `bge-m3` pulled. So the default `EmbeddingClient` just talks to it over HTTP — no extra weights to download, no extra process to start.
+If you followed Post 2, you already have Ollama running with `bge-m3` pulled. So the default `EmbeddingClient` just talks to it over HTTP, with no extra weights to download and no extra process to start.
 
 ```python
 class OllamaEmbeddingClient:
@@ -790,21 +790,21 @@ Six things worth pausing on:
 
 **The endpoint is [`/api/embed`](https://github.com/ollama/ollama/blob/main/docs/api.md#generate-embeddings) (plural), not `/api/embeddings`.** Ollama has *both*: the new `/api/embed` accepts an `input` array and returns `{"embeddings": [...]}`; the older `/api/embeddings` accepts a single `prompt` and is being phased out. Always use the new one — it batches.
 
-**One [`httpx.AsyncClient`](https://www.python-httpx.org/async/) held on the instance, not per-call.** `httpx` is the [`requests`](https://requests.readthedocs.io/) of the async world. Creating a new client per request would re-pay the TCP+TLS handshake on every embedding call — for a 50-page ingestion run that's 50 needless handshakes. Holding one client on the instance reuses the connection. We expose `aclose()` so the FastAPI shutdown hook can release it cleanly; we don't wire that in this post (no app code calls `get_embedding_client` yet) — that wiring happens in Post 9 where the chat orchestrator first holds a long-lived client.
+**One [`httpx.AsyncClient`](https://www.python-httpx.org/async/) held on the instance, not per-call.** `httpx` is the [`requests`](https://requests.readthedocs.io/) of the async world. Creating a new client per request would re-pay the TCP+TLS handshake on every embedding call — for a 50-page ingestion run that's 50 needless handshakes. Holding one client on the instance reuses the connection. We expose `aclose()` so the FastAPI shutdown hook can release it cleanly. We don't wire that in this post (no app code calls `get_embedding_client` yet); that wiring happens in Post 9 where the chat orchestrator first holds a long-lived client.
 
-**The timeout is 180 seconds, which sounds insane until you see Modal cold starts.** On a laptop, Ollama responds to an embed call in ~50ms. In production on Modal, the first call after the GPU has scaled to zero has to (a) allocate a GPU, (b) pull the bge-m3 weights from disk into VRAM, (c) then do the embed — easily 30–75 seconds for a single call. The same client code runs in both environments, so the timeout has to cover the worst case.
+**The timeout is 180 seconds, which sounds insane until you see Modal cold starts.** On a laptop, Ollama responds to an embed call in ~50ms. In production on Modal, the first call after the GPU has scaled to zero has to (a) allocate a GPU, (b) pull the bge-m3 weights from disk into VRAM, then (c) do the embed — easily 30–75 seconds for a single call. The same client code runs in both environments, so the timeout has to cover the worst case.
 
-**Errors are explicit.** Non-2xx status → raise with the body snippet included. An unexpected payload shape → raise with the shape included. Both errors point at the actual problem (wrong model name, Ollama not running, version mismatch) instead of a `KeyError: 'embeddings'` two stack frames deeper. This is one of those "future-you debugging at 11pm" details that pays for itself the first time it fires.
+**Errors are explicit.** A non-2xx status raises with the body snippet included; an unexpected payload shape raises with the shape included. Both errors point at the actual problem (wrong model name, Ollama not running, version mismatch) instead of a `KeyError: 'embeddings'` two stack frames deeper. This is one of those "future-you debugging at 11pm" details that pays for itself the first time it fires.
 
-**Dimension is detected lazily, not declared.** Different embedding models have different dimensions — bge-m3 is 1024, [nomic-embed-text](https://ollama.com/library/nomic-embed-text) is 768, [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) is 384. Rather than hard-code the number (and silently break on model swap), we let the first response teach us. If `embed_batch` runs first (the typical path), the size of the first vector becomes the cached dimension. Subsequent reads of `.dimension` are free.
+**Dimension is detected lazily, not declared.** Different embedding models have different dimensions: bge-m3 is 1024, [nomic-embed-text](https://ollama.com/library/nomic-embed-text) is 768, [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) is 384. Rather than hard-code the number (and silently break on model swap), we let the first response teach us. If `embed_batch` runs first (the typical path), the size of the first vector becomes the cached dimension. Subsequent reads of `.dimension` are free.
 
-**The injected `headers` dict is the Modal-auth seam.** In local dev it's empty; in production it's `{"Modal-Key": "...", "Modal-Secret": "..."}` — Modal's [proxy-auth](https://modal.com/docs/guide/webhook-urls#auth-tokens) for serverless endpoints. The implementation doesn't care which mode it's in; the factory in `clients/__init__.py` builds the right headers from `Settings` and hands them in. This is dependency injection in its smallest possible form.
+**The injected `headers` dict is the Modal-auth seam.** In local dev it's empty; in production it's `{"Modal-Key": "...", "Modal-Secret": "..."}`, Modal's [proxy-auth](https://modal.com/docs/guide/webhook-urls#auth-tokens) for serverless endpoints. The implementation doesn't care which mode it's in; the factory in `clients/__init__.py` builds the right headers from `Settings` and hands them in. This is dependency injection in its smallest possible form.
 
 ### `SentenceTransformersEmbeddingClient` — the zero-network fallback
 
 There are good reasons to have a *second* embedding implementation that doesn't go through Ollama. Maybe Ollama isn't running. Maybe you're in CI without a GPU. Maybe you want a pure-Python path with no HTTP server in the loop, for benchmarking or debugging. Maybe you just want to know that the abstraction is real and not "Ollama by another name."
 
-[`sentence-transformers`](https://www.sbert.net/) is the [Hugging Face](https://huggingface.co/)-backed Python library that loads embedding models directly into your process. Slower to start (a one-time ~2GB model download from [the Hugging Face Hub](https://huggingface.co/BAAI/bge-m3) on first use), faster per call after warmup on CPU, and zero network at runtime.
+[`sentence-transformers`](https://www.sbert.net/) is the [Hugging Face](https://huggingface.co/)-backed Python library that loads embedding models directly into your process. It's slower to start (a one-time ~2GB model download from [the Hugging Face Hub](https://huggingface.co/BAAI/bge-m3) on first use), faster per call after warmup on CPU, and zero network at runtime.
 
 ```python
 class SentenceTransformersEmbeddingClient:
@@ -841,13 +841,14 @@ class SentenceTransformersEmbeddingClient:
 
 Four design choices worth flagging:
 
-**Lazy loading, not eager.** The model isn't loaded in `__init__`. Loading is what triggers the 2GB download on first ever run — we don't want `import app.clients.embedding` to fire a download. The `_ensure_model` helper loads on first `embed_batch` and caches the loaded model. Importing the module is a no-op; the first embed call does the work and logs it.
+**Lazy loading, not eager.** The model isn't loaded in `__init__`. Loading is what triggers the 2GB download on first ever run, and we don't want `import app.clients.embedding` to fire a download. The `_ensure_model` helper loads on first `embed_batch` and caches the loaded model. Importing the module is a no-op; the first embed call does the work and logs it.
 
 **`asyncio.to_thread(...)` because `model.encode` is synchronous.** [sentence-transformers](https://github.com/UKPLab/sentence-transformers) is built on [PyTorch](https://pytorch.org/) and exposes a blocking API. Calling it on the asyncio thread would freeze the event loop for as long as the encode runs (seconds on CPU, milliseconds on MPS/CUDA). [`asyncio.to_thread`](https://docs.python.org/3/library/asyncio-task.html#asyncio.to_thread) hands the blocking work to a thread-pool worker so the loop stays responsive. Same call shape from the caller's point of view — `await client.embed_batch([...])` — regardless of whether the implementation is HTTP (Ollama) or in-process (sentence-transformers).
 
 **`normalize_embeddings=True`.** [ChromaDB](https://www.trychroma.com/) defaults to [cosine similarity](https://en.wikipedia.org/wiki/Cosine_similarity) for its distance metric; cosine on pre-normalized vectors becomes a plain dot product, which is fast. The Ollama side doesn't have an explicit "normalize" flag, but the [BGE-M3 model card](https://huggingface.co/BAAI/bge-m3) recommends L2-normalization for downstream similarity tasks and Ollama applies it by default. Same vectors out of both backends.
 
 **`batch_size=32`.** A sensible mid-range default for the encode call. Too small and the GPU sits idle; too large and you run out of VRAM on machines that have less. 32 lands in the middle for BGE-M3.
+
 
 ### The gotcha: model name differs by provider
 
@@ -858,9 +859,9 @@ There is exactly one subtlety in swapping between these two clients: **the model
 | Ollama | `ollama` | `bge-m3` |
 | sentence-transformers | `sentence-transformers` | `BAAI/bge-m3` |
 
-Same underlying weights. Same 1024-dimensional vectors. Different naming conventions — Ollama mirrors its [model library naming](https://ollama.com/library), sentence-transformers mirrors [Hugging Face repo names](https://huggingface.co/BAAI/bge-m3).
+Same underlying weights, same 1024-dimensional vectors, different naming conventions: Ollama mirrors its [model library naming](https://ollama.com/library), sentence-transformers mirrors [Hugging Face repo names](https://huggingface.co/BAAI/bge-m3).
 
-The factory passes the configured name through unchanged. We could have built a name-mapping layer ("translate `bge-m3` → `BAAI/bge-m3` when the provider flips") but it would mask a real conceptual point: *the model name belongs to the provider, not the abstraction*. If you flip `EMBEDDING_PROVIDER`, flip `EMBEDDING_MODEL` to match. The project's `.env.example` is explicit about this:
+The factory passes the configured name through unchanged. We could have built a name-mapping layer ("translate `bge-m3` → `BAAI/bge-m3` when the provider flips"), but it would mask a real conceptual point: *the model name belongs to the provider, not the abstraction*. If you flip `EMBEDDING_PROVIDER`, flip `EMBEDDING_MODEL` to match. The project's `.env.example` is explicit about this:
 
 ```bash
 # IMPORTANT: EMBEDDING_MODEL is provider-specific:
@@ -877,7 +878,7 @@ When a configuration choice creeps across two variables, comment them both with 
 
 ## Seam 3 — ChatClient: A Preview of What Post 9 Will Use {#seam-chat}
 
-The third Protocol is the chat client. We won't *use* it in this post — the orchestration that calls `stream(...)` lands in Post 9, and the streaming-to-the-browser SSE plumbing lands in Post 10 — but defining it now serves two purposes: it shows the full set of Protocols the project leans on, and it's the most interesting case for the abstraction itself, because Ollama and Anthropic disagree about almost everything except "stream me some tokens for an assistant turn."
+The third Protocol is the chat client. We won't *use* it in this post — the orchestration that calls `stream(...)` lands in Post 9, and the streaming-to-the-browser SSE plumbing lands in Post 10 — but defining it now serves two purposes. It shows the full set of Protocols the project leans on, and it's the most interesting case for the abstraction itself, because Ollama and Anthropic disagree about almost everything except "stream me some tokens for an assistant turn."
 
 ```python
 # backend/app/clients/chat.py
@@ -963,16 +964,16 @@ class ChatClient(Protocol):
 
 Two interface choices worth flagging:
 
-**`stream` *and* `complete`, not just `stream`.** Streaming is the main act — the page-mode and wiki-mode chat answers stream token-by-token. But the project also generates two follow-up "suggestion chips" after every answer (you saw these in [Post 1's walkthrough]({% post_url 2026-05-09-pepper-carrot-companion-trailer %})). Those don't need streaming — they're tiny, the frontend shows them all at once at the end, streaming would buy nothing. So `complete()` is a one-shot non-streaming call. The two methods cleanly cover both use cases without trying to make `stream()` pretend to be a one-shot via "collect all tokens into a string."
+**`stream` *and* `complete`, not just `stream`.** Streaming is the main act — the page-mode and wiki-mode chat answers stream token-by-token. But the project also generates two follow-up "suggestion chips" after every answer (you saw these in [Post 1's walkthrough]({% post_url 2026-05-09-pepper-carrot-companion-trailer %})). Those don't need streaming: they're tiny, the frontend shows them all at once at the end, and streaming would buy nothing. So `complete()` is a one-shot non-streaming call. The two methods cleanly cover both use cases without trying to make `stream()` pretend to be a one-shot via "collect all tokens into a string."
 
-**`json_format` on `complete()`.** This one is interesting and deserves its own paragraph. The follow-up chips need to come back as structured JSON (`{"suggestions": [{"text": ..., "mode": "page" | "wiki"}, ...]}`). Big models like Claude follow [JSON-in-prompt instructions](https://docs.claude.com/en/docs/build-with-claude/json-mode) reliably; small local models (qwen2.5:7b) will happily ignore them and emit a paragraph of prose with maybe-JSON in the middle. To rescue this, Ollama supports [**structured outputs**](https://ollama.com/blog/structured-outputs) — if you pass a [JSON Schema](https://json-schema.org/) as the `format` field, Ollama constrains the *sampling step itself* to match the schema, token by token. The output is *literally not capable* of being malformed JSON.
+**`json_format` on `complete()`.** This one is worth its own paragraph. The follow-up chips need to come back as structured JSON (`{"suggestions": [{"text": ..., "mode": "page" | "wiki"}, ...]}`). Big models like Claude follow [JSON-in-prompt instructions](https://docs.claude.com/en/docs/build-with-claude/json-mode) reliably; small local models (qwen2.5:7b) will happily ignore them and emit a paragraph of prose with maybe-JSON in the middle. To rescue this, Ollama supports [**structured outputs**](https://ollama.com/blog/structured-outputs): if you pass a [JSON Schema](https://json-schema.org/) as the `format` field, Ollama constrains the *sampling step itself* to match the schema, token by token. The output is literally not capable of being malformed JSON.
 - `json_format=False` — no constraint.
 - `json_format=True` — Ollama's bare `format: "json"`; output is *some* valid JSON but keys/structure are unconstrained.
 - `json_format={"type": "object", "properties": ...}` — pass a schema dict; Ollama enforces it during sampling.
 
-The Anthropic implementation ignores `json_format` (Claude is reliable enough at JSON formatting from prompt instructions alone). Same call site; different implementation behavior. The abstraction *accommodates the union of provider capabilities*, and provider-specific knobs are exposed via optional parameters that other implementations are free to no-op.
+The Anthropic implementation ignores `json_format` (Claude is reliable enough at JSON formatting from prompt instructions alone). Same call site, different implementation behavior. The abstraction accommodates the union of provider capabilities, and provider-specific knobs are exposed via optional parameters that other implementations are free to no-op.
 
-Both [`OllamaChatClient`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/backend/app/clients/chat.py) and [`AnthropicChatClient`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/backend/app/clients/chat.py) live in `backend/app/clients/chat.py`. We won't walk through them line by line in this post — too much detail for a part that isn't yet wired up — but they're worth a brief tour now:
+Both [`OllamaChatClient`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/backend/app/clients/chat.py) and [`AnthropicChatClient`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/backend/app/clients/chat.py) live in `backend/app/clients/chat.py`. We won't walk through them line by line in this post (too much detail for a part that isn't yet wired up), but they're worth a brief tour now:
 
 - `OllamaChatClient.stream` POSTs to [`/api/chat`](https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion) with `stream: true` and iterates the response as newline-delimited JSON, yielding `chunk["message"]["content"]` per token.
 - `AnthropicChatClient.stream` uses [`anthropic.AsyncAnthropic().messages.stream(...)`](https://github.com/anthropics/anthropic-sdk-python) — and additionally turns on [prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) via `cache_control={"type": "ephemeral"}`, which ~90%-discounts repeat tokens across multi-turn chat. (Post 11 explains why this is load-bearing for the cost story.)
@@ -1045,11 +1046,11 @@ This file is small on purpose. Three observations:
 
 **Every factory has the same shape.** Read `settings.<provider>`, route to a constructor, fail loudly on unknown values. No clever inheritance, no registry, no plugin system. The cost of being explicit (one `if/elif/else` per Protocol) is much lower than the cost of being clever (a `PROVIDERS = {...}` dict that imports lazily, fails late, and hides which providers actually exist).
 
-**Return type is the Protocol, not the concrete class.** `get_storage(settings) -> Storage`, not `-> LocalStorage`. Callers see a `Storage`; `mypy --strict` won't let them dot into anything that isn't on the Protocol. This is the wall that prevents leaks: a route handler that accidentally writes `storage.upload_to_r2(...)` (which would only exist on `R2Storage`) fails at type-check time.
+**Return type is the Protocol, not the concrete class.** `get_storage(settings) -> Storage`, not `-> LocalStorage`. Callers see a `Storage`, and `mypy --strict` won't let them dot into anything that isn't on the Protocol. This is the wall that prevents leaks: a route handler that accidentally writes `storage.upload_to_r2(...)` (which would only exist on `R2Storage`) fails at type-check time.
 
-**The `Settings` object is the only argument.** Not a `db_url`, an `api_key`, a `model_name` — just `Settings`. The factory unpacks what it needs. If we ever add a new field — say `OLLAMA_CHAT_OPTIONS` — only the factory and the affected client change; no caller in routes/services has to grow a new constructor argument. This is *also* why `Settings` lives in `app/config.py` as a single pydantic-settings class (Post 2): one canonical source of truth, typed, loaded from `.env`.
+**The `Settings` object is the only argument.** Not a `db_url`, an `api_key`, or a `model_name` — just `Settings`. The factory unpacks what it needs. If we ever add a new field, say `OLLAMA_CHAT_OPTIONS`, only the factory and the affected client change; no caller in routes/services has to grow a new constructor argument. This is also why `Settings` lives in `app/config.py` as a single pydantic-settings class (Post 2): one canonical source of truth, typed, loaded from `.env`.
 
-The `_modal_proxy_headers` helper is one tiny additional flourish: when running against a Modal endpoint, the request needs proxy-auth headers; the helper builds them from `Settings.modal_proxy_token_id` + `modal_proxy_token_secret` and fails loudly if *exactly one* of the two is set (a common "I set the secret but forgot the ID" footgun). It's worth showing because the production deploy in Post 14 is the first time those fields get populated, and the friendly error message is the difference between a five-minute fix and a twenty-minute "why am I getting 401s?" chase.
+The `_modal_proxy_headers` helper is one tiny additional flourish. When running against a Modal endpoint, the request needs proxy-auth headers; the helper builds them from `Settings.modal_proxy_token_id` + `modal_proxy_token_secret` and fails loudly if *exactly one* of the two is set (a common "I set the secret but forgot the ID" footgun). It's worth showing because the production deploy in Post 14 is the first time those fields get populated, and the friendly error message is the difference between a five-minute fix and a twenty-minute "why am I getting 401s?" chase.
 
 ---
 
@@ -1095,7 +1096,7 @@ uv run mypy app/
 # Expected: Success: no issues found
 ```
 
-If all three pass, you've verified the seam. The same `main()` function above — the same `await client.embed_batch([...])` line — drove an HTTP call to Ollama and an in-process [PyTorch](https://pytorch.org/) inference, and `mypy --strict` was happy with both. **That's what "provider abstraction" looks like when it works.**
+If all three pass, you've verified the seam. The same `main()` function above — the same `await client.embed_batch([...])` line — drove an HTTP call to Ollama and an in-process [PyTorch](https://pytorch.org/) inference, and `mypy --strict` was happy with both. That's what "provider abstraction" looks like when it works.
 
 And the storage smoke test you ran earlier — `curl http://localhost:8000/images/test/hello.txt` printing the file content — is the other half. The full set of seams now stands:
 
@@ -1113,7 +1114,7 @@ Both `ChatClient` implementations are wired up at the seam now; their first call
 
 The abstraction is cheap to write. Keeping it cheap to *use* across the rest of the project requires a small amount of ongoing discipline. Four rules that the project's [`CLAUDE.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/CLAUDE.md) captures explicitly, and which I'd suggest stealing for your own work:
 
-**1. SDK imports stay in `clients/`.** No `import anthropic` in a route handler. No `import httpx` outside `clients/` *unless* it's for something genuinely client-agnostic (like a webhook caller). If a route needs Anthropic-specific behavior, extend the `ChatClient` Protocol with an optional parameter and have the Ollama side no-op it. The instinct to reach for the SDK directly when a feature seems specific to one provider is the bug — every such case is an invitation to extend the Protocol.
+**1. SDK imports stay in `clients/`.** No `import anthropic` in a route handler. No `import httpx` outside `clients/` unless it's for something genuinely client-agnostic (like a webhook caller). If a route needs Anthropic-specific behavior, extend the `ChatClient` Protocol with an optional parameter and have the Ollama side no-op it. The instinct to reach for the SDK directly when a feature seems specific to one provider is the bug; every such case is an invitation to extend the Protocol.
 
 **2. The factory is the only place that knows providers exist.** Callers ask for a Protocol-typed instance; they don't construct one. If you find yourself writing `LocalStorage(...)` outside `clients/`, you've leaked.
 
@@ -1121,7 +1122,7 @@ The abstraction is cheap to write. Keeping it cheap to *use* across the rest of 
 
 **4. Resist provider-specific shortcuts.** The Anthropic SDK has features Ollama doesn't (prompt caching, [tool use](https://docs.claude.com/en/docs/build-with-claude/tool-use), [extended thinking](https://docs.claude.com/en/docs/build-with-claude/extended-thinking)). The temptation is to expose them via Anthropic-specific calls. The discipline is to: (a) extend the Protocol with an optional, well-typed knob; (b) implement it in `AnthropicChatClient`; (c) no-op it in `OllamaChatClient`. The `cache_control={"type": "ephemeral"}` flag in the current `AnthropicChatClient` is a perfect example — it's *internal* to the implementation, not exposed on the Protocol, because Ollama can't honor it and there's no benefit to the caller knowing.
 
-These rules sound restrictive on paper. In practice the codebase has barely felt them — there's roughly one moment per phase where you'd be tempted to break a rule, and the work to extend the Protocol instead is a few minutes. The payoff is that none of the *callers* ever need updating.
+These rules sound restrictive on paper. In practice the codebase has barely felt them. There's roughly one moment per phase where you'd be tempted to break a rule, and the work to extend the Protocol instead is a few minutes. The payoff is that none of the *callers* ever need updating.
 
 ---
 
@@ -1129,17 +1130,17 @@ These rules sound restrictive on paper. In practice the codebase has barely felt
 
 **1. The Protocol is the contract; the implementation is the choice.** Once `Storage`, `EmbeddingClient`, and `ChatClient` exist, the rest of the codebase is portable by construction. Local ↔ cloud, Ollama ↔ Anthropic, filesystem ↔ R2 — each becomes a one-line change in a single file (`.env`), without any changes to call sites.
 
-**2. Provider abstractions are cheap to build *first*, expensive to retrofit.** A `Protocol` plus a factory adds ~30 lines per seam. Extracting the same shape from a codebase that's been calling `openai.ChatCompletion.create(...)` from twelve places over six months is a multi-day refactor — and the discipline of "is this Anthropic-specific?" gets harder as more places call it. Put the seam in *before* the first caller, not after.
+**2. Provider abstractions are cheap to build *first*, expensive to retrofit.** A `Protocol` plus a factory adds ~30 lines per seam. Extracting the same shape from a codebase that's been calling `openai.ChatCompletion.create(...)` from twelve places over six months is a multi-day refactor, and the discipline of "is this Anthropic-specific?" gets harder as more places call it. Put the seam in *before* the first caller, not after.
 
 **3. Design the Protocol around the union of provider capabilities, not the intersection.** `Storage.put` takes a `content_type` even though `LocalStorage` ignores it, because `R2Storage` needs it. `ChatClient.complete` takes a `json_format` argument even though `AnthropicChatClient` ignores it, because Ollama's [structured-output mode](https://ollama.com/blog/structured-outputs) is the only way to get reliable JSON out of small local models. *Lowest-common-denominator* Protocols make every implementation worse; *union* Protocols make every implementation possible.
 
-**4. The factory is boring on purpose.** A 30-line `if/elif/raise` is more legible than a 100-line plugin-registry framework, and the only thing it gives up is the ability to load providers you haven't imported — which is exactly the kind of cleverness that produces "why is this string failing at production startup?" puzzles at 11pm. The factory is the one place you want to *see* every concrete class listed.
+**4. The factory is boring on purpose.** A 30-line `if/elif/raise` is more legible than a 100-line plugin-registry framework, and the only thing it gives up is the ability to load providers you haven't imported — exactly the kind of cleverness that produces "why is this string failing at production startup?" puzzles at 11pm. The factory is the one place you want to *see* every concrete class listed.
 
-**5. The same code runs on a laptop and in the cloud. That's not a fluke; it's the design.** When Post 14 sets `STORAGE_BACKEND=r2`, `CHAT_PROVIDER=ollama` with `OLLAMA_BASE_URL` pointing at Modal, and `EMBEDDING_PROVIDER=ollama` pointing at the same Modal — and the deployed backend just works — that's because *the rest of the codebase has been writing against the Protocols this whole time*. The deploy story is short because the architecture work happened in this post.
+**5. The same code runs on a laptop and in the cloud. That's not a fluke; it's the design.** When Post 14 sets `STORAGE_BACKEND=r2`, `CHAT_PROVIDER=ollama` with `OLLAMA_BASE_URL` pointing at Modal, and `EMBEDDING_PROVIDER=ollama` pointing at the same Modal, the deployed backend just works — because *the rest of the codebase has been writing against the Protocols this whole time*. The deploy story is short because the architecture work happened in this post.
 
 ---
 
-Next up: **Post 5 — Claude Skills as a Vision Provider.** We use Claude Code itself as a one-shot batch vision processor: a `.claude/skills/ingest-from-images/SKILL.md` file walks Claude through reading each page of episode 1 and writing a structured `PageDescription` JSON next to the image on disk. Then `JsonFileVisionClient` — the fourth Protocol implementation, also living in `backend/app/clients/`, also obeying the rule we just built — picks those JSONs up. By the end of that post, episode 1 is fully ingested: images in `LocalStorage`, descriptions in Postgres, embeddings in ChromaDB. The chat layer doesn't run a vision model in production; that's the whole point.
+Next up: **Post 5 — Claude Skills as a Vision Provider.** We use Claude Code itself as a one-shot batch vision processor: a `.claude/skills/ingest-from-images/SKILL.md` file walks Claude through reading each page of episode 1 and writing a structured `PageDescription` JSON next to the image on disk. Then `JsonFileVisionClient` — the fourth Protocol implementation, also living in `backend/app/clients/`, also obeying the rule we just built — picks those JSONs up. By the end of that post, episode 1 is fully ingested: images in `LocalStorage`, descriptions in Postgres, embeddings in ChromaDB. The chat layer doesn't run a vision model in production, and that's the whole point.
 
 The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>, tagged `post-02-04-starter`. The **full source repository** and a public live-demo URL go up alongside the deploy guide near the end of the series — once it's published.
 

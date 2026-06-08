@@ -16,7 +16,7 @@ description: >-
 pin: true
 ---
 
-Post 5 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}) series. With the workshop standing from [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}) and the four `Protocol`-typed seams from [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}), it's time to put real data behind them. The comic is images — not text — so before RAG can answer questions about a page, every page needs a description. This post is about *who writes those descriptions*: the three vision-provider options, why a Claude Code skill is the right one here, and how that skill is built.
+Post 5 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}) series. With the workshop standing from [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %}) and the four `Protocol`-typed seams from [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}), it's time to put real data behind them. The comic is images, not text, so before RAG can answer questions about a page, every page needs a description. This post is about *who writes those descriptions*: the three vision-provider options, why a Claude Code skill is the right one here, and how that skill is built.
 
 > **What you'll build in this post.**
 > - A working decision frame for the three vision-provider options — local VLM, hosted vision API, and Claude Code itself — and the constraints that pick between them.
@@ -51,21 +51,21 @@ Most "chat with X" tutorials skip a layer that's the load-bearing part of *this*
 
 A webcomic isn't. The pages of *Pepper & Carrot* are hand-painted watercolor images. There is no native text to chunk. There is no caption layer. There is no markup. There is a `page_001.jpg` on disk and there is a reader who wants to ask the AI *"why is Carrot angry?"*
 
-Today's multimodal LLMs can, in fact, look at that page and answer the question directly — hand the JPEG to Claude or GPT-4o every turn and you could skip ingestion entirely. But the chat layer almost never has the luxury of reasoning about *just* the current page. *"Why is Carrot angry?"* usually needs the prior pages of the episode for narrative context (*"Pepper took the last carrot on page 4"*). *"What's a Komona witch?"* needs a wiki article retrieved from across the whole corpus. So every turn drags in multi-page context, and pulling that context in *fresh, as images* is the part that doesn't scale: expensive on hosted vision APIs, and slow on the local Ollama path even with multimodal models like `llava` or `qwen2-vl`. For the wiki side, text embeddings (bge-m3) are also cheap and semantically sharper on narrative — *"the moment Pepper realizes the potion was a trick"* — than multimodal embeddings are yet, which makes corpus-wide retrieval feasible at all. And a prose description written once is inspectable, diffable, and seedable for tests in a way *"whatever the VLM saw this turn"* never is.
+Today's multimodal LLMs can, in fact, look at that page and answer the question directly: hand the JPEG to Claude or GPT-4o every turn and you could skip ingestion entirely. But the chat layer almost never has the luxury of reasoning about *just* the current page. *"Why is Carrot angry?"* usually needs the prior pages of the episode for narrative context (*"Pepper took the last carrot on page 4"*). *"What's a Komona witch?"* needs a wiki article retrieved from across the whole corpus. So every turn drags in multi-page context, and pulling that context in *fresh, as images* is the part that doesn't scale: expensive on hosted vision APIs, and slow on the local Ollama path even with multimodal models like `llava` or `qwen2-vl`. For the wiki side, text embeddings (bge-m3) are also cheap and semantically sharper on narrative (*"the moment Pepper realizes the potion was a trick"*) than multimodal embeddings are yet, which makes corpus-wide retrieval feasible at all. And a prose description written once is inspectable, diffable, and seedable for tests in a way *"whatever the VLM saw this turn"* never is.
 
-So before any of the RAG plumbing built in later posts can fire, every page gets collapsed to prose once, up front — and the rest of the stack stays text-native. That description is the document the chat layer will embed, search, and ground answers in.
+So before any of the RAG plumbing built in later posts can fire, every page gets collapsed to prose once, up front, and the rest of the stack stays text-native. That description is the document the chat layer will embed, search, and ground answers in.
 
-This step is called **ingestion**, and the central question of this post is: **who writes the description?** The choice of who shapes everything downstream — the quality of chat answers, the cost of iterating on prompts, the operational reliability of the pipeline, even how easy it is to fix a description after the fact.
+This step is called **ingestion**, and the central question of this post is: who writes the description? The choice shapes everything downstream: the quality of chat answers, the cost of iterating on prompts, the operational reliability of the pipeline, even how easy it is to fix a description after the fact.
 
-The whole post is about answering that question in a slightly unusual way: have **Claude Code itself** do the looking. Same model as Anthropic's hosted vision API, no metered per-call cost — the ingestion work is subsumed under the Claude Code subscription, JSON artifacts on disk you can hand-edit. The architecture from [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) makes this possible without any special-casing — the rest of the pipeline still talks to a `VisionClient` Protocol, same shape as if a real model client sat behind it.
+The whole post is about answering that question in a slightly unusual way: have **Claude Code itself** do the looking. It's the same model as Anthropic's hosted vision API, with no metered per-call cost (the ingestion work is subsumed under the Claude Code subscription), and JSON artifacts on disk you can hand-edit. The architecture from [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) makes this possible without any special-casing: the rest of the pipeline still talks to a `VisionClient` Protocol, same shape as if a real model client sat behind it.
 
 ---
 
 ## Three Vision-Provider Options {#three-options}
 
-Before settling on the Claude-Code-as-vision-provider path, the project actually built and evaluated the two more conventional options. The choice between them is **context-specific** — there's no universal "best" vision provider; the right one for any given project depends on a small set of constraints (per-call budget, whether the pipeline needs to run unattended on a schedule with no human present, iteration speed, throughput requirements, privacy posture). Pepper & Carrot is a portfolio / demo project, so its constraints are very particular: no per-call API budget, no unattended-automation requirement, and free-at-the-margin prompt iteration as the dominant priority. **Under those constraints**, the third option wins. A different project — say, a paid product ingesting hundreds of comics nightly under a hosted-vision-API contract — would land somewhere else.
+Before settling on the Claude-Code-as-vision-provider path, the project actually built and evaluated the two more conventional options. The choice between them is context-specific. There's no universal "best" vision provider; the right one for any given project depends on a small set of constraints (per-call budget, whether the pipeline needs to run unattended on a schedule with no human present, iteration speed, throughput requirements, privacy posture). Pepper & Carrot is a portfolio / demo project, so its constraints are very particular: no per-call API budget, no unattended-automation requirement, and free-at-the-margin prompt iteration as the dominant priority. Under those constraints, the third option wins. A different project — say, a paid product ingesting hundreds of comics nightly under a hosted-vision-API contract — would land somewhere else.
 
-The point of walking through all three isn't to anoint Option 3 as universally best. It's to give you the decision frame so you can pick the right one for **your** project.
+The point of walking through all three isn't to anoint Option 3 as universally best. It's to give you the decision frame so you can pick the right one for *your* project.
 
 ### Option 1 — Local VLM (Ollama, `qwen2.5vl:7b`)
 
@@ -84,7 +84,7 @@ This is the "obvious" local-first choice. It fits cleanly behind the `VisionClie
 **Action:** Carrot knocks over a vial. ...
 ```
 
-Not every page comes out this way — some pages come back as clean prose — but enough do that the output is unreliable. The training-data distribution for "describe this image" pulls the model toward the structured panel-by-panel format, and prompt instructions only partially override it, with no way to predict from the input which way a given page will go. Worse: when this text gets retrieved by the chat layer (built in a later post) and fed to *another* small local model for synthesis, that model mirrors the same `**bold-label:**` shape in its replies — so the user sees wiki-style answers instead of conversational prose. The leak isn't cosmetic; it propagates.
+Not every page comes out this way (some come back as clean prose) but enough do that the output is unreliable. The training-data distribution for "describe this image" pulls the model toward the structured panel-by-panel format, and prompt instructions only partially override it, with no way to predict from the input which way a given page will go. Worse: when this text gets retrieved by the chat layer (built in a later post) and fed to *another* small local model for synthesis, that model mirrors the same `**bold-label:**` shape in its replies, so the user sees wiki-style answers instead of conversational prose. The leak isn't cosmetic; it propagates.
 
 **GGML crashes mid-run.** Specific page images would trigger a hard assertion failure inside [llama.cpp](https://github.com/ggml-org/llama.cpp)'s vision pipeline:
 
@@ -92,9 +92,9 @@ Not every page comes out this way — some pages come back as clean prose — bu
 GGML_ASSERT(a->ne[2] * 4 == b->ne[0]) failed
 ```
 
-(Tracked in [`ollama/ollama#15828`](https://github.com/ollama/ollama/issues/15828). The same assertion hits other vision models too — e.g. [`glm-ocr`](https://github.com/ollama/ollama/issues/14171) — so it's a llama.cpp vision-pipeline issue surfaced via Ollama, not a qwen-specific bug.) The entire run dies, mid-episode. Rerunning might succeed, might fail differently, might fail at a different page. **There is no application-layer fix.** Either the underlying tensor shapes align or they don't, and the error message is opaque from a Python caller's perspective.
+(Tracked in [`ollama/ollama#15828`](https://github.com/ollama/ollama/issues/15828). The same assertion hits other vision models too — e.g. [`glm-ocr`](https://github.com/ollama/ollama/issues/14171) — so it's a llama.cpp vision-pipeline issue surfaced via Ollama, not a qwen-specific bug.) The entire run dies, mid-episode. Rerunning might succeed, might fail differently, might fail at a different page. There is no application-layer fix. Either the underlying tensor shapes align or they don't, and the error message is opaque from a Python caller's perspective.
 
-**Latency.** A nine-page episode through `qwen2.5vl:7b` on Apple Silicon took **~10 minutes** per run, sometimes longer under memory pressure or on cold start — roughly a minute per page after the model warmed. Iterating on the description prompt meant 10+ minutes between each change, which adds up across a session of prompt-tuning.
+**Latency.** A nine-page episode through `qwen2.5vl:7b` on Apple Silicon took ~10 minutes per run, sometimes longer under memory pressure or on cold start, roughly a minute per page after the model warmed. Iterating on the description prompt meant 10+ minutes between each change, which adds up across a session of prompt-tuning.
 
 ### Option 2 — Hosted vision API (Anthropic)
 
@@ -104,11 +104,11 @@ Same wire shape, different endpoint. `AnthropicVisionClient` base64-encodes imag
 
 This fixed everything from Option 1. No GGML bugs. Clean prose output. ~5 seconds per page. The descriptions were genuinely good.
 
-The one downside: **roughly $30–$45 per full re-ingest** of a ~40-episode corpus at Opus pricing — about $0.08–$0.12 per page, given comic-page-sized images, a system prompt with the cast list, and a few hundred output tokens per description. That sounds cheap, and per run it is — until you realise you're going to want to re-ingest dozens of times while iterating on the description prompt. After ten iterations you've spent a few hundred dollars testing a prompt that mostly didn't change. (Dropping to Sonnet roughly fifths the bill with some quality trade-off; Haiku is cheaper still.) Not catastrophic, but a real friction tax on the loop.
+The one downside: roughly $30–$45 per full re-ingest of a ~40-episode corpus at Opus pricing, about $0.08–$0.12 per page, given comic-page-sized images, a system prompt with the cast list, and a few hundred output tokens per description. That sounds cheap, and per run it is, until you realise you're going to want to re-ingest dozens of times while iterating on the description prompt. After ten iterations you've spent a few hundred dollars testing a prompt that mostly didn't change. (Dropping to Sonnet roughly fifths the bill with some quality trade-off; Haiku is cheaper still.) Not catastrophic, but a real friction tax on the loop.
 
 ### Option 3 — Claude Code itself as the vision provider
 
-Then a third option emerged. Claude Code's `Read` tool can read image files directly, and the model behind it is **the same Claude Opus model that powers the Anthropic vision API**. The marginal cost is zero — it's folded into the Claude Code subscription you're already paying for. The quality is identical.
+Then a third option emerged. Claude Code's `Read` tool can read image files directly, and the model behind it is the same Claude Opus model that powers the Anthropic vision API. The marginal cost is zero: it's folded into the Claude Code subscription you're already paying for. The quality is identical.
 
 The shape of the solution: instead of writing an `OllamaVisionClient` or `AnthropicVisionClient` that the ingestion script calls at runtime, you write a **[Claude Code skill](https://docs.claude.com/en/docs/claude-code/skills)** — a project-local file that auto-loads into a Claude Code session — that instructs Claude to:
 
@@ -117,7 +117,7 @@ The shape of the solution: instead of writing an `OllamaVisionClient` or `Anthro
 3. Write the JSON to disk next to the image with the `Write` tool.
 4. Run the Python pipeline that consumes those JSONs.
 
-The Python pipeline then talks to a `JsonFileVisionClient` — the fourth and last implementation of the four `Protocol`-typed seams introduced in [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}). (Post 4 landed `Storage`, `EmbeddingClient`, and `ChatClient`; `VisionClient` was named but left for this post.) The class does nothing model-y itself — it just reads the sibling JSON file the skill wrote and validates it against the `PageDescription` schema. **The rest of the architecture is unchanged.** The pipeline still goes through the `VisionClient` Protocol; the model is just outside the Python process this time, doing its work *before* the script runs. The actual implementation is short enough to read end-to-end — we walk through it in the next post, [Post 6 — The Ingestion Pipeline]({% post_url 2026-05-17-pepper-carrot-companion-ingestion-pipeline %}).
+The Python pipeline then talks to a `JsonFileVisionClient`, the fourth and last implementation of the four `Protocol`-typed seams introduced in [Post 4]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}). (Post 4 landed `Storage`, `EmbeddingClient`, and `ChatClient`; `VisionClient` was named but left for this post.) The class does nothing model-y itself: it just reads the sibling JSON file the skill wrote and validates it against the `PageDescription` schema. The rest of the architecture is unchanged. The pipeline still goes through the `VisionClient` Protocol; the model is just outside the Python process this time, doing its work *before* the script runs. The actual implementation is short enough to read end-to-end, and we walk through it in the next post, [Post 6 — The Ingestion Pipeline]({% post_url 2026-05-17-pepper-carrot-companion-ingestion-pipeline %}).
 
 Three options, side-by-side:
 
@@ -127,11 +127,11 @@ Three options, side-by-side:
 | Hosted API (Anthropic vision) | Excellent | ~$30–$45 (Opus, full corpus) | Network / rate limits | ~45 sec |
 | **Claude Code as vision provider** | **Excellent** (same model) | **$0** *(subscription)* | None observed | ~5–15 min interactive |
 
-For **this project's** constraints — portfolio scope, no unattended-automation requirement, free iteration as the dominant priority — the Claude Code path is the right call. No metered per-call cost (subsumed under the Claude Code subscription you're already paying for), high-quality descriptions, and JSONs on disk that you can hand-edit. But it's not a universal winner. The moment your project needs ingestion that runs automatically on a schedule (a nightly cron, a webhook fire, anything with no human in the loop), or you're ingesting at a volume where one Claude Code session per episode doesn't fit your workflow, **the hosted-API option is the right call** — same quality, you just pay for it. And if budget is tight *and* privacy posture requires keeping pixels on your own infrastructure, modern open-weights VLMs (e.g. [Qwen3-VL](https://qwenlm.github.io/blog/qwen3-vl/)) have closed enough of the markdown-leakage gap that **the local-VLM option becomes viable again** — you trade latency and GPU cost for the privacy.
+For this project's constraints — portfolio scope, no unattended-automation requirement, free iteration as the dominant priority — the Claude Code path is the right call. No metered per-call cost (subsumed under the Claude Code subscription you're already paying for), high-quality descriptions, and JSONs on disk that you can hand-edit. But it's not a universal winner. The moment your project needs ingestion that runs automatically on a schedule (a nightly cron, a webhook fire, anything with no human in the loop), or you're ingesting at a volume where one Claude Code session per episode doesn't fit your workflow, the hosted-API option is the right call: same quality, you just pay for it. And if budget is tight *and* privacy posture requires keeping pixels on your own infrastructure, modern open-weights VLMs (e.g. [Qwen3-VL](https://qwenlm.github.io/blog/qwen3-vl/)) have closed enough of the markdown-leakage gap that the local-VLM option becomes viable again, trading latency and GPU cost for the privacy.
 
 The architecture supports any of the three. Flipping `VISION_PROVIDER` in `.env` (plus rebuilding the corresponding client) is the only code-level difference. The decision is about constraints, not about code.
 
-The rest of this post walks through how the skill is built and what the pipeline does on the back of it — but read it as a *case study* of one solution that fit one project's constraints, not as a prescription.
+The rest of this post walks through how the skill is built and what the pipeline does on the back of it. But read it as a *case study* of one solution that fit one project's constraints, not as a prescription.
 
 ---
 
@@ -153,7 +153,7 @@ Two flavors:
 
 > *Plain-English aside: how does Claude actually pick a skill?* When you type a message in Claude Code, the system reads the `description` field of every available skill. If your message looks like it might match — *"ingest episode 7 from images"* clearly matches the description we'll write in a moment — Claude loads that skill's full body into the conversation and starts following its instructions. You can also invoke a skill explicitly with [`/<skill-name>`](https://docs.claude.com/en/docs/claude-code/skills#invoking-a-skill) if you want to skip the matching step. There's no separate "install" or registration; dropping a `SKILL.md` into `.claude/skills/<name>/` is enough.
 
-Why this is useful for ingestion specifically: the skill is the **piece of context Claude needs to do the task correctly.** Without it, asking Claude *"describe the pages of episode 1"* would get you Claude's best guess at what you want — probably a single paragraph per page, no structured fields, no canonical character names, no validation. With the skill loaded, Claude knows exactly what JSON shape to produce, which fields are required, which character names to use, where to write the files, and what script to run when it's done. **The skill replaces the prompt-engineering work you'd otherwise re-do every time.**
+Why this is useful for ingestion specifically: the skill is the piece of context Claude needs to do the task correctly. Without it, asking Claude *"describe the pages of episode 1"* would get you Claude's best guess at what you want — probably a single paragraph per page, no structured fields, no canonical character names, no validation. With the skill loaded, Claude knows exactly what JSON shape to produce, which fields are required, which character names to use, where to write the files, and what script to run when it's done. The skill replaces the prompt-engineering work you'd otherwise re-do every time.
 
 ---
 
@@ -185,8 +185,8 @@ allowed-tools:
 
 Two things to notice:
 
-- The **`description` is long on purpose.** It's not just documentation for humans — it's the prompt-matching text Claude uses to decide whether to load this skill. The more trigger phrases you list, the more reliably the skill activates on natural-language requests. *"ingest episode 1"*, *"re-describe pages for ep07"*, *"set up episode 14 for the chat"* — all should match. Skill descriptions that are too short tend to under-activate.
-- **`allowed-tools` is the security boundary.** This skill needs `Read` (to view images), `Write` and `Edit` (to produce JSON files), `Bash` (to run the validation and ingestion scripts), and `Glob` (to list page files). It does **not** need `WebFetch`, `WebSearch`, or any of the MCP tools — and so they aren't granted. If the skill tries to invoke one of those, Claude refuses. This is the "principle of least privilege" applied to AI-driven workflows.
+- The **`description` is long on purpose.** It's not just documentation for humans; it's the prompt-matching text Claude uses to decide whether to load this skill. The more trigger phrases you list, the more reliably the skill activates on natural-language requests. *"ingest episode 1"*, *"re-describe pages for ep07"*, *"set up episode 14 for the chat"* — all should match. Skill descriptions that are too short tend to under-activate.
+- **`allowed-tools` is the security boundary.** This skill needs `Read` (to view images), `Write` and `Edit` (to produce JSON files), `Bash` (to run the validation and ingestion scripts), and `Glob` (to list page files). It does not need `WebFetch`, `WebSearch`, or any of the MCP tools, so they aren't granted. If the skill tries to invoke one of those, Claude refuses. This is the "principle of least privilege" applied to AI-driven workflows.
 
 ### The body — six steps
 
@@ -209,9 +209,9 @@ docker exec peppercarrot-postgres psql -U peppercarrot -d peppercarrot -tA \
   -c "SELECT name FROM characters ORDER BY name;"
 ```
 
-This is critical. The schema's `characters_present` field has to contain **canonical names** from the seeded `characters` table — not Claude's guess at a character name. *"the young witch"* should resolve to `"Pepper"`. *"the cat"* to `"Carrot"`. *"the bird"* to `"Mango"`. The skill pulls the cast list at the top of each run so Claude has it in working memory while describing pages.
+This is critical. The schema's `characters_present` field has to contain **canonical names** from the seeded `characters` table, not Claude's guess at a character name. *"the young witch"* should resolve to `"Pepper"`. *"the cat"* to `"Carrot"`. *"the bird"* to `"Mango"`. The skill pulls the cast list at the top of each run so Claude has it in working memory while describing pages.
 
-> *Plain-English aside: why does this matter so much?* The chat layer (covered in a later post) joins page descriptions back to canonical characters via `page_characters` — that's what powers the "next time Pepper appears" navigation feature and lets the chat anchor "Pepper" to a specific known entity rather than re-inferring her existence on every turn. If Claude writes `"the witch"` instead of `"Pepper"` in `characters_present`, the join fails silently and that page never shows up in any character-anchored query. Pulling the cast list at the start fixes this *structurally* — Claude knows the only acceptable strings up front.
+> *Plain-English aside: why does this matter so much?* The chat layer (covered in a later post) joins page descriptions back to canonical characters via `page_characters`. That's what powers the "next time Pepper appears" navigation feature and lets the chat anchor "Pepper" to a specific known entity rather than re-inferring her existence on every turn. If Claude writes `"the witch"` instead of `"Pepper"` in `characters_present`, the join fails silently and that page never shows up in any character-anchored query. Pulling the cast list at the start fixes this *structurally*: Claude knows the only acceptable strings up front.
 
 **Step 2 — List the pages.**
 
@@ -219,7 +219,7 @@ This is critical. The schema's `characters_present` field has to contain **canon
 ls data/raw/<slug>/pages/page_*.jpg
 ```
 
-Note the count, then process the pages in order — narrative continuity from earlier pages carries forward into the descriptions of later ones because Claude is describing them all in the same conversation. (The `PageDescription` schema doesn't pass previous-page context between calls — `JsonFileVisionClient` ignores the `previous_page_description` argument from the Protocol contract entirely — but Claude itself has continuity because every page is described in the same Claude Code session.)
+Note the count, then process the pages in order: narrative continuity from earlier pages carries forward into the descriptions of later ones because Claude is describing them all in the same conversation. (The `PageDescription` schema doesn't pass previous-page context between calls — `JsonFileVisionClient` ignores the `previous_page_description` argument from the Protocol contract entirely — but Claude itself has continuity because every page is described in the same Claude Code session.)
 
 **Step 3 — Describe each page.**
 
@@ -243,10 +243,10 @@ For each `page_NNN.jpg`, in order:
 
 3. Write it to `data/raw/<slug>/pages/page_NNN.json` — sibling of the image.
 
-Each field has rules attached, and **every constraint is load-bearing.** A short tour:
+Each field has rules attached, and every constraint is load-bearing. A short tour:
 
 - **`visual_description`: prose only.** No markdown headers, no bullet lists, no "Panel 1: ... Panel 2: ..." structure. The whole point of running this through Claude rather than `qwen2.5vl:7b` is to escape the structured-output gravity that the smaller model couldn't. If Claude slips into a structured format anyway (it sometimes does for very complex pages), re-prompt for prose.
-- **`dialogue`: verbatim, one entry per bubble, in reading order.** Don't paraphrase — these strings end up retrievable in the embedding index, and paraphrase distorts what the model can recall. `speaker = null` for sound effects, narration, and unidentified speakers.
+- **`dialogue`: verbatim, one entry per bubble, in reading order.** Don't paraphrase: these strings end up retrievable in the embedding index, and paraphrase distorts what the model can recall. `speaker = null` for sound effects, narration, and unidentified speakers.
 - **`characters_present`: canonical names only.** Pulled from Step 1's list. Don't invent names for unnamed creatures — leave them out of this field and describe them in `visual_description` instead.
 - **`locations_or_concepts`: named places, magic schools, named potions, currencies.** Keeps the universe-specific vocabulary in a queryable field for later.
 - **`mood_tags`: 1–4 short adjectives.** Powers a future filter feature in the UI ("show me funny pages"); harmless to include even if you never build that filter.
@@ -294,7 +294,7 @@ trap restore EXIT
 sed -i '' "s|^VISION_PROVIDER=.*|VISION_PROVIDER=json|" "$ENV_FILE"
 ```
 
-> *Plain-English aside: what's `trap … EXIT`?* In bash, [`trap`](https://www.gnu.org/software/bash/manual/html_node/Signals.html) registers a function to run when a specific event happens. `trap restore EXIT` says *"no matter how this script ends — clean finish, exception, Ctrl-C, the OS sending a kill signal — run the `restore` function before exiting."* It's the bash equivalent of Python's `try / finally`: guarantees cleanup. Here it guarantees that `VISION_PROVIDER` in `.env` gets put back to whatever it was before the script started, even if the ingestion script crashes halfway through. Without this, a failed run could leave `.env` in a weird state and future runs would behave unexpectedly.
+> *Plain-English aside: what's `trap … EXIT`?* In bash, [`trap`](https://www.gnu.org/software/bash/manual/html_node/Signals.html) registers a function to run when a specific event happens. `trap restore EXIT` says *"no matter how this script ends — clean finish, exception, Ctrl-C, the OS sending a kill signal — run the `restore` function before exiting."* It's the bash equivalent of Python's `try / finally`: it guarantees cleanup. Here it guarantees that `VISION_PROVIDER` in `.env` gets put back to whatever it was before the script started, even if the ingestion script crashes halfway through. Without this, a failed run could leave `.env` in a weird state and future runs would behave unexpectedly.
 
 **Step 6 — Verify the ingestion landed.**
 
@@ -309,7 +309,7 @@ docker exec peppercarrot-postgres psql -U peppercarrot -d peppercarrot -c \
 
 Expect `has_summary = t` and `page_count` matching the number of JSONs.
 
-That's the whole skill — ~170 lines of Markdown plus a ~50-line wrapper script. Modest surface area, hidden in plain sight, doing the highest-leverage step in the entire ingestion stack.
+That's the whole skill: ~170 lines of Markdown plus a ~50-line wrapper script. Modest surface area, hidden in plain sight, doing the highest-leverage step in the entire ingestion stack.
 
 ---
 
@@ -319,11 +319,11 @@ The *tokenized + encoded + decoded* gloss in [Option 1](#three-options) compress
 
 ### The image side — from pixels to embeddings
 
-**Patchification.** The raw image (say 1024×1024 RGB) is resized and normalized, then sliced into a regular grid of non-overlapping **patches** — typically 14×14 pixels each. A 448×448 image at 14px patches → 32×32 = 1024 patches. Each patch is flattened (14×14×3 = 588 numbers) and run through a single linear projection that maps it to a vector in some `d_vision` dimension (e.g. 1024). These vectors are *patch embeddings* — the image-side counterpart to what subword tokenization produces for text, except they're continuous embeddings produced by a linear layer rather than discrete IDs from a fixed vocabulary. Position information is added via 2D rotary embeddings (Qwen2.5-VL's choice) or learned 2D positional embeddings (older ViTs).
+**Patchification.** The raw image (say 1024×1024 RGB) is resized and normalized, then sliced into a regular grid of non-overlapping **patches**, typically 14×14 pixels each. A 448×448 image at 14px patches → 32×32 = 1024 patches. Each patch is flattened (14×14×3 = 588 numbers) and run through a single linear projection that maps it to a vector in some `d_vision` dimension (e.g. 1024). These vectors are *patch embeddings*: the image-side counterpart to what subword tokenization produces for text, except they're continuous embeddings produced by a linear layer rather than discrete IDs from a fixed vocabulary. Position information is added via 2D rotary embeddings (Qwen2.5-VL's choice) or learned 2D positional embeddings (older ViTs).
 
 **Vision encoder (ViT).** The patch embeddings pass through a Vision Transformer: a stack of self-attention + MLP layers. Attention here is **bidirectional / full** — every patch can attend to every other patch. This is what lets the ViT do the heavy semantic work of *"this patch is the corner of Pepper's hat, this patch is sky, this patch is Carrot's ear"* by aggregating information across the whole image. Qwen2.5-VL also applies 2×2 patch merging at this stage, which roughly quarters the sequence length without losing much fidelity. Output: a sequence of contextualized visual embeddings, ~256 of them for a 448×448 input.
 
-**Projector (the bridge).** The ViT outputs live in `d_vision`. The LLM's text embeddings live in `d_llm` (e.g. 3584 for Qwen2.5-7B). A small MLP — typically two linear layers with a GELU between them — maps each visual embedding from `d_vision` → `d_llm`. After this projection, **visual embeddings are dimensionally and semantically interchangeable with the LLM's text token embeddings.** This MLP is the "bolt on the front" in literal terms; it's also the cheapest part of the stack and usually the only part trained from scratch when assembling a new VLM.
+**Projector (the bridge).** The ViT outputs live in `d_vision`. The LLM's text embeddings live in `d_llm` (e.g. 3584 for Qwen2.5-7B). A small MLP — typically two linear layers with a GELU between them — maps each visual embedding from `d_vision` → `d_llm`. After this projection, visual embeddings are dimensionally and semantically interchangeable with the LLM's text token embeddings. This MLP is the "bolt on the front" in literal terms; it's also the cheapest part of the stack and usually the only part trained from scratch when assembling a new VLM.
 
 ### The text side
 
@@ -351,7 +351,7 @@ There are three transformer flavors:
 2. **Decoder-only** (GPT, Llama, Qwen). Causal self-attention — each position can only attend to earlier positions. Inherently autoregressive: generation is just "predict the next position." All modern frontier LLMs are this.
 3. **Encoder-decoder** (the original 2017 Transformer, T5). Encoder bidirectionally processes the input; decoder generates the output and cross-attends back to the encoder's representation. Classical seq2seq machine translation used this.
 
-The naive intuition for VLMs would be: *"I need to understand the image, so I need an encoder. Then I need to generate a description, so I need a decoder. So a VLM should be encoder-decoder."* And that **is** a valid design — early VLMs like BLIP-2 (Q-Former + Flan-T5) worked exactly this way.
+The naive intuition for VLMs would be: *"I need to understand the image, so I need an encoder. Then I need to generate a description, so I need a decoder. So a VLM should be encoder-decoder."* And that *is* a valid design — early VLMs like BLIP-2 (Q-Former + Flan-T5) worked exactly this way.
 
 But Qwen2.5-VL, LLaVA, and most modern VLMs collapse this into just a ViT plus a decoder-only LLM. The reason it works:
 
@@ -364,11 +364,11 @@ From the LLM's perspective, the image embeddings are just a chunk of **prefix co
 
 The only thing causal attention forbids is *future* positions being visible to *past* positions — and the image is always in the past relative to whatever's being generated. The constraint never bites.
 
-**The deeper reason this is elegant:** VLM construction becomes mostly composition rather than re-architecting. Take a pre-trained ViT (the vision community has lots — CLIP-ViT, SigLIP, etc.). Take a pre-trained decoder-only LLM (a huge investment in itself). Wedge a small MLP projector between them. Train mostly the projector, plus a lighter fine-tune of the LLM on vision-instruction data, to align the two. You get a VLM without retraining either of the two giant components from scratch. This is roughly how Qwen2.5-VL, LLaVA, and most current open-weights VLMs are built — and it's why the field has been able to ship competitive VLMs so quickly on top of existing text-only LLMs.
+**The deeper reason this is elegant:** VLM construction becomes mostly composition rather than re-architecting. Take a pre-trained ViT (the vision community has lots — CLIP-ViT, SigLIP, etc.). Take a pre-trained decoder-only LLM (a huge investment in itself). Wedge a small MLP projector between them. Train mostly the projector, plus a lighter fine-tune of the LLM on vision-instruction data, to align the two. You get a VLM without retraining either of the two giant components from scratch. This is roughly how Qwen2.5-VL, LLaVA, and most current open-weights VLMs are built, and it's why the field has been able to ship competitive VLMs so quickly on top of existing text-only LLMs.
 
 ---
 
-Next up: **Post 6 — The Ingestion Pipeline: From Page JSONs to Postgres + Chroma.** The skill above writes one JSON description per page; the next post is the Stage-2 Python pipeline that consumes those JSONs — generating image variants with Pillow, uploading through the storage abstraction, upserting `pages` rows and `page_characters` links, writing a per-episode plot summary, and embedding every chunk into ChromaDB's `pages_v1` collection. By the end of it you'll have one full episode ingested end-to-end.
+Next up: **Post 6 — The Ingestion Pipeline: From Page JSONs to Postgres + Chroma.** The skill above writes one JSON description per page; the next post is the Stage-2 Python pipeline that consumes those JSONs, generating image variants with Pillow, uploading through the storage abstraction, upserting `pages` rows and `page_characters` links, writing a per-episode plot summary, and embedding every chunk into ChromaDB's `pages_v1` collection. By the end of it you'll have one full episode ingested end-to-end.
 
 The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>, tagged `post-05-06-ingestion` — the same checkpoint the Post 6 pipeline post uses. The **full source repository** and a public live-demo URL go up alongside the deploy guide near the end of the series — once it's published.
 
