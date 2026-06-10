@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 480" role="img"
+     aria-label="The red-team agent loop, with the harness drawn as a boundary. A dashed box labeled 'the harness — your code' encloses four things: a strategy mission ('try to make it spoil'), a budget governor that caps turns, tool calls, and budget, the agent (Claude Opus 4.8, which picks the next probe and decides what to try), and the oracle (a structural boundary check in parallel with a guarded LLM judge, never the attacker model, which decides what broke). The harness runs the loop, dispatches tools, re-pins the reader position, and enforces the budget; it has no opinions of its own. Below the dashed box, outside the harness, sits the pepper-carrot-mcp server exposing the search and ask tools — the app under test. The agent sends a tool call down to that external server, the result comes back up to the oracle, and the oracle's verdict feeds back across to the agent so it can try another angle. A legend reads: amber is agentic (decides what to try), green is structural (decides what broke), the dashed box is the harness (your code), and the MCP server is the external app under test."
+     style="display: block; width: 100%; height: auto; max-width: 1100px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;">
+  <defs>
+    <marker id="rt-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b45309"/>
+    </marker>
+  </defs>
+
+  <!-- Harness boundary (the orchestration: your code) -->
+  <rect x="16" y="52" width="1068" height="252" rx="14" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="7 4"/>
+  <text x="34" y="76" text-anchor="start" font-size="11" font-weight="700" font-style="italic" fill="#475569">the harness &#183; your code</text>
+  <text x="34" y="91" text-anchor="start" font-size="9" font-style="italic" fill="#64748b">runs the loop &#183; dispatches tools &#183; re-pins the reader position &#183; enforces the budget &#183; no opinions of its own</text>
+
+  <!-- Mission -->
+  <rect x="44" y="150" width="158" height="96" rx="9" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+  <text x="123" y="176" text-anchor="middle" font-size="11" font-weight="700" fill="#7c2d12">Strategy mission</text>
+  <text x="123" y="195" text-anchor="middle" font-size="9" font-style="italic" fill="#7c2d12">&#8220;try to make it spoil&#8221;</text>
+  <text x="123" y="212" text-anchor="middle" font-size="8.5" fill="#7c2d12">spoiler &#183; hallucination</text>
+  <text x="123" y="225" text-anchor="middle" font-size="8.5" fill="#7c2d12">injection &#183; blindspot</text>
+
+  <!-- Governor -->
+  <rect x="250" y="104" width="232" height="34" rx="17" fill="#f1f5f9" stroke="#475569" stroke-width="1.3"/>
+  <text x="366" y="126" text-anchor="middle" font-size="10" font-weight="700" fill="#334155">Governor &#8212; caps turns &#183; tool-calls &#183; budget</text>
+  <line x1="366" y1="138" x2="366" y2="156" stroke="#475569" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#rt-arrow)"/>
+
+  <!-- Agent -->
+  <rect x="250" y="156" width="232" height="110" rx="10" fill="#fef3c7" stroke="#b45309" stroke-width="1.6"/>
+  <text x="366" y="180" text-anchor="middle" font-size="12" font-weight="700" fill="#7c2d12">Agent &#183; Claude Opus 4.8</text>
+  <text x="366" y="200" text-anchor="middle" font-size="9.5" fill="#7c2d12">picks the next probe</text>
+  <text x="366" y="216" text-anchor="middle" font-size="9.5" fill="#7c2d12">one tool call per turn</text>
+  <text x="366" y="232" text-anchor="middle" font-size="9.5" fill="#7c2d12">adapts to the last verdict</text>
+  <text x="366" y="253" text-anchor="middle" font-size="9" font-style="italic" font-weight="700" fill="#7c2d12">decides WHAT to try</text>
+
+  <!-- Oracle -->
+  <rect x="830" y="156" width="236" height="110" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="1.6"/>
+  <text x="948" y="180" text-anchor="middle" font-size="12" font-weight="700" fill="#065f46">Oracle &#183; verdict</text>
+  <text x="948" y="200" text-anchor="middle" font-size="9.5" fill="#065f46">structural boundary check</text>
+  <text x="948" y="215" text-anchor="middle" font-size="9.5" fill="#065f46">&#8741; guarded LLM judge</text>
+  <text x="948" y="233" text-anchor="middle" font-size="9.5" font-weight="700" fill="#065f46">never the attacker model</text>
+  <text x="948" y="253" text-anchor="middle" font-size="9" font-style="italic" fill="#065f46">decides WHAT broke</text>
+
+  <!-- MCP server: OUTSIDE the harness (the external app under test) -->
+  <rect x="458" y="362" width="214" height="86" rx="9" fill="#fde68a" stroke="#b45309" stroke-width="1.6"/>
+  <text x="565" y="386" text-anchor="middle" font-size="11.5" font-weight="700" fill="#7c2d12">pepper-carrot-mcp</text>
+  <text x="565" y="405" text-anchor="middle" font-size="10.5" font-weight="700" fill="#7c2d12">tool: search &#183; ask</text>
+  <text x="565" y="423" text-anchor="middle" font-size="8.5" font-style="italic" fill="#7c2d12">the app under test (external)</text>
+
+  <!-- Mission -> Agent -->
+  <line x1="202" y1="200" x2="250" y2="200" stroke="#b45309" stroke-width="1.5" marker-end="url(#rt-arrow)"/>
+
+  <!-- Agent -> MCP (tool call, crosses the harness boundary) -->
+  <line x1="352" y1="266" x2="500" y2="362" stroke="#b45309" stroke-width="1.6" marker-end="url(#rt-arrow)"/>
+  <text x="378" y="322" text-anchor="middle" font-size="8.5" font-style="italic" fill="#7c2d12">tool call</text>
+
+  <!-- MCP -> Oracle (result, crosses back into the harness) -->
+  <line x1="640" y1="362" x2="905" y2="266" stroke="#b45309" stroke-width="1.6" marker-end="url(#rt-arrow)"/>
+  <text x="800" y="322" text-anchor="middle" font-size="8.5" font-style="italic" fill="#7c2d12">result</text>
+
+  <!-- Oracle -> Agent (verdict feeds back) -->
+  <line x1="830" y1="205" x2="482" y2="205" stroke="#b45309" stroke-width="1.5" marker-end="url(#rt-arrow)"/>
+  <text x="656" y="197" text-anchor="middle" font-size="9.5" font-style="italic" fill="#7c2d12">verdict feeds back &#8212; &#8220;that held, try another angle&#8221;</text>
+
+  <!-- Legend band -->
+  <text x="550" y="470" text-anchor="middle" font-size="10" font-style="italic" font-weight="600" fill="#334155">Amber = agentic (decides what to try) &#183; Green = structural (decides what broke) &#183; Dashed = the harness, your code &#183; the MCP server is the external app under test</text>
+</svg>
