@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 12 of 16 — A World Graph Built by a Skill: Extraction and a Spoiler-Safe API"
+title: "Pepper & Carrot AI-powered flipbook · Part 12 — Building a Knowledge Graph with an LLM: Entity Extraction and a Spoiler-Safe API"
 date: 2026-05-30 12:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [knowledge-graph, claude-skills, postgres, fastapi, sqlalchemy, pydantic, peppercarrot, portfolio]

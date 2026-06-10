@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 4 of 16 — Provider Abstractions: Why Every External Service Hides Behind an Interface"
+title: "Pepper & Carrot AI-powered flipbook · Part 4 — LLM Provider Abstractions: Why Every External Service Hides Behind an Interface"
 date: 2026-05-13 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [python, protocol, fastapi, ollama, sentence-transformers, httpx, aiofiles, cloudflare-r2, peppercarrot, portfolio]

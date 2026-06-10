@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 3 of 16 — The Data Model: Ten Tables, One Migration, Zero Surprises"
+title: "Pepper & Carrot AI-powered flipbook · Part 3 — Designing the Postgres Data Model: Ten Tables, One Migration, Zero Surprises"
 date: 2026-05-11 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [postgres, sqlalchemy, alembic, data-modeling, jsonb, fastapi, peppercarrot, portfolio]

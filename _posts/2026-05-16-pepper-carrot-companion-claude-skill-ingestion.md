@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 5 of 16 — Claude Skills as a Vision Provider: Ingesting a Comic by Reading It"
+title: "Pepper & Carrot AI-powered flipbook · Part 5 — Claude Skills as a Vision Provider: Ingesting a Comic by Reading It"
 date: 2026-05-16 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [claude-skills, claude-code, vision, peppercarrot, ingestion, postgres, chromadb, python, portfolio]

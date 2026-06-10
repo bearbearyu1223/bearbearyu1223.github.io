@@ -9,8 +9,10 @@ timezone: America/Los_Angeles
 title: "Han's Generative AI Quest"
 tagline: "Chronicling my journey through language models, from scratch."
 description: >-
-  Study notes and hands-on projects covering Stanford CS336,
-  transformers, BPE tokenization, RLHF/GRPO, RAG, and more.
+  Hands-on generative-AI projects and study notes — including the Pepper &
+  Carrot series: building a spoiler-safe, agentic AI reading companion for a
+  webcomic (RAG, MCP, LLM evaluation, and red-teaming) — plus Stanford CS336,
+  transformers, BPE tokenization, and RLHF/GRPO.
 
 url: "https://bearbearyu1223.github.io"
 

@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 10 of 16 — Streaming Chat in the Browser: SSE, React, and Schema-Constrained Suggestion Chips"
+title: "Pepper & Carrot AI-powered flipbook · Part 10 — Streaming LLM Chat in the Browser: SSE, React, and Schema-Constrained Suggestions"
 date: 2026-05-26 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [sse, streaming, react, fastapi, structured-outputs, suggestion-chips, ollama, peppercarrot, portfolio]

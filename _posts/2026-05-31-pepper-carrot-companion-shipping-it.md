@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 14 of 16 — Going to Production: Provisioning Modal, Neon, and R2"
+title: "Pepper & Carrot AI-powered flipbook · Part 14 — Provisioning the Cloud: Taking an AI App to Production on Modal, Neon, and R2"
 date: 2026-05-31 12:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [deployment, modal, neon, cloudflare-r2, docker, fastapi, peppercarrot, portfolio]

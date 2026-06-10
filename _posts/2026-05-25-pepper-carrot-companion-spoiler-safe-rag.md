@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 9 of 16 — The RAG Layer: Spoiler-Safe Retrieval Without Trusting the Prompt"
+title: "Pepper & Carrot AI-powered flipbook · Part 9 — Spoiler-Safe RAG: Secure Retrieval That Doesn't Trust the Prompt"
 date: 2026-05-25 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [rag, retrieval, chromadb, embeddings, fastapi, sqlalchemy, ollama, peppercarrot, portfolio]

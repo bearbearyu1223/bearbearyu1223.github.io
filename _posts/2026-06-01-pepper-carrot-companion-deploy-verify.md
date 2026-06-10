@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 15 of 16 — Shipping It: Containerize, Deploy to Fly + Pages, and Verify"
+title: "Pepper & Carrot AI-powered flipbook · Part 15 — Containerize and Deploy: Shipping to Fly.io + Cloudflare Pages, Then Verifying"
 date: 2026-06-01 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [deployment, cloudflare-pages, fly-io, modal, cloudflare-r2, neon, docker, fastapi, peppercarrot, portfolio]

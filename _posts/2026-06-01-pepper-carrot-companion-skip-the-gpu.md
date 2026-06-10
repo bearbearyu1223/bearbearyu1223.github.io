@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 16 of 16 — Skip the GPU: A Managed-API Deploy on Anthropic + Voyage"
+title: "Pepper & Carrot AI-powered flipbook · Part 16 — Deploying an LLM App Without a GPU: A Managed-API Stack on Anthropic + Voyage"
 date: 2026-06-01 12:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [deployment, anthropic-api, voyage-ai, fly-io, cloudflare-pages, cloudflare-r2, neon, provider-abstraction, fastapi, peppercarrot, portfolio]

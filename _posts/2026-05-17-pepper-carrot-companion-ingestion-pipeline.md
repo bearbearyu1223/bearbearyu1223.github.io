@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 6 of 16 — The Ingestion Pipeline: From Page JSONs to Postgres + Chroma"
+title: "Pepper & Carrot AI-powered flipbook · Part 6 — Building an Embeddings Ingestion Pipeline: From Page JSONs to Postgres + Chroma"
 date: 2026-05-17 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [ingestion, postgres, chromadb, pillow, embeddings, peppercarrot, python, portfolio]

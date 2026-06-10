@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 7 of 16 — From Database to JSON: A Typed REST API"
+title: "Pepper & Carrot AI-powered flipbook · Part 7 — Building a Typed REST API: From Database to JSON"
 date: 2026-05-23 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [fastapi, pydantic, openapi, rest, sqlalchemy, cors, peppercarrot, portfolio]

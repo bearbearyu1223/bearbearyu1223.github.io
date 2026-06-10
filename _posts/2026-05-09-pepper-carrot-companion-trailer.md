@@ -1,8 +1,8 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 1 of 16 — When Your Chunks Are Comic Pages"
+title: "Pepper & Carrot AI-powered flipbook · Part 1 — Chunking a Webcomic for RAG: When Your Chunks Are Comic Pages (Series Trailer)"
 date: 2026-05-09 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
-tags: [rag, claude-skills, fastapi, react, ollama, chromadb, modal, fly, cloudflare-pages, neon, r2, llm, portfolio]
+tags: [rag, claude-skills, fastapi, react, ollama, chromadb, modal, fly, cloudflare-pages, neon, r2, llm, peppercarrot, portfolio]
 description: >-
   Series introduction for the Pepper & Carrot AI-powered flipbook — a
   page-aware, spoiler-safe RAG app for a hand-drawn webcomic that runs

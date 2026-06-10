@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 2 of 16 — Setting Up the Workshop: Postgres, Ollama, and a Project That Type-Checks"
+title: "Pepper & Carrot AI-powered flipbook · Part 2 — Setting Up a Local AI Dev Stack: Postgres, Ollama, and a Project That Type-Checks"
 date: 2026-05-10 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [postgres, ollama, fastapi, uv, mypy, ruff, alembic, docker, peppercarrot, portfolio]

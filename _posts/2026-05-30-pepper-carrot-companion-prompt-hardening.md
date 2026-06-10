@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 11 of 16 — Making Small Models Behave: Wiki Mode and the Long Road to Concise Answers"
+title: "Pepper & Carrot AI-powered flipbook · Part 11 — Making Small LLMs Behave: Prompt Hardening, Wiki Mode, and Concise Answers"
 date: 2026-05-30 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [prompt-engineering, qwen, ollama, react-markdown, suggestion-chips, rag, fastapi, peppercarrot, portfolio]

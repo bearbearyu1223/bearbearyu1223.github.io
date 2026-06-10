@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 17 — Wrapping the App in an MCP Server: Two Tools Claude Can Call"
+title: "Pepper & Carrot AI-powered flipbook · Part 17 — Building an MCP Server: Wrapping an App in Two Tools Claude Can Call"
 date: 2026-06-06 12:00:00 -0800
 categories: [Full-Stack, RAG, MCP]
 tags: [mcp, model-context-protocol, fastmcp, claude, anthropic, streamable-http, tool-use, fly-io, fastapi, peppercarrot, portfolio]

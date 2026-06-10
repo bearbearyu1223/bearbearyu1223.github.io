@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 13 of 16 — Rendering the World Graph: A React-Flow Overlay and Summary-First Wiki"
+title: "Pepper & Carrot AI-powered flipbook · Part 13 — Visualizing a Knowledge Graph: A React-Flow Overlay and Summary-First Wiki"
 date: 2026-05-31 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [knowledge-graph, react-flow, xyflow, claude-skills, fastapi, react, peppercarrot, portfolio]

@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 18 — Grading the Companion: An Agentic Evaluator on the Other Side of MCP"
+title: "Pepper & Carrot AI-powered flipbook · Part 18 — Evaluating a RAG App: An Agentic LLM-as-Judge Evaluator over MCP"
 date: 2026-06-06 13:00:00 -0800
 categories: [Full-Stack, RAG, MCP]
 tags: [mcp, model-context-protocol, evaluation, llm-as-judge, ragas, retrieval, failure-attribution, claude, anthropic, voyage-ai, peppercarrot, portfolio]
@@ -22,7 +22,7 @@ pin: true
 
 Part 18 of the [*Pepper & Carrot AI-powered flipbook*]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}) series, and the second half of a two-part thread on the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). [Post 17]({% post_url 2026-06-06-pepper-carrot-companion-mcp-server %}) built an MCP **server** — a thin adapter that exposed the deployed reading companion as two tools, `search` (retrieval) and `ask` (the real answer pipeline). That post ended on a promise: *"we built the grip; next, we squeeze."* This is the squeeze.
 
-But a demo can't answer the question that actually matters: is the companion any good? When it answers "who's on this page?", did it retrieve the right context, or just get lucky? When it sounds confident, is it grounded in the comic, or quietly making things up? And when something goes wrong, which half is to blame, the retriever or the model? This post builds the program that answers those questions: an **agentic evaluator** that is itself an MCP **client**, using the same `search` and `ask` tools to grade the app from the outside. ("Agentic" is narrow here — the evaluator *judges* answers and *drafts* test cases with an LLM, but it never lets a model decide which tool to call; that stays plain code. The three labels worth keeping straight — *evaluator*, *MCP client*, and *agentic* — are untangled in [§How an MCP Client Talks to the Server](#client).)
+But a demo can't answer the question that actually matters: is the companion any good? When it answers "who's on this page?", did it retrieve the right context, or just get lucky? When it sounds confident, is it grounded in the comic, or quietly making things up? And when something goes wrong, which half is to blame, the retriever or the model? This post builds the program that answers those questions: an **agentic evaluator** that is itself an MCP **client**, using the same `search` and `ask` tools to grade the app from the outside. ("Agentic" is narrow here: the evaluator *judges* answers and *drafts* test cases with an LLM, but it never lets a model decide which tool to call; that stays plain code. The three labels worth keeping straight (*evaluator*, *MCP client*, and *agentic*) are untangled in [§How an MCP Client Talks to the Server](#client).)
 
 > **▶ The repo: [`pepper-carrot-eval`](https://github.com/bearbearyu1223/pepper-carrot-eval).** A separate repo from the app and the server — because the evaluator is a *consumer* of the system under test, not a part of it. Clone it, point it at the live MCP server, and `uv run pepper-carrot-eval --retrieval-only` produces a real scored retrieval report with **no API key at all** (the deterministic layer runs entirely through the server). *Pepper & Carrot* is © [David Revoy](https://www.peppercarrot.com), CC BY 4.0.
 
@@ -69,7 +69,7 @@ The companion *looks* great in a demo. You ask "who's brewing the potion?", a fl
 - **Retrieval** can miss. The vector search might surface the wrong chunks — say, an unrelated wiki article that happens to share some vocabulary — and you'd never notice, because the model writes a smooth paragraph regardless.
 - **Generation** can drift. Even when it's handed the *right* chunks, the model can ignore them, embellish, or invent a fact that isn't anywhere in the comic.
 
-> *Plain-English aside: what "evaluating RAG" actually means.* A retrieval-augmented system has two stages — *find the relevant text*, then *write an answer from it* — so it has two ways to fail, and evaluating it means grading both **separately**. Retrieval is a *search* problem: did the right chunks come back, and were they ranked near the top? That's measurable with classic information-retrieval numbers, no LLM required. Answer quality is a *writing* problem: is the response correct, grounded, on-topic, complete? That's fuzzier — you need judgment. The mistake beginners make is to grade only the final answer; then a retrieval bug and a generation bug look identical, and you can't fix either with confidence. The whole design of this evaluator is to keep the two measurements apart, and then — the payoff — *join them* to assign blame.
+> *Plain-English aside: what "evaluating RAG" actually means.* A retrieval-augmented system has two stages (*find the relevant text*, then *write an answer from it*), so it has two ways to fail, and evaluating it means grading both **separately**. Retrieval is a *search* problem: did the right chunks come back, and were they ranked near the top? That's measurable with classic information-retrieval numbers, no LLM required. Answer quality is a *writing* problem: is the response correct, grounded, on-topic, complete? That's fuzzier, and it needs judgment. The mistake beginners make is to grade only the final answer; then a retrieval bug and a generation bug look identical, and you can't fix either with confidence. The whole design of this evaluator is to keep the two measurements apart, and then *join them* to assign blame.
 
 An MCP server makes this clean, because it hands you the two stages as two separate tools. `search` is the retrieval stage with its scores and metadata exposed; `ask` is the full pipeline producing the real user-facing answer. Grade `search`, grade `ask`, and you've graded the two failure modes independently, using the same tools any other MCP client (Claude included) would call.
 
@@ -139,13 +139,13 @@ Two reasonable-sounding alternatives, and why neither fits *measurement*:
 - **A Claude skill / agent.** You could hand Claude the tools and a prompt and let it grade the app. But an agent *improvises* — it decides what to ask, in what order, and when it's satisfied. That's the right behavior for an assistant and the wrong behavior for a ruler. An eval has to drive identical inputs every run and capture every output, or a moved number might just be the agent having a different day. The MCP client gives you the agent's exact interface with a script's determinism.
 - **Calling the app's HTTP API directly.** You could skip MCP and hit the app's own endpoints. But then you'd be grading a *private* path, not the one real clients use. Driving the same `search`/`ask` tools that Claude calls means the eval exercises the actual integration surface — if a tool's schema, description, or behavior regresses, the eval catches it, because it's calling identically. There's no app-specific test backdoor to quietly drift out of sync with production.
 
-The payoff is the symmetry the series keeps coming back to: because client and server speak one protocol, the evaluator is *just another MCP client* — the same role Claude plays — so nothing about the app or the server has to change to be graded. Post 17 built the grip; the evaluator is simply a second hand reaching for it.
+The payoff is the symmetry the series keeps coming back to: because client and server speak one protocol, the evaluator is *just another MCP client*, the same role Claude plays, so nothing about the app or the server has to change to be graded. Post 17 built the interface; the evaluator just reaches for it the same way any other client would.
 
 ---
 
 ## The One Rule: What Stays Deterministic {#rule}
 
-Before any code, the single most important design decision — and the one a thoughtful reviewer will look for. An evaluator is only useful if its numbers are trustworthy over time: you change the prompt, re-run, and a number that moved means a real regression, not judge noise. So the rule is:
+This is the most important design decision in the whole project, and the one a thoughtful reviewer looks for first. An evaluator is only useful if its numbers are trustworthy over time: you change the prompt, re-run, and a number that moved means a real regression, not judge noise. So the rule is:
 
 > **Keep the scored metrics deterministic. Allow agency only where open-ended reasoning genuinely pays — and never let it compute the score.**
 
@@ -160,7 +160,7 @@ That draws a hard line through the system:
 | LLM-as-judge (answer quality) | **Agentic, guarded** | Open prose needs judgment — but variance-controlled and cached |
 | Generating / inventing test cases | **Agentic, frozen after review** | Needs creativity — done offline, never in the scored loop |
 
-The agentic parts *feed* the deterministic metrics (by inventing test cases) and *explain* them (by judging prose), but they never *compute* them. That distinction is the spine of everything below. It's the same boundary the [provider-abstraction post]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) drew between "what changes and what doesn't" — here it's "what must be reproducible and what's allowed to reason."
+The agentic parts *feed* the deterministic metrics (by inventing test cases) and *explain* them (by judging prose), but they never *compute* them. That distinction runs through everything below. It's the same boundary the [provider-abstraction post]({% post_url 2026-05-13-pepper-carrot-companion-provider-abstractions %}) drew between "what changes and what doesn't," only here it's "what must be reproducible and what's allowed to reason."
 
 You can see the line in the dispatch itself. The evaluator is an MCP client, but it is *not* an agent that decides which tool to reach for — the harness calls `search` and `ask` directly, in fixed order, gated only by which API keys are present:
 
@@ -430,7 +430,7 @@ On a live single-item run, the judge scored a Chaosah answer all 1.0s, with a re
 
 ## Failure Attribution: Whose Fault Was It? {#attribution}
 
-Here's the move that makes this more than two metrics in a trench coat. Because the **same question** runs through *both* tools, the evaluator can tell retrieval failures apart from generation failures — the single most useful thing an eval can hand you, because it tells you which half to go fix.
+This is the part that makes the evaluator more than two separate metrics. Because the **same question** runs through *both* tools, it can tell retrieval failures apart from generation failures, which is the single most useful thing an eval can hand you: it tells you which half to go fix.
 
 The logic is a deterministic 2×2. "Did the gold chunk reach generation?" comes from what `ask` reports it retrieved, cross-checked against `search` at the production `k` — they should match, since both call the identical retrieval path. "Was the answer good?" comes from the judge, or, without a key, from the cosine. Cross them:
 

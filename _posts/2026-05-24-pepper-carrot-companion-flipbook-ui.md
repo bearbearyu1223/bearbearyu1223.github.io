@@ -1,5 +1,5 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 8 of 16 — A Real Flipbook in the Browser: React + StPageFlip"
+title: "Pepper & Carrot AI-powered flipbook · Part 8 — A React Flipbook in the Browser: StPageFlip and a Page-Turn UI"
 date: 2026-05-24 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [react, typescript, vite, stpageflip, fastapi, openapi, peppercarrot, portfolio]
