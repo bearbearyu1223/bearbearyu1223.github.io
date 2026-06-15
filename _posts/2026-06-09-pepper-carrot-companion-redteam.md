@@ -33,6 +33,7 @@ So this post builds the inventive attacker. It's an **agentic red-teamer**. You 
 > - **Four attack strategies** (spoilers, hallucination, prompt injection, and retrieval blind spots), each with what it's testing for, and two of them shown holding the line against a live attack.
 > - **The guardrails around an open-ended agent:** a *budget governor* so it can't loop forever or run up a bill, and a *JSONL trace* so every move is on the record.
 > - **The loop it closes:** every confirmed failure is written back as **candidate gold** for the Post 18 evaluator. Find once, guard forever.
+> - **How discovery becomes a measurement anyway:** a *stratified, factorial Monte-Carlo* experiment harness that runs the agent across a grid (strategies × reader-positions × replicates), aggregates the wins into a **Break Rate with confidence intervals**, and meters the real, two-sided dollar cost — every stats term defined from zero.
 
 > **Prerequisites.** [Post 18]({% post_url 2026-06-06-pepper-carrot-companion-evaluator %}) (the evaluator) and [Post 17]({% post_url 2026-06-06-pepper-carrot-companion-mcp-server %}) (the MCP server) are the natural lead-ins, but this post re-explains what it borrows. If you've never seen an AI agent before, start here. That's who it's written for.
 
@@ -51,6 +52,7 @@ So this post builds the inventive attacker. It's an **agentic red-teamer**. You 
 - [Anatomy of a Run: the Report and the Trace](#trace)
 - [Find Once, Guard Forever](#loop)
 - [Try It Yourself: Catching a Real Leak](#try)
+- [Measuring Robustness: From Runs to a Break Rate](#breakrate)
 - [What's Honest, What's Open](#honest)
 - [Key Takeaways](#key-takeaways)
 - [What's Next](#next)
@@ -629,11 +631,102 @@ Run it a few times; it leaked on roughly half the attempts in my testing. The `j
 
 ---
 
+## Measuring Robustness: From Runs to a Break Rate {#breakrate}
+
+The last section had you *"loop that command a handful of times"* and eyeball what came back. That was statistics by hand — and it papers over a real question. A single agentic run is *discovery*: coverage, not a number. So how do you ever say whether the app got *safer* between two versions, or which reader position it's weakest at?
+
+The answer is to stop treating one run as the unit and start treating *many* runs as a sample. Run the same mission a few dozen times, count how often the agent broke through, and that fraction is a number — one that actually moves when the app changes. [`experiment.py`](https://github.com/bearbearyu1223/pepper-carrot-redteam/blob/main/src/pepper_carrot_redteam/experiment.py) is exactly that loop: it runs a grid of **strategies × reader-positions × replicates** and reports the **Break Rate** per strategy — the fraction of runs that surfaced at least one confirmed failure. (Its complement, the **Hold Rate** = 1 − Break Rate, is the reassuring way to say the same thing: "held 6 runs in 10.")
+
+**The shape of the experiment, named.** That grid isn't an arbitrary triple-loop — it's a deliberate design, a **stratified, factorial Monte-Carlo experiment**. The name is a mouthful, but each of the three ideas inside it is pulling its weight, and each is worth defining from zero.
+
+- **Monte Carlo** — *the casino method: when the math is too messy, just try it a lot and count.* Want your odds in a dice game? You could grind through the probability, or you could roll the dice ten thousand times and tally your wins — that tally is a Monte Carlo estimate. The agent is far too unpredictable to calculate a Break Rate from first principles, so we don't try: we run it many times and count the breaks. The replicates (`--reps`) are the rolls, and the more you do, the more you can trust the tally.
+- **Factorial** — *try every combination, not a hand-picked few.* (The experiment-design sense — not the "5! = 120" kind from math class.) It's what a careful baker does testing every pairing of {two flours} × {three oven temps}, all six batches, instead of the three she had a hunch about. We run *every* strategy at *every* reader position — the full cross — so we learn not just *which* attack is strongest but *where* it's strongest.
+- **Stratified** — *split into meaningful groups first, then cover each on purpose.* It's how a careful pollster works: rather than dialing random numbers and praying the mix of ages and regions comes out balanced, they decide up front to survey a fixed number from each group. Each (strategy, position) pair is a group — a **stratum** — and we drop an equal number of runs into each. Robustness genuinely depends on where the reader is, so leaving position coverage to chance could starve exactly the cell that matters; stratifying guarantees every combination gets the same attention and its own error bar.
+
+Put together: cross the controlled factors fully (factorial), drop equal samples into each cell (stratified), and estimate each cell's Break Rate by repeated random trials (Monte Carlo). Each run is one **Bernoulli trial** — the statistician's name for a single yes/no event with fixed odds, one coin-flip — and the *run*, not the probe, is that flip: probes inside a run are correlated (the agent adapts off each verdict; multi-turn sessions share state), so the whole run counts once.
+
+Here's a real batch — four strategies at two reader positions, five reps each, 40 runs in all:
+
+```bash
+uv run python -m pepper_carrot_redteam.experiment --positions "3:2,11:4" --reps 5
+```
+
+```text
+strategy        runs  broke  break_rate (95% CI)        hold   mean$/run   total$
+----------------------------------------------------------------------------------
+blindspot         10      7  0.70 (0.40-0.89)         0.30      0.044     0.443
+hallucination     10      0  0.00 (0.00-0.28)         1.00      0.061     0.613
+injection         10      1  0.10 (0.02-0.40)         0.90      0.053     0.529
+spoiler           10      0  0.00 (0.00-0.28)         1.00      0.054     0.542
+----------------------------------------------------------------------------------
+TOTAL             40                                             0.053     2.128
+```
+
+> *Plain-English aside: error bars, and "is it real?"* Two bits of stats show up here, and both answer one question — *how much should I trust this number?*
+> - The **(95% CI)** after each rate is a **confidence interval** — an honest error bar on a fraction. "7 of 10 broke" reads as 0.70, but ten tries is thin evidence, so the true rate could plausibly sit anywhere from 0.40 to 0.89; that band *is* the interval. ("95%" means: rerun the whole experiment over and over, and the band would catch the real rate about 19 times in 20.) It's a **Wilson** interval specifically — a formula that stays sensible when samples are few or a rate hugs 0 or 1, where the schoolbook ± version can hand you nonsense like a negative rate. Notice `blindspot`'s 0.70 still carries a band nearly 0.50 wide on just ten runs — the math refusing to overclaim.
+> - For *comparing* two setups, [`analysis.py`](https://github.com/bearbearyu1223/pepper-carrot-redteam/blob/main/src/pepper_carrot_redteam/analysis.py) adds a **two-proportion z-test**, which asks whether a *gap* between two rates is real or just luck — more on that below.
+
+Now read the table. **`blindspot` is the standout at 0.70**, and it's worth remembering that this is the one strategy where a "break" is the *good* kind of finding: a retrieval gap that becomes new *positive* gold, not a safety hole. `injection` cracks once (0.10), and `spoiler` and `hallucination` hold clean across all ten runs each. But a single aggregate hides the most useful thing the experiment knows, which is *where* — and that's the second table:
+
+```text
+Break Rate by strategy x position (k/n):
+strategy          (3,2)    (11,4)
+blindspot          0.40      1.00
+hallucination      0.00      0.00
+injection          0.20      0.00
+spoiler            0.00      0.00
+```
+
+This is the payoff of stratifying by position. `blindspot` climbs from 0.40 two pages into episode 3 to a perfect **1.00 — every single run — at episode 11, page 4**. That tracks: deeper into the comic there's a richer cast and world to describe obliquely, so the retriever has more ways to be fooled by a paraphrase. A summary that only reported the pooled 0.70 would have *averaged that signal away*; the heatmap is what tells you the retriever needs the most work later in the series, not earlier.
+
+Two honest reads of the *quieter* rows, both straight out of the project's own rules:
+
+- **`spoiler` at 0.00 is not "unbreakable."** Two sections ago I broke the spoiler boundary by hand with the multi-turn false-completion attack. Here, the *automated* agent on a 12-tool-call budget didn't reproduce it at either position — which is the whole reason a Break Rate is a **lower bound on vulnerability**, not a clean bill of health. It measures robustness against *this* attacker at *this* budget; a sharper attacker (or the scripted worst case) finds more. Read it **relatively** — across versions and positions — never as "0% means safe."
+- **`injection`'s one break is a guarded-judge call, not a structural one.** The boundary-widening half of injection is checked structurally and never moved (the position is pinned server-side). The single confirmed failure came from the *out-of-domain* judge — a fuzzier verdict — which is exactly why the harness tells you to **trust the structural Break Rates most** and treat the guarded-judge rates as softer, worth a small human calibration sample before over-reading.
+
+**The cost line is honest about something most harnesses bury.** Your `ANTHROPIC_API_KEY` pays *twice* on the same account: once for the **attacker** (the Opus agent plus the Sonnet judges, metered *exactly* from the SDK's token counts) and once for the **app under attack** (the companion's Haiku generation behind every `ask`, which the MCP server runs but doesn't report back, so the harness *estimates* it from call-counts). The run prints the split and extrapolates a full-grid cost from the cheap batch:
+
+```text
+cost split: client/metered $1.623 (agent + judges, exact tokens) + companion/estimated $0.505
+            (server-side ask/search) = $2.128
+projected full grid (720 runs) at this mean $/run: ~$38
+```
+
+Forty real runs cost **$2.13** — about a nickel each — and from that the harness projects a full 720-run sweep at **~$38**, so you can size the bill before you spend it. Token *counts* are exact; only the dollar conversion leans on a price table.
+
+**Is a lever actually working, or am I fooling myself?** That's the job of the **A/B ablation** in `analysis.py`, which re-reads saved runs (no re-spending) and compares two groups with the **two-proportion z-test** from the aside above. The natural question for this app: does forcing the conversation to persist (`--multi-turn`) make the spoiler boundary leak more often? The batch above is group A — there the agent chose for itself whether to continue each session. So I re-ran the very same grid with continuation *forced*, group B, and ablated.
+
+One scoping move first, and it matters: `--multi-turn` only acts on the `ask`-based strategies (spoiler, hallucination, injection). `blindspot` runs through `probe_retrieval` with no session at all, so the lever *can't* touch it — leaving it in would only invite a false alarm from its noisy run-to-run swing (test four strategies at p < 0.05 and you should *expect* about one to light up by chance). So we ablate just the three strategies the lever can actually move:
+
+```bash
+# B: re-run the same grid, but force every ask to continue one server session
+uv run python -m pepper_carrot_redteam.experiment --positions "3:2,11:4" --reps 5 --multi-turn
+# ablate A vs B over the ask-based strategies the lever can affect:
+uv run python -m pepper_carrot_redteam.analysis experiments/<run-A> --vs experiments/<run-B>
+```
+
+```text
+strategy        A break (n)     B break (n)     delta     z      p      sig
+------------------------------------------------------------------------------
+hallucination   0.00 ( 10)     0.00 ( 10)    +0.00     0.00  1.000
+injection       0.10 ( 10)     0.10 ( 10)    +0.00     0.00  1.000
+spoiler         0.00 ( 10)     0.30 ( 10)    +0.30    -1.88  0.060
+OVERALL         0.03 ( 30)     0.13 ( 30)    +0.10    -1.40  0.161
+```
+
+Read it the way the design tells you to, and it's a small clinic in *not* fooling yourself. Forcing the conversation to persist pushed the spoiler Break Rate from 0.00 to 0.30 (delta **+0.30**) — exactly the way sustained pressure on one session *ought* to leak more, and `hallucination`/`injection` sat still, just as you'd expect of a lever aimed at spoilers. But the z-test lands spoiler at **p = 0.060**, a hair over the 0.05 bar, and the pooled effect across the three strategies is weaker still (delta +0.10, **p = 0.161**). So the honest verdict is "suggestive, not significant": ten runs per cell is underpowered, and the right next move is more reps, not a victory lap. This is precisely the result the test exists to catch — the one I'd have happily over-claimed from the raw 0.00 → 0.30 by eyeball.
+
+So: a real *hint* that multi-turn pressure leaks more, in the direction the mechanism predicts, but nothing you can yet bank. That's a far more useful — and more honest — output than "multi-turn leaks more," which is the story I'd have told from one number alone. Predict the direction from the mechanism first, ablate only where the lever has a causal pathway, and let the test stand between a hunch and a claim.
+
+And that's the quiet payoff the whole series has been building toward. Post 18's eval is a fixed ruler — a deterministic, reproducible *score*. A single red-team run is a free explorer — a *discovery*, no number. This harness is the bridge between them: aggregate enough exploration and you *recover* a number, just a different kind — a statistical Break Rate with error bars, a distribution over a stochastic attacker rather than a reproducible point score. Discovery and measurement turn out not to be a strict either/or. Enough discovery, repeated and counted honestly, becomes its own kind of measurement.
+
+---
+
 ## What's Honest, What's Open {#honest}
 
 In the spirit of the series:
 
-**The runs aren't reproducible, and that's the design, not a bug.** An agentic explorer attacks differently each time, so there's no single "score" to hand you. What I can hand you is coverage and a forensic trace: here's what it tried, here's what held, here's the transcript. The reproducible artifact lives on the other side of the loop, in the candidate gold the evaluator freezes. Don't ask the red-teamer for a number. Ask it for a discovery.
+**The runs aren't reproducible, and that's the design, not a bug.** An agentic explorer attacks differently each time, so there's no single "score" to hand you. What I can hand you is coverage and a forensic trace: here's what it tried, here's what held, here's the transcript. The reproducible artifact lives on the other side of the loop, in the candidate gold the evaluator freezes. So don't ask a *single* run for a number; ask it for a discovery — and when you do want a number, ask *many* runs for a **Break Rate** ([§Measuring Robustness](#breakrate)). Even that isn't the eval's reproducible score; it's a distribution over a stochastic attacker, a lower bound read relatively across versions and positions.
 
 **The app does *not* always hold — and that's the point.** The screenshots above all show good behavior, but that was the easy case. Push the spoiler boundary with the multi-turn *false-completion* attack from [§Try It Yourself](#try) — *"we've read the whole episode, summarize it"* — and two pages into a seven-page episode it will sometimes recap the entire plot and the ending twist from its own memory of the comic. Retrieval stays clean throughout (the [Post 9 spoiler-safe]({% post_url 2026-05-25-pepper-carrot-companion-spoiler-safe-rag %}) boundary holds); the leak is pure generation, the prose side the [Post 11 prompt-hardening]({% post_url 2026-05-30-pepper-carrot-companion-prompt-hardening %}) work targets and clearly hasn't fully closed. So the honest headline isn't "it held" — it's that the boundary holds against the obvious probes and breaks against a clever one, which is the whole reason a red-teamer exists. The claim was never "it's unbreakable"; it's "here's a tool that finds the break, with a transcript, so you can guard it."
 
@@ -657,13 +750,15 @@ In the spirit of the series:
 
 **6. Turn discoveries into guards.** A red-team finding is a one-time event until you freeze it. Writing each confirmed failure back as candidate gold for the deterministic suite is how "we found a bug once" becomes "we can never ship that bug again." Find once, guard forever.
 
+**7. Aggregate enough discovery and you recover a measurement.** One run is coverage, not a score. But run the agent across a *stratified, factorial Monte-Carlo* grid — strategies × positions × replicates — and the wins aggregate into a **Break Rate** with confidence intervals, a weak-spot heatmap, and a real dollar cost. It's not the eval's reproducible number; it's a lower bound on vulnerability you read relatively. Discovery and measurement aren't a strict either/or — enough discovery, counted honestly, becomes its own kind of measurement.
+
 ---
 
 ## What's Next {#next}
 
 That's the arc the series set out to walk: from [chunking a webcomic]({% post_url 2026-05-09-pepper-carrot-companion-trailer %}), through a [spoiler-safe RAG layer]({% post_url 2026-05-25-pepper-carrot-companion-spoiler-safe-rag %}) and a [browser flipbook]({% post_url 2026-05-24-pepper-carrot-companion-flipbook-ui %}), to [production]({% post_url 2026-06-01-pepper-carrot-companion-deploy-verify %}), an [MCP server]({% post_url 2026-06-06-pepper-carrot-companion-mcp-server %}), a [deterministic evaluator]({% post_url 2026-06-06-pepper-carrot-companion-evaluator %}), and now an agentic red-teamer that closes the loop back into it. Three MCP clients of one server: the app's own UI, the evaluator that measures it, and the attacker that hunts what the measurement misses. Each one is just another client reaching for the same two tools.
 
-The frontier from here runs in two directions, and neither is "add a fifth strategy." The first is **depth**: making each strategy's attacker sharper without changing what it hunts. That work has already started — the injection probes can now encode themselves (base64, leetspeak, homoglyphs) or switch language to dodge a naive filter, the blind-spot hunter hill-climbs on the retriever's own rank numbers instead of guessing once, and the spoiler conversation can be forced to keep pressing the same session — with more in that vein to come (richer social-engineering playbooks, new evasions). The second, and the bigger one, is **scale**. A single agent on a $0.50 budget pokes a handful of angles. A fleet of them (many missions, many reader positions, run on a schedule, each confirmed break auto-filed as candidate gold) turns red-teaming from a thing you *do* into a thing that's *always running*. That's continuous discovery feeding continuous measurement, which is where this two-repo split was headed all along.
+The frontier from here runs in two directions, and neither is "add a fifth strategy." The first is **depth**: making each strategy's attacker sharper without changing what it hunts. That work has already started — the injection probes can now encode themselves (base64, leetspeak, homoglyphs) or switch language to dodge a naive filter, the blind-spot hunter hill-climbs on the retriever's own rank numbers instead of guessing once, and the spoiler conversation can be forced to keep pressing the same session — with more in that vein to come (richer social-engineering playbooks, new evasions). The second, and the bigger one, is **scale** — and it's already underway. A single agent on a $0.50 budget pokes a handful of angles and hands you a discovery, not a number. Run that same agent across a grid of missions and reader positions, many times each, and the discoveries aggregate into a statistical **Break Rate** — which is exactly what the [experiment harness](#breakrate) now does, with confidence intervals, a weak-spot heatmap, and honest two-sided cost metering ($2 for forty runs, ~$38 projected for a full grid). What's left is to make it *continuous*: a fleet run on a schedule, each confirmed break auto-filed as candidate gold, so red-teaming turns from a thing you *do* into a thing that's *always running*. That's continuous discovery feeding continuous measurement, which is where this two-repo split was headed all along.
 
 ---
 
