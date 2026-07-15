@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 580" width="1120" height="580" role="img"
+     aria-label="The Deep Agents red-team architecture, drawn with the harness as a dashed boundary. Inside the dashed box: a campaign orchestrator (Claude Opus 4.8) that plans with write_todos and delegates via the task tool to four strategy subagents (spoiler, hallucination, injection, blindspot), each running in isolated context with its own mission and tools. Below the subagents sits a single tool wrapper (search, ask, probe_retrieval) which does three things: it calls the app with the reader position pinned, it runs the oracle out of band, and it returns answer plus verdict so the agent observes the verdict rather than computing it. The oracle is drawn as a green box nested inside the tool wrapper, labelled 'never a tool the agent can call'. A governor pill caps turns, tool calls, USD, and stall at the tool boundary. Outside the dashed box, below it, sits the external pepper-carrot-mcp server exposing the search and ask tools; the tool wrapper reaches down to it (call, pinned) and the answer comes back up. A legend reads: amber is agentic (decides what to try), green is structural (decides what broke), the dashed box is the harness (your code), and the MCP server is the external app under test."
+     style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;">
+  <defs>
+    <marker id="da-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b45309"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1120" height="580" fill="#ffffff"/>
+
+  <!-- Harness boundary (the framework + your code) -->
+  <rect x="16" y="44" width="1088" height="420" rx="14" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="7 4"/>
+  <text x="34" y="68" text-anchor="start" font-size="11" font-weight="700" font-style="italic" fill="#475569">the harness &#183; Deep Agents + your code</text>
+  <text x="34" y="83" text-anchor="start" font-size="9" font-style="italic" fill="#64748b">the framework drives the agentic half &#183; the oracle, budget, and audit trail stay in plain code you control</text>
+
+  <!-- Orchestrator -->
+  <rect x="44" y="100" width="310" height="104" rx="10" fill="#fef3c7" stroke="#b45309" stroke-width="1.6"/>
+  <text x="199" y="124" text-anchor="middle" font-size="11.5" font-weight="700" fill="#7c2d12">Campaign Orchestrator</text>
+  <text x="199" y="140" text-anchor="middle" font-size="9" fill="#7c2d12">deep agent &#183; Claude Opus 4.8</text>
+  <text x="199" y="159" text-anchor="middle" font-size="9" fill="#7c2d12">plans with write_todos</text>
+  <text x="199" y="174" text-anchor="middle" font-size="9" fill="#7c2d12">delegates via the task tool</text>
+  <text x="199" y="193" text-anchor="middle" font-size="9" font-style="italic" font-weight="700" fill="#7c2d12">decides WHAT to try</text>
+
+  <!-- Subagents -->
+  <rect x="402" y="100" width="410" height="104" rx="10" fill="#fef9e7" stroke="#b45309" stroke-width="1.5"/>
+  <text x="607" y="122" text-anchor="middle" font-size="11" font-weight="700" fill="#7c2d12">Strategy subagents &#8212; one per attack</text>
+  <text x="607" y="140" text-anchor="middle" font-size="9" fill="#7c2d12">spoiler-agent &#183; hallucination-agent</text>
+  <text x="607" y="155" text-anchor="middle" font-size="9" fill="#7c2d12">injection-agent &#183; blindspot-agent</text>
+  <text x="607" y="175" text-anchor="middle" font-size="8.5" font-style="italic" fill="#7c2d12">isolated context &#183; own mission &#183; own tools</text>
+  <text x="607" y="192" text-anchor="middle" font-size="8.5" font-style="italic" font-weight="700" fill="#7c2d12">also decide WHAT to try</text>
+
+  <!-- Governor pill -->
+  <rect x="858" y="112" width="224" height="34" rx="17" fill="#f1f5f9" stroke="#475569" stroke-width="1.3"/>
+  <text x="970" y="128" text-anchor="middle" font-size="9" font-weight="700" fill="#334155">Governor &#8212; caps turns &#183; tool-calls</text>
+  <text x="970" y="140" text-anchor="middle" font-size="9" font-weight="700" fill="#334155">&#183; USD &#183; stall (at the tool boundary)</text>
+
+  <!-- Tool wrapper (contains the oracle) -->
+  <rect x="402" y="280" width="560" height="158" rx="10" fill="#eef2f7" stroke="#475569" stroke-width="1.6"/>
+  <text x="682" y="303" text-anchor="middle" font-size="11" font-weight="700" fill="#334155">tool wrapper &#183; search &#183; ask &#183; probe_retrieval</text>
+  <text x="418" y="326" text-anchor="start" font-size="9" fill="#334155">1. call the app &#8212; reader position PINNED (never the agent)</text>
+
+  <!-- Oracle (green, nested inside the wrapper) -->
+  <rect x="424" y="336" width="306" height="88" rx="9" fill="#ecfdf5" stroke="#059669" stroke-width="1.6"/>
+  <text x="577" y="359" text-anchor="middle" font-size="11" font-weight="700" fill="#065f46">2. ORACLE &#183; verdict</text>
+  <text x="577" y="377" text-anchor="middle" font-size="9" fill="#065f46">structural check &#8741; guarded LLM judge</text>
+  <text x="577" y="392" text-anchor="middle" font-size="9" fill="#065f46">raw SDK &#183; out of band</text>
+  <text x="577" y="411" text-anchor="middle" font-size="9" font-style="italic" font-weight="700" fill="#065f46">never a tool the agent can call</text>
+
+  <!-- Return -->
+  <text x="752" y="360" text-anchor="start" font-size="9" fill="#334155">3. return {answer, verdict}</text>
+  <text x="752" y="378" text-anchor="start" font-size="9" font-weight="700" fill="#334155">&#8594; the agent OBSERVES</text>
+  <text x="752" y="393" text-anchor="start" font-size="8.5" font-style="italic" fill="#334155">the verdict &#8212; never computes it</text>
+
+  <!-- MCP server: OUTSIDE the harness -->
+  <rect x="562" y="490" width="240" height="72" rx="9" fill="#fde68a" stroke="#b45309" stroke-width="1.6"/>
+  <text x="682" y="514" text-anchor="middle" font-size="11.5" font-weight="700" fill="#7c2d12">pepper-carrot-mcp</text>
+  <text x="682" y="532" text-anchor="middle" font-size="10" font-weight="700" fill="#7c2d12">tools: search &#183; ask</text>
+  <text x="682" y="550" text-anchor="middle" font-size="8.5" font-style="italic" fill="#7c2d12">the app under test (external)</text>
+
+  <!-- Orchestrator -> Subagents (task) -->
+  <line x1="354" y1="152" x2="402" y2="152" stroke="#b45309" stroke-width="1.6" marker-end="url(#da-arrow)"/>
+  <text x="378" y="144" text-anchor="middle" font-size="8.5" font-style="italic" fill="#7c2d12">task</text>
+
+  <!-- Subagents -> Tool wrapper (tool call, down) -->
+  <line x1="560" y1="204" x2="560" y2="280" stroke="#b45309" stroke-width="1.6" marker-end="url(#da-arrow)"/>
+  <text x="512" y="245" text-anchor="middle" font-size="8.5" font-style="italic" fill="#7c2d12">tool call</text>
+
+  <!-- Tool wrapper -> Subagents (verdict as observation, up) -->
+  <line x1="640" y1="280" x2="640" y2="204" stroke="#b45309" stroke-width="1.6" marker-end="url(#da-arrow)"/>
+  <text x="712" y="245" text-anchor="middle" font-size="8.5" font-style="italic" fill="#7c2d12">verdict &#8594; observation</text>
+
+  <!-- Governor -> Tool wrapper (dashed, it caps the tools) -->
+  <line x1="946" y1="146" x2="900" y2="280" stroke="#475569" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#da-arrow)"/>
+
+  <!-- Tool wrapper -> MCP (call, pinned; crosses the boundary) -->
+  <line x1="706" y1="438" x2="706" y2="490" stroke="#b45309" stroke-width="1.6" marker-end="url(#da-arrow)"/>
+  <text x="764" y="468" text-anchor="middle" font-size="8.5" font-style="italic" fill="#7c2d12">call &#183; pinned</text>
+
+  <!-- MCP -> Tool wrapper (answer back) -->
+  <line x1="636" y1="490" x2="636" y2="438" stroke="#b45309" stroke-width="1.6" marker-end="url(#da-arrow)"/>
+  <text x="600" y="468" text-anchor="middle" font-size="8.5" font-style="italic" fill="#7c2d12">answer</text>
+
+  <!-- Legend band -->
+  <text x="560" y="576" text-anchor="middle" font-size="10" font-style="italic" font-weight="600" fill="#334155">Amber = agentic (decides what to try) &#183; Green = structural (decides what broke) &#183; Dashed = the harness, your code &#183; the MCP server is the external app under test</text>
+</svg>
