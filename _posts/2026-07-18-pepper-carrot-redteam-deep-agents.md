@@ -984,7 +984,7 @@ Three loose ends, each stubbed rather than hand-waved.
 
 **Put it on a cron.** This is the one the whole series keeps circling back to. A multi-strategy campaign is already the right unit to schedule: every confirmed break files itself as candidate gold, and cross-run memory compounds discovery from one run into the next, so red-teaming happens continuously instead of whenever I remember to run it. Durable execution and streaming are LangGraph's home turf, so here the framework helps rather than gets in the way.
 
-None of those is the point, though. The point is that you can build something security-adjacent on a batteries-included agent framework — and then make the attacker considerably smarter on top of it — without giving up what made the results worth believing. It only asks one thing of you, and it asks it before you start: decide which of the two jobs the framework is allowed to own. The agent attacks. Something independent decides whether it won. Over this rebuild the harness changed completely and the attacker got much better at its job; that division never moved.
+The bigger lesson sits underneath all three. A batteries-included framework will happily run your entire system, and here it runs most of one — the planning, the delegation, the isolated subagents, the context management. What it never touches is the scoring. That decision, made before any code was written, is why the results in this post are worth anything at all. The framework changed how nearly everything works. It didn't change who gets to say whether an attack landed.
 
 ---
 
