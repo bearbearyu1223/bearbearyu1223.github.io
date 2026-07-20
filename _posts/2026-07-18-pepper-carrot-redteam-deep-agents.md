@@ -904,13 +904,13 @@ OVERALL         0.25 ( 20)    0.40 ( 20)   +0.15   -1.01  0.311
 A = reflection off (--reflect-patience 0)   B = reflection on (2)
 ```
 
-**Inconclusive.** Reflection ran 0.40 against 0.25 — the direction you'd hope for, at **p = 0.311**, which is not a result. Twenty runs per arm was never going to resolve a 15-point effect; that needs closer to 150.
+**The sample is too small to conclude anything.** Reflection broke the app in 8 runs out of 20; without it, 5 out of 20. That looks like an improvement, but at this size it's indistinguishable from luck (p = 0.311). Telling a real 15-point effect apart from noise takes roughly 150 runs per arm, not 20.
 
-Worse, the arms weren't matched. Arm B fired **44% more probes** (158 vs 110), because the same lever that switches reflection on also widens the stall window from three held probes to five. Normalize for that and the gap mostly closes: **+60% per run, +11% per probe.** Most of what I measured is reflection buying more turns, not better ones. A conclusive rerun needs a third arm holding total turns fixed, many more replicates, and more than one reader position.
+The comparison wasn't quite fair either. The reflection arm got more turns — the same setting that switches reflection on also lets a run continue longer before the governor stops it — so it fired 44% more probes, 158 against 110. Count breaks per *probe* rather than per run and the advantage shrinks from +60% to +11%. Reflection mostly bought more attempts, not better ones.
 
-So: a promising design with a null result attached. I'd rather publish that than a chart with the p-value left off.
+So the honest answer is: I don't know yet. Settling it needs a bigger grid — many more runs, several reader positions, and a third arm that gives both sides the same number of turns.
 
-One thing *did* change, and it's worth being honest about because it's a direct consequence of the framework. In Post 19 the attacker's token cost was metered **exactly**, by wrapping the raw Anthropic SDK. In the Deep Agents rebuild the attacker model runs through LangChain, not the raw SDK I used to instrument — so the per-run dollar figure is now the governor's **estimate** (companion + judges + translate), not an exact token count. The **Break Rate math stays exact** — a run either broke or it didn't — but the cost column is honestly labeled as an estimate until I wire exact token metering back in through a LangGraph middleware hook. (That hook is already stubbed: `Governor.meter_usd(...)` is waiting for an `after_model` callback to feed it real token counts.)
+**One regression worth naming: the cost column is an estimate now.** Post 19 metered the attacker's tokens exactly, by wrapping the raw Anthropic SDK. Here the attacker runs through LangChain instead, which I haven't instrumented, so the per-run dollar figure is the governor's own estimate — companion, judge and translate calls, priced per call. The Break Rate is unaffected either way: a run either broke or it didn't. Getting exact costs back means feeding real token counts into `Governor.meter_usd()` from a LangGraph `after_model` hook, which is stubbed and waiting.
 
 ---
 
