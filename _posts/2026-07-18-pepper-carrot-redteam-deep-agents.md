@@ -976,9 +976,15 @@ In the spirit of the series:
 
 ## What's Next {#next}
 
-Three threads hang off this rebuild, each already stubbed rather than hand-waved. **Settle the reflection question properly:** the first ablation came back at p = 0.311 with the two arms running different numbers of probes, so it measured the lever more than the layer. The rerun needs a third arm that matches total turns across conditions, enough replicates to actually resolve a 15-point effect, and more than one reader position. **Restore exact cost metering:** a LangGraph `after_model` middleware that reads real token usage and feeds `Governor.meter_usd(...)`, bringing back Post 19's exact two-sided dollar accounting on the new stack. And the one the whole series keeps pointing at — **continuous** red-teaming: the multi-strategy campaign is already the unit you'd schedule on a fleet, each confirmed break auto-filed as candidate gold and cross-run memory compounding discovery across scheduled runs, so red-teaming runs on a cron instead of on demand. Durable execution and streaming are LangGraph's home turf, so the framework makes that easier, not harder.
+Three loose ends, each stubbed rather than hand-waved.
 
-But the durable lesson isn't any one TODO. It's that you can adopt a batteries-included agent framework for a security-adjacent system — and then push the attacker much further with a reflection layer — *without* surrendering the property that made it trustworthy, as long as you decide up front which half the framework is allowed to own. Explore agentically, judge structurally. The harness changed and the attacker got smarter; the rule didn't.
+**Settle the reflection question.** The first ablation measured the lever more than the layer — the two arms ran different numbers of probes, and the result landed at p = 0.311. A proper rerun needs a third arm that holds total turns fixed across conditions, enough replicates to resolve a 15-point effect, and more than one reader position.
+
+**Restore exact cost metering.** A LangGraph `after_model` hook that reads real token usage and feeds `Governor.meter_usd(...)`, bringing back the exact dollar accounting Post 19 had before the attacker moved behind LangChain.
+
+**Put it on a cron.** This is the one the whole series keeps circling back to. A multi-strategy campaign is already the right unit to schedule: every confirmed break files itself as candidate gold, and cross-run memory compounds discovery from one run into the next, so red-teaming happens continuously instead of whenever I remember to run it. Durable execution and streaming are LangGraph's home turf, so here the framework helps rather than gets in the way.
+
+None of those is the point, though. The point is that you can build something security-adjacent on a batteries-included agent framework — and then make the attacker considerably smarter on top of it — without giving up what made the results worth believing. It only asks one thing of you, and it asks it before you start: decide which of the two jobs the framework is allowed to own. The agent attacks. Something independent decides whether it won. Over this rebuild the harness changed completely and the attacker got much better at its job; that division never moved.
 
 ---
 
