@@ -888,7 +888,27 @@ injection        16     1  0.06 (0.01-0.28)
 blindspot        16     8  0.50 (0.28-0.72)
 ```
 
-That same z-test ablation is exactly how the reflection layer above will earn its keep — or not. The harness now takes a reflection on/off lever, so "does teaching the attacker to reflect actually raise the Break Rate?" becomes a measurable A/B rather than a hope. It's the honest way to hold a self-improvement claim to account, and it's a run I still owe.
+### Does the reflection layer earn its keep? {#ablation}
+
+That same z-test is how the reflection layer gets held to account, via a `--reflect-patience` lever in the harness. I ran it: four strategies at episode 9 page 1, five replicates per cell, two arms, forty runs, ~$3.50 and two and a half hours.
+
+```text
+strategy       A break (n)    B break (n)    delta     z      p     sig
+--------------------------------------------------------------------------
+spoiler         0.60 (  5)    0.80 (  5)   +0.20   -0.69  0.490
+hallucination   0.20 (  5)    0.00 (  5)   -0.20    1.05  0.292
+injection       0.00 (  5)    0.00 (  5)   +0.00    0.00  1.000
+blindspot       0.20 (  5)    0.80 (  5)   +0.60   -1.90  0.058
+OVERALL         0.25 ( 20)    0.40 ( 20)   +0.15   -1.01  0.311
+
+A = reflection off (--reflect-patience 0)   B = reflection on (2)
+```
+
+**Inconclusive.** Reflection ran 0.40 against 0.25 — the direction you'd hope for, at **p = 0.311**, which is not a result. Twenty runs per arm was never going to resolve a 15-point effect; that needs closer to 150.
+
+Worse, the arms weren't matched. Arm B fired **44% more probes** (158 vs 110), because the same lever that switches reflection on also widens the stall window from three held probes to five. Normalize for that and the gap mostly closes: **+60% per run, +11% per probe.** Most of what I measured is reflection buying more turns, not better ones. A conclusive rerun needs a third arm holding total turns fixed, many more replicates, and more than one reader position.
+
+So: a promising design with a null result attached. I'd rather publish that than a chart with the p-value left off.
 
 One thing *did* change, and it's worth being honest about because it's a direct consequence of the framework. In Post 19 the attacker's token cost was metered **exactly**, by wrapping the raw Anthropic SDK. In the Deep Agents rebuild the attacker model runs through LangChain, not the raw SDK I used to instrument — so the per-run dollar figure is now the governor's **estimate** (companion + judges + translate), not an exact token count. The **Break Rate math stays exact** — a run either broke or it didn't — but the cost column is honestly labeled as an estimate until I wire exact token metering back in through a LangGraph middleware hook. (That hook is already stubbed: `Governor.meter_usd(...)` is waiting for an `after_model` callback to feed it real token counts.)
 
@@ -928,11 +948,11 @@ In the spirit of the series:
 
 **The oracle boundary is the single biggest risk, and it's a discipline, not a wall.** Nothing in Deep Agents *stops* me from exposing the judge as a tool tomorrow; the framework would happily let me. What stops me is the isolation test and the habit of writing verdicts inside tools rather than beside them. The reflection layer widened the exploration-side surface — `reflect`, coverage, memory — and the same test now guards that none of those became a verdict path either.
 
-**Reflection is built, but "does it help?" is not yet measured.** The layer is wired and its *behavior* shows up in the traces — the plan getting revised, a `deepen` agent spawned on a break, near-misses seeding the next run. What I have *not* yet done is run the Break-Rate ablation that would prove reflection actually raises the break rate rather than just spending more tokens. The lever exists; the number doesn't. Until it does, treat the reflection layer as a promising design with an honest "TBD" on the payoff.
+**Reflection is built, and the measurement came back inconclusive.** I ran the on/off ablation — forty runs, two arms — and reflection scored 0.40 against 0.25 with **p = 0.311**. The direction is encouraging and the statistics are not. Worse, the arms weren't matched: the reflection arm fired 44% more probes, because the same lever that enables reflection also widens the stall window, so a good part of that gap is bought turns rather than better thinking. [The numbers and the caveats are in §Turning Lucky Breaks Into a Number](#ablation). Treat the reflection layer as a promising design with a null result attached — not as a demonstrated win.
 
 **The cost figures are estimates now, where they were exact before.** Named above, repeated because it's the kind of regression that's easy to bury. The Break Rate is exact; the dollars lean on the governor's per-call estimate until the token-metering middleware lands. Trust the counts, treat the dollars as a bill-sizing approximation.
 
-**This post validates the *architecture*, not a fresh hunt for bugs.** The deep findings — the multi-turn false-completion leak, the four blind spots, the full Break-Rate sweep — are [Post 19's]({% post_url 2026-06-09-pepper-carrot-companion-redteam %}) story, and the oracles are ported verbatim, so the *discoveries* transfer. What this rebuild proves is that the framework can carry them, and a whole reflection layer on top, without dropping the one rule. The single real finding here (the prose leak) is the proof the pipeline is live end-to-end, not the headline result.
+**This post validates the *architecture*, not a fresh hunt for bugs.** The deep findings — the multi-turn false-completion leak, the four blind spots, the full Break-Rate sweep — are [Post 19's]({% post_url 2026-06-09-pepper-carrot-companion-redteam %}) story, and the oracle's *criteria* carry over — the structural boundary check is byte-identical and the judge prompts are the same text — so the *discoveries* transfer. (The oracle **code** isn't quite verbatim: the reflection layer widened `Verdict` to keep the graded score the earlier version discarded. Same rules, one more field.). What this rebuild proves is that the framework can carry them, and a whole reflection layer on top, without dropping the one rule. The single real finding here (the prose leak) is the proof the pipeline is live end-to-end, not the headline result.
 
 ---
 
@@ -956,7 +976,7 @@ In the spirit of the series:
 
 ## What's Next {#next}
 
-Three threads hang off this rebuild, each already stubbed rather than hand-waved. **Prove the reflection layer earns its tokens:** run the on/off Break-Rate ablation — the lever is already in the experiment harness — and let the two-proportion z-test say whether a reflective attacker actually breaks the app more often, or just spends more. **Restore exact cost metering:** a LangGraph `after_model` middleware that reads real token usage and feeds `Governor.meter_usd(...)`, bringing back Post 19's exact two-sided dollar accounting on the new stack. And the one the whole series keeps pointing at — **continuous** red-teaming: the multi-strategy campaign is already the unit you'd schedule on a fleet, each confirmed break auto-filed as candidate gold and cross-run memory compounding discovery across scheduled runs, so red-teaming runs on a cron instead of on demand. Durable execution and streaming are LangGraph's home turf, so the framework makes that easier, not harder.
+Three threads hang off this rebuild, each already stubbed rather than hand-waved. **Settle the reflection question properly:** the first ablation came back at p = 0.311 with the two arms running different numbers of probes, so it measured the lever more than the layer. The rerun needs a third arm that matches total turns across conditions, enough replicates to actually resolve a 15-point effect, and more than one reader position. **Restore exact cost metering:** a LangGraph `after_model` middleware that reads real token usage and feeds `Governor.meter_usd(...)`, bringing back Post 19's exact two-sided dollar accounting on the new stack. And the one the whole series keeps pointing at — **continuous** red-teaming: the multi-strategy campaign is already the unit you'd schedule on a fleet, each confirmed break auto-filed as candidate gold and cross-run memory compounding discovery across scheduled runs, so red-teaming runs on a cron instead of on demand. Durable execution and streaming are LangGraph's home turf, so the framework makes that easier, not harder.
 
 But the durable lesson isn't any one TODO. It's that you can adopt a batteries-included agent framework for a security-adjacent system — and then push the attacker much further with a reflection layer — *without* surrendering the property that made it trustworthy, as long as you decide up front which half the framework is allowed to own. Explore agentically, judge structurally. The harness changed and the attacker got smarter; the rule didn't.
 
