@@ -51,7 +51,47 @@ $$
 
 Reading it right to left: $QK^\top$ is every query scored against every key (an $n \times n$ matrix of relevance scores); $\sqrt{d_k}$ is a scaling constant we'll spend a whole section justifying; $\text{softmax}$ turns each row of scores into weights summing to 1; multiplying by $V$ takes the weighted average.
 
-"Multi-head" attention just runs this several times in parallel with different learned projections, so different heads can specialize — one tracking syntax, another coreference — and concatenates the results.
+#### What a "head" is {#what-a-head-is}
+
+You'll see "multi-head attention" everywhere, so it's worth being concrete about what a head is.
+
+The problem with running attention just once is that **a softmax produces exactly one set of weights**. One opinion about which tokens matter. But a token usually needs several unrelated things at the same time — what noun this pronoun refers to, which verb governs this subject, which adjective modifies this noun. Forcing all of that through a single weighting gives you a blurry average of all three.
+
+A **head** is one independent copy of the attention mechanism, working on a *slice* of the vector. Rather than run attention once on all 4,096 numbers, you cut the vector into (say) 32 slices of 128 numbers each. Each slice gets its own Q, K and V projections, computes its own scores, and produces its own answer about where to look. The 32 results are glued back together into a 4,096-vector and mixed by one final matrix.
+
+$$
+d_{model} = n_{heads} \times d_{head} \qquad 4096 = 32 \times 128
+$$
+
+The natural worry is that this must be 32× the work. It isn't — and that's the part worth seeing, because it explains why every model does it:
+
+```text
+  n_heads  head_dim (= d_k)  projection params  score FLOPs
+  -----------------------------------------------------------
+  1                    4096              67.1M        8.6 G
+  8                     512              67.1M        8.6 G
+  32                    128              67.1M        8.6 G
+  64                     64              67.1M        8.6 G
+```
+
+**Identical, every row.** Heads are a *reshape of a fixed budget*, not extra machinery. The four projection matrices are the same size regardless — you're just deciding whether to treat their output as one wide space or many narrow ones. The score computation works out the same too: $n_{heads} \times n^2 \times d_{head} = n^2 \times d_{model}$, and the head count cancels.
+
+So multiple heads are free, and they buy several attention patterns at once instead of one averaged compromise. Running the same input through four heads, here's where each one's final query places its attention:
+
+```text
+  head  pos0  pos1  pos2  pos3  pos4  pos5  entropy
+  ---------------------------------------------------
+  0     0.04  0.04  0.06  0.50  0.02  0.02     1.72
+  1     0.09  0.18  0.08  0.04  0.20  0.07     2.28
+  2     0.01  0.33  0.03  0.01  0.18  0.03     1.86
+  3     0.05  0.08  0.12  0.13  0.00  0.16     2.19
+```
+
+Four genuinely different distributions — head 0 concentrates half its weight on position 3 while head 1 spreads out. (These are random weights, so the differences here only show heads aren't redundant copies; they aren't *specialization*.) In trained models the specialization is real and has been catalogued: interpretability researchers have found "previous-token heads" that consistently look one step back, and "induction heads" that spot a repeated pattern and predict its continuation.
+
+One connection that's easy to miss and matters shortly: **$d_{head}$ is the $d_k$ in the attention formula.** The $\sqrt{d_k}$ scale is set by the per-head width — 128, not 4,096. When we measure that scale below, that's the number in play.
+
+There's also a trade-off lurking. More heads means more distinct patterns but narrower ones — 64 heads gives each only 64 dimensions to represent a query in. Models land at 32–64 heads because the extremes are both bad. And since each head carries its own keys and values, the head count is exactly what drives the memory cost that post 2 is about.
 
 ### Where attention sits in the model {#where-attention-sits-in-the-model}
 
