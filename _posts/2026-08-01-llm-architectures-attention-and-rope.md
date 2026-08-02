@@ -27,17 +27,73 @@ uv run demo01
 
 Every number and figure in this post came out of that command on my M-series Mac.
 
+### First, what attention is {#first-what-attention-is}
+
+Before measuring anything, the thirty-second version.
+
+A language model reads a sequence of tokens and has to build a representation of each one. The hard part is that a token's meaning depends on other tokens, sometimes far away. In *"the trophy didn't fit in the suitcase because **it** was too big,"* resolving **it** requires looking back at two candidate nouns and picking one. A model that processes each token in isolation cannot do this at all.
+
+Attention is the mechanism that lets a token **go and get information from other tokens**, and — crucially — *learn which ones to get it from*. For each token it computes a set of weights over all the other tokens, then returns a weighted average of what those tokens have to offer. Relevant tokens get large weights; irrelevant ones get weights near zero.
+
+Every token produces three vectors for this, each from its own learned projection:
+
+| | Question it answers | Role |
+| --- | --- | --- |
+| **Query** $Q$ | "What am I looking for?" | the token doing the looking |
+| **Key** $K$ | "What am I?" | how a token advertises itself |
+| **Value** $V$ | "What do I contribute if chosen?" | the content actually retrieved |
+
+Compare every query against every key by dot product (large dot product = aligned = relevant), turn those scores into weights that sum to 1 with a softmax, and use the weights to average the values. That is the entire mechanism:
+
+$$
+\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V
+$$
+
+Reading it right to left: $QK^\top$ is every query scored against every key (an $n \times n$ matrix of relevance scores); $\sqrt{d_k}$ is a scaling constant we'll spend a whole section justifying; $\text{softmax}$ turns each row of scores into weights summing to 1; multiplying by $V$ takes the weighted average.
+
+"Multi-head" attention just runs this several times in parallel with different learned projections, so different heads can specialize — one tracking syntax, another coreference — and concatenates the results.
+
+### Where attention sits in the model {#where-attention-sits-in-the-model}
+
+Attention is a *component*, not the whole model. A decoder-only transformer stacks N identical blocks, and each block does two things: attention, then a position-wise feed-forward network, each wrapped in a residual connection with a normalization layer.
+
+![Where attention sits in a decoder block](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/block-anatomy-light.png){: .light width="700" }
+![Where attention sits in a decoder block](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/block-anatomy-dark.png){: .dark width="700" }
+
+The division of labor is the thing to notice, and it's easy to state:
+
+- **Attention mixes across positions.** It is the *only* component that does. Every other layer in the block — the FFN, the norms — processes each position completely independently.
+- **The FFN does the thinking per position.** Once a token has gathered context, the FFN transforms it. This is where most factual knowledge is stored.
+
+Which gets more of the model? Counting parameters in a single block:
+
+```text
+  block shape                  attention params  FFN params  FFN share
+  ----------------------------------------------------------------------
+  GPT-2 style (MHA, ReLU FFN)             10.2M       20.5M        67%
+  Llama-3-8B (GQA, SwiGLU)                41.9M      176.2M        81%
+  Llama-3-70B (GQA, SwiGLU)              151.0M      704.6M        82%
+```
+
+Attention gets the name and the diagrams, but it's the **minority of the weights**. The classic two-thirds figure comes from the original shapes — attention is $4d^2$ (four $d \times d$ projections), the FFN is $2 \cdot d \cdot 4d = 8d^2$. Modern decoders push it further from both ends: GQA shrinks the K and V projections while SwiGLU adds a third FFN matrix.
+
+A useful summary: **routing lives in attention, knowledge lives in the FFN.** That framing comes back repeatedly — it's why LoRA targeting only attention underperforms (post 5), and why Mixture-of-Experts replaces the *FFN* rather than the attention (post 9).
+
+With that map in place, the rest of this post takes the mechanism apart and measures it.
+
 ### Table of Contents
 
-1. [Attention is a soft dictionary lookup](#attention-is-a-soft-dictionary-lookup)
-2. [The whole mechanism, in five lines](#the-whole-mechanism-in-five-lines)
-3. [Receipt 1: our version vs the fused kernel](#receipt-1-our-version-vs-the-fused-kernel)
-4. [Why divide by sqrt(d_k)?](#why-divide-by-sqrt-dk)
-5. [Causal masking: what makes it autoregressive](#causal-masking-what-makes-it-autoregressive)
-6. [RoPE: absolute rotation, relative score](#rope-absolute-rotation-relative-score)
-7. [A detour: how a silent MPS bug deleted RoPE](#a-detour-how-a-silent-mps-bug-deleted-rope)
-8. [Sidebar: the probe](#sidebar-the-probe)
-9. [What's next](#whats-next)
+1. [First, what attention is](#first-what-attention-is)
+2. [Where attention sits in the model](#where-attention-sits-in-the-model)
+3. [Attention is a soft dictionary lookup](#attention-is-a-soft-dictionary-lookup)
+4. [The whole mechanism, in five lines](#the-whole-mechanism-in-five-lines)
+5. [Receipt 1: our version vs the fused kernel](#receipt-1-our-version-vs-the-fused-kernel)
+6. [Why divide by sqrt(d_k)?](#why-divide-by-sqrt-dk)
+7. [Causal masking: what makes it autoregressive](#causal-masking-what-makes-it-autoregressive)
+8. [RoPE: absolute rotation, relative score](#rope-absolute-rotation-relative-score)
+9. [A detour: how a silent MPS bug deleted RoPE](#a-detour-how-a-silent-mps-bug-deleted-rope)
+10. [Sidebar: the probe](#sidebar-the-probe)
+11. [What's next](#whats-next)
 
 ---
 
@@ -51,18 +107,14 @@ A normal dictionary lookup is exact. You hand it a key, it finds the one entry w
 scores = {"cat": 0, "mat": 1, "sat": 0}   # exact match: one winner
 ```
 
-Attention softens every step of that. Each token emits a **query** — "what am I looking for?". Every token emits a **key** — "what am I?" — and a **value** — "what do I contribute if you pick me?". Instead of testing keys for equality, you take a dot product, which measures how *aligned* the query and key are. Instead of returning one value, you return a weighted average of all of them, with the weights from a softmax over those alignment scores.
+Attention softens every step of that. Testing keys for *equality* becomes taking a dot product, which measures how aligned a query and key are. Returning *one* value becomes returning a weighted average of all of them.
 
-$$
-\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V
-$$
-
-So a "lookup" returns 70% of the value at position 3, 20% at position 1, and a sprinkle of everything else. That softness is the whole trick: it is differentiable, so the model can *learn* what to look for.
+So a "lookup" returns 70% of the value at position 3, 20% at position 1, and a sprinkle of everything else. That softness is the whole trick: a hard lookup has no gradient — nudge the query slightly and either nothing changes or the winner flips discontinuously. A soft one is differentiable everywhere, so the model can **learn** what to look for.
 
 Two consequences fall out immediately, and both matter later in the series:
 
 - **The dot product is the only place tokens interact.** Everything else in a transformer block — the FFN, the norms — processes each position independently. All the mixing happens in $QK^\top$.
-- **Nothing in the equation knows about order.** Shuffle the tokens and you get the same set of outputs, shuffled. Position has to be injected separately, which is what §6 is about.
+- **Nothing in the equation knows about order.** Shuffle the tokens and you get the same set of outputs, shuffled. Position has to be injected separately, which is what RoPE is for, below.
 
 ### The whole mechanism, in five lines {#the-whole-mechanism-in-five-lines}
 
