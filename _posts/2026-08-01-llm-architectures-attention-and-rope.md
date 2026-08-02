@@ -60,12 +60,71 @@ Attention is a *component*, not the whole model. A decoder-only transformer stac
 ![Where attention sits in a decoder block](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/block-anatomy-light.png){: .light width="700" }
 ![Where attention sits in a decoder block](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/block-anatomy-dark.png){: .dark width="700" }
 
-The division of labor is the thing to notice, and it's easy to state:
+That diagram has five kinds of box, and the names are all jargon. Here's each one in plain English.
 
-- **Attention mixes across positions.** It is the *only* component that does. Every other layer in the block — the FFN, the norms — processes each position completely independently.
-- **The FFN does the thinking per position.** Once a token has gathered context, the FFN transforms it. This is where most factual knowledge is stored.
+#### Token embeddings — turning words into numbers
 
-Two structural details in that diagram are worth naming, because they're what "modern transformer" means in practice.
+The model can't work with text, only with numbers. So the first step is a lookup table: every token in the vocabulary owns a list of numbers — say 4,096 of them — and that list *is* the model's representation of that token. This list is called a **vector**, and its length (4,096) is called $d_{model}$.
+
+At the start, that vector encodes only "which token is this." Every block after it edits the vector so it comes to mean "which token is this, *in this particular context*." That's the whole job of the stack: the word *bank* enters with one generic vector, and after 32 blocks of reading its neighbors, it leaves with a vector that has been nudged toward *riverbank* or toward *savings account*.
+
+#### RMSNorm — keeping the numbers in a sane range
+
+As a vector passes through dozens of layers, each doing arithmetic on it, the numbers tend to drift — growing until they overflow, or shrinking until they vanish. **Normalization** rescales a vector back to a standard size before handing it to the next layer, so every layer receives inputs in the range it expects.
+
+The mixing-desk analogy is close enough: you're setting every track to a consistent level so nothing clips and nothing is inaudible. Note it rescales the *whole vector at once* — the relative proportions between the 4,096 numbers survive, only the overall magnitude is standardized.
+
+The original transformer used **LayerNorm**: subtract the vector's mean, then divide by its standard deviation. **RMSNorm** does less — it skips the mean subtraction entirely and just divides by the root-mean-square of the numbers:
+
+$$
+\text{RMSNorm}(x) = \frac{x}{\sqrt{\tfrac{1}{n}\sum x_i^2}} \cdot g
+$$
+
+where $g$ is a learned per-dimension scale. **Its contribution is a discovery, not an invention**: the mean-centering half of LayerNorm turned out not to be doing meaningful work. Dropping it costs no quality and saves a pass over the data, so essentially every model since Llama uses it. This is a common pattern in this field — a component gets simpler once someone checks which half of it mattered.
+
+#### The FFN — where the model actually knows things
+
+**FFN** stands for **feed-forward network**, and it's the plainest thing in the architecture: take a vector, multiply it by a matrix to make it *wider*, apply a nonlinear function, multiply by another matrix to bring it back to the original width.
+
+$$
+\text{FFN}(x) = W_{\text{down}}\big(\,\text{nonlinearity}(W_{\text{up}}\,x)\,\big)
+$$
+
+Typically it expands 4× — from 4,096 up to 16,384 and back. Why expand and then contract? The wide middle layer gives the model room to test many specialized questions at once. Loosely: each of those 16,384 intermediate dimensions can learn to respond to some particular pattern ("is this a plural noun?", "is this talking about France?"), the nonlinearity keeps the ones that fire and suppresses the ones that don't, and the down-projection recombines the survivors back into an updated vector.
+
+Two things make the FFN important out of proportion to how boring it looks:
+
+- **It is where knowledge lives.** Interpretability work has traced specific facts to specific FFN weights, and a productive way to read the FFN is as a key–value memory: the up-projection matches patterns, the down-projection writes the associated content back. When we say a model "knows" that Paris is in France, that association is mostly stored here.
+- **It is most of the model.** As the parameter table below shows, the FFN is 67–82% of every block.
+
+The word **position-wise** attached to it just means each token's vector goes through the FFN completely on its own — token 5 has no idea token 6 exists. That's the exact complement to attention, which is the only place tokens see each other.
+
+#### SwiGLU — a better nonlinearity for the FFN
+
+The original FFN used **ReLU** as its nonlinearity: keep positive values, set negatives to zero. Crude but effective, and just two matrices.
+
+**SwiGLU** replaces it with a **gate**. Instead of one up-projection, run two in parallel. One produces the content. The other is squashed by a smooth S-shaped function (SiLU, also called Swish) into something that acts like a set of dimmer switches, and the two are multiplied together element by element:
+
+$$
+\text{SwiGLU}(x) = W_{\text{down}}\big(\,\text{SiLU}(W_{\text{gate}}\,x) \;\odot\; W_{\text{up}}\,x\,\big)
+$$
+
+In words: **the network learns, per feature and per input, how much of each signal to let through** — rather than applying one fixed rule (ReLU's "negatives become zero") to everything. It's the difference between a hard on/off switch and a dimmer the model controls.
+
+The cost is a third matrix. To keep the parameter count fair, models shrink the expansion from $4d$ to about $\tfrac{8}{3}d$ — which is exactly why Llama-3-8B's $d_{ff}$ is 14,336 rather than a rounder 16,384. The benefit is consistently lower loss at matched parameters, which is why it's now standard.
+
+Worth knowing for its honesty: the paper that introduced it tested a family of gated variants, found they simply worked better, and offered no clean theory. It closes by attributing their success "to divine benevolence." Much of what's in a modern transformer is there because it measured better, not because someone derived it.
+
+#### Putting the block together
+
+Now the diagram reads straightforwardly. Each block does two passes over the vector:
+
+1. **Normalize → attention → add back.** The token gathers context from other tokens.
+2. **Normalize → FFN → add back.** The token processes what it gathered, on its own.
+
+Stack that N times (32 for an 8B model, 80 for a 70B), finish with one more normalization, and multiply by an output matrix — the **LM head** — that converts the final vector into one score per vocabulary word. Softmax those scores and you have a probability distribution over the next token.
+
+Two structural details are worth naming, because they're what "modern transformer" means in practice.
 
 **The residual is a real bypass.** Each sublayer's input branches off, skips both the norm and the sublayer, and is added back at the $\oplus$. So a sublayer never computes its output — it computes a *correction* to what came in: $x \leftarrow x + \text{Attention}(\text{Norm}(x))$. If the sublayer learns nothing useful, the block degrades to the identity rather than to noise. That unbroken path from embeddings to output is also the path the gradient travels back down, undiminished, which is what lets you stack 80 of these.
 
@@ -84,6 +143,19 @@ Which gets more of the model? Counting parameters in a single block:
 Attention gets the name and the diagrams, but it's the **minority of the weights**. The classic two-thirds figure comes from the original shapes — attention is $4d^2$ (four $d \times d$ projections), the FFN is $2 \cdot d \cdot 4d = 8d^2$. Modern decoders push it further from both ends: GQA shrinks the K and V projections while SwiGLU adds a third FFN matrix.
 
 A useful summary: **routing lives in attention, knowledge lives in the FFN.** That framing comes back repeatedly — it's why LoRA targeting only attention underperforms (post 5), and why Mixture-of-Experts replaces the *FFN* rather than the attention (post 9).
+
+The whole block on one page:
+
+| Piece | Its job, in one line | What it replaced, and why |
+| --- | --- | --- |
+| **Embeddings** | Turn each token into a vector of numbers | — |
+| **RMSNorm** | Rescale the vector so the next layer sees a sane range | LayerNorm; mean-centering turned out not to matter, so it was dropped for speed |
+| **Attention** | Let each token gather information from other tokens | The only component that mixes across positions |
+| **Residual (⊕)** | Add the sublayer's output back to its input | Lets each sublayer learn a small correction, and gives the gradient a clear path down |
+| **SwiGLU FFN** | Process each token on its own; store most of the knowledge | ReLU FFN; a learned gate beats a fixed threshold, at matched parameters |
+| **LM head** | Turn the final vector into a score per vocabulary word | — |
+
+If you take one thing from this section: **attention is the only place tokens talk to each other.** Everything else in the stack is a per-token transformation. That single fact explains why the KV cache works (post 2), why the FFN is the natural thing to shard across experts (post 9), and why position has to be injected deliberately — which is the last thing this post measures.
 
 With that map in place, the rest of this post takes the mechanism apart and measures it.
 
