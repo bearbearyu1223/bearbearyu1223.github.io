@@ -65,6 +65,12 @@ The division of labor is the thing to notice, and it's easy to state:
 - **Attention mixes across positions.** It is the *only* component that does. Every other layer in the block — the FFN, the norms — processes each position completely independently.
 - **The FFN does the thinking per position.** Once a token has gathered context, the FFN transforms it. This is where most factual knowledge is stored.
 
+Two structural details in that diagram are worth naming, because they're what "modern transformer" means in practice.
+
+**The residual is a real bypass.** Each sublayer's input branches off, skips both the norm and the sublayer, and is added back at the $\oplus$. So a sublayer never computes its output — it computes a *correction* to what came in: $x \leftarrow x + \text{Attention}(\text{Norm}(x))$. If the sublayer learns nothing useful, the block degrades to the identity rather than to noise. That unbroken path from embeddings to output is also the path the gradient travels back down, undiminished, which is what lets you stack 80 of these.
+
+**"Pre-norm" describes where the norm sits relative to that bypass.** The original 2017 transformer normalized *after* adding the residual, putting a norm directly on the trunk. Every modern decoder moved the norm *inside* the branch instead, as drawn. The payoff is that the residual highway stays unnormalized end to end — which is why deep models train stably today without the learning-rate warmup gymnastics the original recipe needed.
+
 Which gets more of the model? Counting parameters in a single block:
 
 ```text
