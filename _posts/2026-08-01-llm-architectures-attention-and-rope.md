@@ -226,11 +226,44 @@ Resist drawing it as a solid cuboid. A cuboid suggests the three axes are interc
 | tokens | 10 | **Attention mixes along this axis** — the only one that gets mixed |
 | features | 128 | **Dot products contract this axis** — it disappears in $QK^\top$ |
 
-That last row explains the shape change people find most confusing. In $QK^\top$, each sheet's $(10, 128)$ meets a $(128, 10)$ and the 128 axis is summed away, leaving $(10, 10)$. **The feature axis vanishes and a second token axis appears**, then values expand it back:
+That last row explains the shape changes people find most confusing. One rule does all the work:
+
+> A matrix multiply **contracts the shared inner dimension**. $(a, b) \times (b, c)$ gives $(a, c)$, and $b$ is summed away.
+
+Attention applies it twice, and the two are mirror images:
+
+```text
+  step              left      right     output  axis summed away
+  ----------------------------------------------------------------
+  Q @ K.T      (10, 128)  (128, 10)   (10, 10)    128 (features)
+  weights @ V   (10, 10)  (10, 128)  (10, 128)         10 (keys)
+```
+
+So the whole per-head shape story is:
 
 $$
-(32, 10, 128) \;\rightarrow\; (32, 10, 10) \;\rightarrow\; (32, 10, 128)
+(10, 128) \;\xrightarrow{\;Q K^\top\;}\; (10, 10) \;\xrightarrow{\;\times V\;}\; (10, 128)
 $$
+
+**First matmul:** the 128 features are summed away, and a *second* token axis appears. You've turned "each token's features" into "each token's relevance to each other token."
+
+**Second matmul:** the 10 keys are summed away, and V's 128 features come back. This is the step whose output shape surprises people, so it's worth being concrete: `weights` is $(10, 10)$ and `V` is $(10, 128)$; the shared 10 is the *token* axis, so it contracts, leaving one row per query and 128 columns from V.
+
+Written out, output row $i$ is literally a weighted sum of V's rows:
+
+$$
+\text{out}_i = \sum_{j} w_{ij} \cdot V_j
+$$
+
+Ten weights, ten value-vectors of 128 numbers each, one 128-number result. That's why the answer is 128 wide rather than 10 wide — **the weights say *how much* of each token to take, and V says *what* to take.** The demo checks this against the matmul directly:
+
+```text
+  out[h=0, q=3] via matmul           (128,)
+  same, as sum_j w[3,j] * V[j]       (128,)
+  max abs difference                 1.788e-07
+```
+
+Same answer to float noise. Stacking all 32 heads back on, that's `(32, 10, 128) → (32, 10, 10) → (32, 10, 128)`.
 
 #### A correction: Llama-3-8B isn't quite this shape
 
