@@ -337,17 +337,69 @@ $$
 
 where $g$ is a learned per-dimension scale. The original transformer used **LayerNorm**, which also subtracts the mean first. RMSNorm's contribution is a *discovery, not an invention*: that mean-subtraction turned out not to matter. Dropping it costs no quality and saves a pass over the data.
 
-**FFN** (feed-forward network) — the plainest thing in the architecture. Widen the vector, apply a nonlinear function, narrow it back:
+**FFN** (feed-forward network) — widen the vector, apply a nonlinear function, narrow it back:
 
 $$
 \text{FFN}(x) = W_{\text{down}}\big(\,\text{nonlinearity}(W_{\text{up}}\,x)\,\big)
 $$
 
-Typically 4,096 → 16,384 → 4,096. The wide middle gives the model room to test many specialized questions at once: each intermediate dimension can learn to respond to some pattern ("is this a plural noun?"), the nonlinearity keeps what fires, and the down-projection recombines the survivors.
+Typically 4,096 → 16,384 → 4,096, applied to each token on its own — that's what "position-wise" means; token 5 has no idea token 6 exists.
 
-Two things make the FFN matter more than it looks. **It is where knowledge lives** — interpretability work traces specific facts to specific FFN weights, and it reads naturally as a key–value memory: the up-projection matches patterns, the down-projection writes the associated content back. And **it is most of the model**, as the parameter count below shows.
+It looks like filler next to attention. It isn't, and it's worth being precise about why.
 
-"Position-wise" just means each token goes through the FFN alone — token 5 has no idea token 6 exists.
+#### Why an FFN is needed at all
+
+**Because attention can only average.** Look at what a softmax guarantees: the weights are non-negative and sum to 1. So every output is a *blend* of the value rows — and a blend of things can never be anything other than a mixture of those things:
+
+```text
+  softmax weights are all >= 0       yes
+  each row of weights sums to        1.0000
+  so every output is a blend of V's rows yes
+  attn(2V) == 2 x attn(V)            yes
+```
+
+Two consequences. The output can never leave the range of the values it was handed. And holding the weights fixed, attention is exactly **linear** in $V$ — double the values and the output doubles precisely.
+
+That's a real limitation. Attention can bring "this is a plural noun" and "this sentence is about France" into the same vector, but it cannot compute anything *from* them. Averaging two facts doesn't produce a conclusion. "If A and B are both present, then C" is not something a weighted average can express — no matter how many attention layers you stack.
+
+The FFN is the only place in the block where a token's own features get transformed nonlinearly:
+
+```text
+  ffn(2x) == 2 x ffn(x)              no
+    relative gap                     0.2095
+```
+
+Not linear — and that's the entire point. **Attention decides what to look at; the FFN decides what it means.** A meeting where everyone shares information, then the work you actually do with what you heard.
+
+#### Why knowledge ends up there
+
+The second surprise is that the FFN's *shape* is a lookup table. Write it out one slot at a time:
+
+$$
+\text{FFN}(x) = \sum_{i=1}^{d_{ff}} \underbrace{a_i(x)}_{\text{did slot } i \text{ match?}} \cdot \underbrace{W_{\text{down}}[i]}_{\text{what slot } i \text{ says}}
+$$
+
+where $a_i(x)$ is the activation of the $i$-th middle neuron. Each of the 16,384 middle dimensions is one **memory slot** with two halves:
+
+| Piece | Role |
+| --- | --- |
+| column $i$ of $W_{\text{up}}$ | the **pattern** slot $i$ looks for |
+| $a_i$, its activation | **how strongly** this token matched it |
+| row $i$ of $W_{\text{down}}$ | the **content** slot $i$ adds if it matched |
+
+Notice the structure: match against stored patterns, then add up the content of whatever matched, weighted by match strength. That's the same soft-lookup shape as attention itself — except attention looks up *other tokens*, while the FFN looks up *stored weights*. The demo confirms the decomposition is exact:
+
+```text
+  ffn(x)[row 3] via matmul           (64,)
+  same, as sum_i a_i * W_down[i]     (64,)
+  max abs difference                 8.941e-08
+```
+
+So "the model knows Paris is in France" has a concrete home: some slot whose up-projection fires on *the Eiffel Tower is in*, whose down-projection nudges the output toward *Paris*. Llama-3-8B has 14,336 such slots per layer across 32 layers — **458,752 of them**. This isn't just a metaphor: the ROME and MEMIT lines of work locate specific factual associations in specific FFN weights and *edit* them, changing what a model believes by writing to a handful of numbers.
+
+Two caveats, so the picture isn't too tidy. Slots aren't cleanly one-fact-each — facts are spread across many, and a slot participates in many facts. And with the random weights above, most slots respond to anything; trained FFNs are far sparser, with a given token lighting up a small subset.
+
+That also explains the parameter split below: if the FFN is the model's memory, it needs to be big.
 
 **SwiGLU** — a better nonlinearity. The original FFN used **ReLU**: keep positives, zero the negatives. SwiGLU replaces that fixed rule with a **learned gate**. Run two up-projections in parallel; squash one through a smooth S-curve (SiLU) into a set of dimmer switches, and multiply:
 
@@ -383,7 +435,7 @@ If a sublayer learns nothing useful, the block degrades to the identity rather t
 
 Attention gets the name and the diagrams, but it's the **minority of the weights**. The classic two-thirds figure comes from the original shapes — attention $4d^2$, FFN $2 \cdot d \cdot 4d = 8d^2$. Modern decoders push further from both ends: GQA shrinks $K$/$V$ while SwiGLU adds a third FFN matrix.
 
-The summary worth keeping: **routing lives in attention, knowledge lives in the FFN.** It's why LoRA on attention alone underperforms (post 5), and why Mixture-of-Experts replaces the *FFN* (post 9).
+Which is the parameter-count version of the point above: **routing lives in attention, knowledge lives in the FFN.** It's why LoRA on attention alone underperforms (post 5), and why Mixture-of-Experts replaces the *FFN* (post 9).
 
 #### Inside the attention box
 
@@ -616,4 +668,6 @@ Two naming traps, because papers are inconsistent about both:
 - Chen et al., [Extending Context Window of Large Language Models via Position Interpolation](https://arxiv.org/abs/2306.15595) (2023).
 - Peng et al., [YaRN: Efficient Context Window Extension of Large Language Models](https://arxiv.org/abs/2309.00071) (2023).
 - Shazeer, [GLU Variants Improve Transformer](https://arxiv.org/abs/2002.05202) (2020) — the SwiGLU paper, and the divine-benevolence line.
+- Geva et al., [Transformer Feed-Forward Layers Are Key-Value Memories](https://arxiv.org/abs/2012.14913) (2021) — where the lookup-table reading comes from.
+- Meng et al., [Locating and Editing Factual Associations in GPT](https://arxiv.org/abs/2202.05262) (2022) — ROME, editing a fact by writing to FFN weights.
 - Code for this post: [`llm-architectures-refresher`](https://github.com/bearbearyu1223/llm-architectures-refresher), `uv run demo01`.
