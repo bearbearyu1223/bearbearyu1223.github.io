@@ -73,6 +73,7 @@ Before the equation, the symbols in it:
 | $K$ | the keys, one row per token | $(n, d_k)$ |
 | $V$ | the values, one row per token | $(n, d_k)$ |
 | $K^\top$ | $K$ flipped, so the matrix multiply lines up | $(d_k, n)$ |
+| $M$ | the causal mask, added before the softmax (see below) | $(n, n)$ |
 
 With those in hand:
 
@@ -86,6 +87,41 @@ Read it from the inside out:
 2. $\div \sqrt{d_k}$ — a constant that keeps those scores in a sane range. [§7](#why-divide-by-sqrt-dk) is devoted to why.
 3. $\text{softmax}$ — turns each row of scores into weights that are positive and sum to 1.
 4. $\times V$ — uses those weights to average the values, giving each token its answer.
+
+#### The piece that formula is missing: the mask
+
+As written, that equation lets every token see every other token — including the ones that come *after* it. For an encoder like BERT that's exactly right. For a model that generates text it's cheating: predicting token 5 while looking at token 6 isn't prediction.
+
+So decoder-only models add one more term, a **mask** $M$:
+
+$$
+\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}} + M\right)V
+$$
+
+$M$ is an $n \times n$ matrix holding 0 where a position is allowed and $-\infty$ where it's forbidden:
+
+$$
+M_{ij} = \begin{cases} 0 & j \le i \quad \text{(token } j \text{ is at or before } i\text{)} \\[2pt] -\infty & j > i \quad \text{(token } j \text{ is in the future)} \end{cases}
+$$
+
+It's rarely shown, so here it is for a 6-token sequence:
+
+```text
+        key0     key1     key2     key3     key4     key5
+  q0    0        -inf     -inf     -inf     -inf     -inf
+  q1    0        0        -inf     -inf     -inf     -inf
+  q2    0        0        0        -inf     -inf     -inf
+  q3    0        0        0        0        -inf     -inf
+  q4    0        0        0        0        0        -inf
+  q5    0        0        0        0        0        0
+```
+
+Two details make this work, and both are the reason it's written as an *addition* rather than a multiplication:
+
+- **$-\infty$, not a large negative number.** Softmax exponentiates, and $e^{-\infty} = 0$ exactly. Forbidden positions get precisely zero weight, not merely a small one.
+- **It's added *before* the softmax.** So the surviving weights renormalize among themselves and each row still sums to 1. Masking after the softmax would leave rows summing to less than 1 — a classic bug.
+
+Everything else in the formula is unchanged. [§8](#causal-masking) measures the result.
 
 Two consequences to carry forward:
 
@@ -432,7 +468,7 @@ That second point reframes it. $1/\sqrt{d_k}$ is not about overflow — softmax 
 
 ### 8. Causal masking {#causal-masking}
 
-Attention as written lets every token see every other token. For a language model that's cheating: predicting token 5 while looking at token 6 isn't prediction. The fix is one line — set scores above the diagonal to $-\infty$ before the softmax, so $e^{-\infty} = 0$.
+[§2](#the-formula-symbol-by-symbol) introduced the mask $M$. Here is what it actually does to the weights:
 
 ```text
         key0    key1    key2    key3    key4    key5
@@ -447,7 +483,7 @@ Attention as written lets every token see every other token. For a language mode
 ![Causal attention weight matrix](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/causal-mask-light.png){: .light width="820" }
 ![Causal attention weight matrix](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/causal-mask-dark.png){: .dark width="820" }
 
-Note row `q0`: weight exactly 1.000 on itself. The first token has nothing else to attend to, so a softmax over one unmasked score returns 1. Every row still sums to 1, because masking happens *before* the softmax and the survivors renormalize among themselves.
+Note row `q0`: weight exactly 1.000 on itself. The first token has nothing else to attend to, so a softmax over a single unmasked score returns 1 — the mask makes the earliest tokens progressively less interesting, not broken.
 
 This one line is why the same architecture serves both BERT (unmasked, good for understanding) and GPT (masked, good for generation).
 
