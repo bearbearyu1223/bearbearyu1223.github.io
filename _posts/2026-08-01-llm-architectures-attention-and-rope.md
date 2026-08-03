@@ -154,6 +154,28 @@ Four things fall out of that list:
 
 In real code there's a batch dimension in front of all of these — `(batch, n_heads, seq, d_head)` is the layout PyTorch expects — which is why the implementation earlier wrote shapes as `(..., seq, head_dim)`, letting the leading dimensions carry whatever batch and head structure you have.
 
+#### How to picture `(32, 10, 128)` {#how-to-picture-a-3d-tensor}
+
+A three-axis shape is the point where the notation stops being readable, so it's worth building a mental image. The one that works for me is **a deck of 32 sheets, where each sheet is a 10 × 128 table**: 10 rows, one per token, and 128 columns, the features that head works with.
+
+![Reading a (32, 10, 128) tensor](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/tensor-3d-light.png){: .light width="960" }
+![Reading a (32, 10, 128) tensor](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/tensor-3d-dark.png){: .dark width="960" }
+
+I'd resist drawing it as a solid cuboid, even though that's the usual picture. A cuboid suggests the three axes are interchangeable directions in a block of numbers, and they aren't — **each axis has a different job**, and knowing which is which is most of what you need:
+
+| Axis | Size | What happens along it |
+| --- | --- | --- |
+| heads | 32 | **Nothing.** Pure parallelism — the sheets never interact until $W_o$ |
+| tokens | 10 | **Attention mixes along this axis.** It is the only axis that gets mixed |
+| features | 128 | **Dot products contract this axis.** It disappears in $QK^\top$ |
+
+That last row is the one worth dwelling on, because it explains the shape change that confuses people most. When you compute $QK^\top$, each sheet's $(10, 128)$ meets a $(128, 10)$ and the 128 axis is summed away, leaving $(10, 10)$ — the score matrix. **The feature axis vanishes and a second token axis appears.** That's the whole shape story of attention: `(32, 10, 128) → (32, 10, 10) → (32, 10, 128)`. Features collapse into token-to-token comparisons, then the values expand back out into features again.
+
+Two practical notes that follow from the picture:
+
+- **Reading a single number** means naming all three: "head 7, token 3, feature 92." Every index has a meaning; none is a raw offset.
+- **Memory order matters.** `(32, 10, 128)` is produced by viewing `(10, 4096)` as `(10, 32, 128)` and then transposing the first two axes — so the result is *not* contiguous in memory. This is why real implementations are fussy about `.transpose()` versus `.reshape()`, and why you sometimes see a `.contiguous()` call before a view.
+
 #### Notation reference {#notation-reference}
 
 Every symbol used in this post, in one place:
