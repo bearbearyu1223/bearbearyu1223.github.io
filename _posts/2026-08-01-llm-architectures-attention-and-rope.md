@@ -123,10 +123,10 @@ There's also a trade-off lurking. More heads means more distinct patterns but na
 
 #### Every shape, end to end {#every-shape-end-to-end}
 
-Shapes are where most confusion about attention actually lives, so here is every tensor in the module. Rather than write the table by hand — easy to get subtly wrong — the demo runs a real attention module at Llama-3-8B width on a 10-token prompt and prints what PyTorch reports:
+Shapes are where most confusion about attention actually lives, so here is every tensor in the module. Rather than write the table by hand — easy to get subtly wrong — the demo runs a real attention module on a 10-token prompt and prints what PyTorch reports. These are classic multi-head shapes at Llama-3's width — see the correction just below:
 
 ```text
-  seq=10, d_model=4096, n_heads=32, d_head=128
+  classic MHA - seq=10, d_model=4096, n_heads=32, d_head=128
 
   tensor                             shape                          note
   ------------------------------------------------------------------------
@@ -166,19 +166,45 @@ Every symbol used in this post, in one place:
 | $d_{head}$, $d_k$ | width of one head's slice — **the $d_k$ in the formula** | 128 |
 | $d_{ff}$ | width of the FFN's middle layer | 14336 |
 | $L$ | number of blocks stacked | 32 |
-| $x$ | the input: one vector per token, $(n, d_{model})$ | — |
-| $Q, K, V$ | queries, keys, values — $(n, d_{model})$, then $(h, n, d_{head})$ | — |
-| $W_q, W_k, W_v$ | the projections that produce them, each $(d_{model}, d_{model})$ | — |
-| $W_o$ | output projection, $(d_{model}, d_{model})$ | — |
+| $x$ | the input: one vector per token | $(n, 4096)$ |
+| $W_q, W_k, W_v$ | the projections producing Q, K, V | $(4096, 4096)$ |
+| $Q, K, V$ | queries, keys, values, **before** the head split | $(n, 4096)$ |
+| $Q, K, V$ | the same tensors **after** the head split | $(32, n, 128)$ |
+| $W_o$ | output projection | $(4096, 4096)$ |
 | $\oplus$ | residual addition | — |
 | $\odot$ | elementwise multiply (used by SwiGLU's gate) | — |
 | $R_m$ | RoPE's rotation for position $m$ | — |
 | $\theta_i$ | RoPE's rotation frequency for dimension pair $i$ | — |
 
+**Q, K and V get two rows because they have two shapes.** They're one tensor at two points in the computation: full width the moment they leave the projection, and regrouped into heads immediately after. Nothing is added or discarded between those rows — $32 \times 128 = 4096$ — so it's a reinterpretation of the same numbers, not a transformation. Papers usually write $Q$ for both and leave you to infer which is meant from context.
+
 Two naming traps worth knowing, because papers are inconsistent about both:
 
 - **$d_k$ almost always means $d_{head}$, not $d_{model}$.** The scaling factor is set by the per-head width. Seeing $\sqrt{d_k}$ and mentally substituting 4096 instead of 128 makes the whole scaling argument come out wrong.
 - **"Keys" and "values" have separate widths in principle** ($d_k$ and $d_v$), and the original paper distinguishes them. Every model in practice sets them equal, so this post writes $d_{head}$ for both.
+
+#### One correction: Llama-3-8B isn't quite this shape {#llama-3-uses-gqa}
+
+Everything above describes **classic multi-head attention**, where every query head gets its own key and value head. That's what this post teaches, and it's the right starting point.
+
+But I've been quoting Llama-3-8B's dimensions, and Llama-3-8B doesn't actually do that. It uses **grouped-query attention**: 32 query heads sharing only 8 key/value heads. So its K and V projections are a quarter as wide as I've drawn them:
+
+```text
+  tensor                  MHA (32 kv heads)  Llama-3-8B (8 kv heads)
+  --------------------------------------------------------------------
+  W_q                          (4096, 4096)             (4096, 4096)
+  W_k, W_v                     (4096, 4096)             (4096, 1024)
+  Q  split into heads         (32, 10, 128)            (32, 10, 128)
+  K, V  split into heads      (32, 10, 128)             (8, 10, 128)
+
+  query heads per KV head            4
+  K/V projection params, MHA         33.6M
+  K/V projection params, GQA         8.4M
+```
+
+Notice the asymmetry: **Q keeps its full width; only K and V shrink.** Each KV head is shared by 4 query heads, which are broadcast against it at attention time. That single design choice is what post 2 is largely about — K and V are the tensors you have to *cache* during generation, so shrinking them by 4× shrinks the memory that actually limits how many users you can serve. Q is computed fresh each step and never cached, so there's nothing to gain by narrowing it.
+
+For the rest of this post, read the shapes as classic MHA. The mechanism is identical either way; GQA only changes how many K/V heads exist to slice into.
 
 ### Where attention sits in the model {#where-attention-sits-in-the-model}
 
