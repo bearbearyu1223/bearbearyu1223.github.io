@@ -121,6 +121,65 @@ One connection that's easy to miss and matters shortly: **$d_{head}$ is the $d_k
 
 There's also a trade-off lurking. More heads means more distinct patterns but narrower ones — 64 heads gives each only 64 dimensions to represent a query in. Models land at 32–64 heads because the extremes are both bad. And since each head carries its own keys and values, the head count is exactly what drives the memory cost that post 2 is about.
 
+#### Every shape, end to end {#every-shape-end-to-end}
+
+Shapes are where most confusion about attention actually lives, so here is every tensor in the module. Rather than write the table by hand — easy to get subtly wrong — the demo runs a real attention module at Llama-3-8B width on a 10-token prompt and prints what PyTorch reports:
+
+```text
+  seq=10, d_model=4096, n_heads=32, d_head=128
+
+  tensor                             shape                          note
+  ------------------------------------------------------------------------
+  x   (the token vectors)       (10, 4096)             one row per token
+  W_q, W_k, W_v               (4096, 4096)     each reads all of d_model
+  Q, K, V  after projection     (10, 4096)              still full width
+  Q, K, V  split into heads  (32, 10, 128)               4096 = 32 x 128
+  one head's Q                   (10, 128)  what the formula operates on
+  scores = Q Kt / sqrt(d_k)   (32, 10, 10)    per head, quadratic in seq
+  weights  after softmax      (32, 10, 10)            each row sums to 1
+  weights @ V                (32, 10, 128)               per-head answer
+  concatenated heads            (10, 4096)            back to full width
+  output  after W_o             (10, 4096)       same shape as the input
+
+  input and output shapes match      yes
+  attention weights row sum          1.0000
+```
+
+Four things fall out of that list:
+
+- **Q, K and V are `(seq, d_model)`, not `(seq, d_head)`.** They're full width until the reshape. This is the shape-level statement of the correction above.
+- **The whole module is shape-preserving.** In at `(10, 4096)`, out at `(10, 4096)`. That's what makes blocks stackable — a block's output is a valid block input, so you can chain 32 of them.
+- **Only the score matrix depends on $seq^2$**, and it only exists inside the module. At `seq=10` it's a 10×10 nuisance; at `seq=128000` it's the entire problem, which is post 3.
+- **`W_q` is `(4096, 4096)`, square.** It's not shrinking anything. The reshape does the splitting; the matrix just mixes.
+
+In real code there's a batch dimension in front of all of these — `(batch, n_heads, seq, d_head)` is the layout PyTorch expects — which is why the implementation earlier wrote shapes as `(..., seq, head_dim)`, letting the leading dimensions carry whatever batch and head structure you have.
+
+#### Notation reference {#notation-reference}
+
+Every symbol used in this post, in one place:
+
+| Symbol | Means | Llama-3-8B |
+| --- | --- | --- |
+| $n$, `seq` | number of tokens in the sequence | varies with input |
+| $d_{model}$ | width of a token's vector | 4096 |
+| $h$, `n_heads` | number of attention heads | 32 |
+| $d_{head}$, $d_k$ | width of one head's slice — **the $d_k$ in the formula** | 128 |
+| $d_{ff}$ | width of the FFN's middle layer | 14336 |
+| $L$ | number of blocks stacked | 32 |
+| $x$ | the input: one vector per token, $(n, d_{model})$ | — |
+| $Q, K, V$ | queries, keys, values — $(n, d_{model})$, then $(h, n, d_{head})$ | — |
+| $W_q, W_k, W_v$ | the projections that produce them, each $(d_{model}, d_{model})$ | — |
+| $W_o$ | output projection, $(d_{model}, d_{model})$ | — |
+| $\oplus$ | residual addition | — |
+| $\odot$ | elementwise multiply (used by SwiGLU's gate) | — |
+| $R_m$ | RoPE's rotation for position $m$ | — |
+| $\theta_i$ | RoPE's rotation frequency for dimension pair $i$ | — |
+
+Two naming traps worth knowing, because papers are inconsistent about both:
+
+- **$d_k$ almost always means $d_{head}$, not $d_{model}$.** The scaling factor is set by the per-head width. Seeing $\sqrt{d_k}$ and mentally substituting 4096 instead of 128 makes the whole scaling argument come out wrong.
+- **"Keys" and "values" have separate widths in principle** ($d_k$ and $d_v$), and the original paper distinguishes them. Every model in practice sets them equal, so this post writes $d_{head}$ for both.
+
 ### Where attention sits in the model {#where-attention-sits-in-the-model}
 
 Attention is a *component*, not the whole model. A decoder-only transformer stacks N identical blocks, and each block does two things: attention, then a position-wise feed-forward network, each wrapped in a residual connection with a normalization layer.
