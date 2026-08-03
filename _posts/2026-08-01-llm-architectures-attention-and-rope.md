@@ -121,18 +121,54 @@ $W_o$ at the end is not bookkeeping. Without it, 32 heads' findings would sit in
 
 #### Heads are free
 
-The natural worry is that 32 heads means 32× the work. It doesn't:
+The natural worry is that 32 heads means 32× the work. It doesn't — and the reason is one line of algebra worth doing slowly, because it's the thing that makes multi-head attention obviously worth doing.
+
+**The invariant:** the head count and the head width always multiply back to the same total.
+
+$$
+n_{heads} \times d_{head} = d_{model} \qquad 32 \times 128 = 4096
+$$
+
+Choosing a head count doesn't add anything. It only decides how a fixed 4,096 gets partitioned. Both costs follow from that.
+
+**Parameters.** $W_q$ maps $d_{model}$ into $n_{heads} \times d_{head}$ — which *is* $d_{model}$. So it's a $4096 \times 4096$ matrix whatever the head count, and so are the other three:
 
 ```text
-  n_heads  head_dim (= d_k)  projection params  score FLOPs
+  matrix                         maps         shape  params
   -----------------------------------------------------------
-  1                    4096              67.1M        8.6 G
-  8                     512              67.1M        8.6 G
-  32                    128              67.1M        8.6 G
-  64                     64              67.1M        8.6 G
+  W_q     d_model -> n_heads x d_head  (4096, 4096)   16.8M
+  W_k     d_model -> n_heads x d_head  (4096, 4096)   16.8M
+  W_v     d_model -> n_heads x d_head  (4096, 4096)   16.8M
+  W_o     n_heads x d_head -> d_model  (4096, 4096)   16.8M
+  total                                               67.1M
 ```
 
-**Identical, every row.** Heads are a *reshape of a fixed budget*, not extra machinery. The projection matrices are the same size regardless; you're only choosing whether to read their output as one wide space or many narrow ones. The scores work out the same too — $n_{heads} \times n^2 \times d_{head} = n^2 \times d_{model}$, and the head count cancels.
+$4096^2 = 16.8\text{M}$ per matrix, four matrices, $67.1$M total — for **any** head count. Nothing in that arithmetic mentions $n_{heads}$.
+
+**Score FLOPs.** Now the part that looks like it should scale. Inside one head, computing $QK^\top$ is a $(seq, d_{head})$ matrix times a $(d_{head}, seq)$ matrix. Every one of the $seq \times seq$ outputs costs $d_{head}$ multiply-adds, and the usual convention counts a multiply-add as 2 FLOPs:
+
+$$
+\text{per head} = 2 \times seq^2 \times d_{head}
+\qquad
+\text{all heads} = n_{heads} \times 2 \times seq^2 \times d_{head}
+$$
+
+And $n_{heads} \times d_{head}$ is $d_{model}$ again, so the total is $2 \times seq^2 \times d_{model}$ with **the head count cancelled out**. At $seq = 1024$:
+
+```text
+  n_heads  d_head  n_heads x d_head  FLOPs per head  x n_heads = total
+  ----------------------------------------------------------------------
+  1          4096              4096          8.59 G             8.59 G
+  8           512              4096          1.07 G             8.59 G
+  32          128              4096          0.27 G             8.59 G
+  64           64              4096          0.13 G             8.59 G
+```
+
+Read the last two columns together: **halving $d_{head}$ halves the per-head cost, and doubling the head count multiplies it straight back.** Going from 1 head to 64 makes each head 64× cheaper and there are 64× as many. The two changes are exactly inverse, which is why the final column never moves.
+
+So heads are a *reshape of a fixed budget*, not extra machinery — you're only choosing whether to read the same 4,096 numbers as one wide space or many narrow ones. What you buy is several attention patterns at once instead of one averaged compromise.
+
+*(Two caveats on the numbers. The FLOP column counts only $QK^\top$; multiplying by $V$ costs the same again, and the four projections cost $2 \cdot seq \cdot d_{model}^2$ each — larger than the scores until the sequence gets long. All of them are head-count independent for the same reason, so the conclusion holds.)*
 
 So heads cost nothing and buy several attention patterns at once. Running one input through four heads:
 
