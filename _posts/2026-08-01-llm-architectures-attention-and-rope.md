@@ -178,6 +178,24 @@ Now the diagram reads straightforwardly. Each block does two passes over the vec
 
 Stack that N times (32 for an 8B model, 80 for a 70B), finish with one more normalization, and multiply by an output matrix — the **LM head** — that converts the final vector into one score per vocabulary word. Softmax those scores and you have a probability distribution over the next token.
 
+#### Zooming in: inside the attention box
+
+The block diagram draws attention as a single box. Here is what's actually inside it — the complete data path, with the tensor's shape tracked down the right margin. Shapes are where most confusion about attention lives, so it's worth following them.
+
+![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-light.png){: .light width="900" }
+![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-dark.png){: .dark width="900" }
+
+Walking down it:
+
+1. **One input, three projections.** Q, K and V are not three different inputs — they're three different *learned views of the same vector*. Each token asks its own question, advertises itself, and offers its own content, all derived from the same starting point. This is also what makes self-attention "self."
+2. **Reshape into heads.** No computation happens here at all; it's a reinterpretation of the same 4,096 numbers as 32 groups of 128.
+3. **RoPE rotates Q and K, but not V.** Position information belongs in the *matching* step — how relevant is this token to that one, given how far apart they are. V is the content you retrieve once matching is done, so rotating it would corrupt the payload.
+4. **The score matrix is $(seq, seq)$, per head.** This is the expensive tensor: quadratic in sequence length, and there are 32 of them. It's why long context is hard, and it's what post 3 avoids ever materializing.
+5. **Mask, then softmax — in that order.** Masking sets forbidden scores to $-\infty$ *before* normalizing, so the surviving weights renormalize among themselves and each row still sums to 1. Masking after the softmax would leave rows summing to less than 1 and is a classic bug.
+6. **Multiply by V, concatenate, project.** Each head produces its own 128-dimensional answer; concatenation reassembles a 4,096 vector; `W_o` lets the heads' findings mix.
+
+Two shapes are worth committing to memory, because everything in the next two posts turns on them: the **score matrix is $(seq, seq)$** — that's post 3's problem — and **K and V are $(seq, n_{heads}, d_{head})$ and get cached during generation** — that's post 2's problem.
+
 Two structural details are worth naming, because they're what "modern transformer" means in practice.
 
 **The residual is a real bypass.** Each sublayer's input branches off, skips both the norm and the sublayer, and is added back at the $\oplus$. So a sublayer never computes its output — it computes a *correction* to what came in: $x \leftarrow x + \text{Attention}(\text{Norm}(x))$. If the sublayer learns nothing useful, the block degrades to the identity rather than to noise. That unbroken path from embeddings to output is also the path the gradient travels back down, undiminished, which is what lets you stack 80 of these.
