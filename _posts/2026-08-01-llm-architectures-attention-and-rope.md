@@ -57,16 +57,30 @@ You'll see "multi-head attention" everywhere, so it's worth being concrete about
 
 The problem with running attention just once is that **a softmax produces exactly one set of weights**. One opinion about which tokens matter. But a token usually needs several unrelated things at the same time — what noun this pronoun refers to, which verb governs this subject, which adjective modifies this noun. Forcing all of that through a single weighting gives you a blurry average of all three.
 
-A **head** is one independent copy of the attention mechanism, working on a *slice* of the vector. Rather than run attention once on all 4,096 numbers, you cut the vector into (say) 32 slices of 128 numbers each. Each slice gets its own Q, K and V projections, computes its own scores, and produces its own answer about where to look. The 32 results are glued back together into a 4,096-vector and mixed by one final matrix.
+A **head** is one independent copy of the attention mechanism, working on a 128-dimensional *slice of Q, K and V*. The order of operations matters here and is the detail most explanations blur, so let's be exact:
+
+1. The token's full 4,096-number vector is projected into Q, K and V. Each projection is a $4096 \times 4096$ matrix, so **Q, K and V are each 4,096 numbers wide**, and every one of those numbers is a learned combination of *all* 4,096 inputs.
+2. *Then* Q, K and V are each cut into 32 slices of 128.
+3. Head $h$ takes slice $h$ of Q, slice $h$ of K and slice $h$ of V, and runs a complete attention pass on them.
+4. The 32 results are concatenated back to 4,096 and mixed by a final matrix, $W_o$.
 
 $$
 d_{model} = n_{heads} \times d_{head} \qquad 4096 = 32 \times 128
 $$
 
+The distinction worth holding onto: **what gets sliced is Q/K/V, not the input.** A head does not receive 128 numbers of the token's vector and project those. Its 128 query dimensions are each computed from the entire 4,096-number input. Equivalently — and this is the cleaner way to say it — head $h$ owns the 128 columns of $W_q$, $W_k$ and $W_v$ that produce its slice, and those columns read the whole vector.
+
+That equivalence is why you'll see the mechanism described both ways. "Project everything, then reshape into heads" is what the code does; "each head has its own smaller projections" is what the math says. They're the same computation. What would be a genuinely *different* (and much weaker) architecture is chopping the input into 128-number chunks and giving each head only its chunk — no head could then see a feature stored in a dimension outside its range.
+
 ![Multi-head attention: splitting the vector across heads](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/multi-head-light.png){: .light width="1000" }
 ![Multi-head attention: splitting the vector across heads](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/multi-head-dark.png){: .dark width="1000" }
 
-The single most common misreading of that picture is worth heading off: **the slices divide the vector's dimensions, not the sequence.** Every head still sees every token. Head 3 doesn't get "the last quarter of the sentence" — it gets dimensions 384–511 of *all* the tokens, and runs a complete attention pass over the whole sequence using only those dimensions.
+Two misreadings of that picture are worth heading off, and they're the two axes you could wrongly imagine being divided:
+
+- **Not the sequence.** Every head sees every token. Head 3 doesn't get "the last quarter of the sentence"; it runs a complete attention pass over the whole sequence.
+- **Not the input vector.** Head 3 doesn't get input dimensions 384–511 either. It gets dimensions 384–511 *of Q, K and V*, each of which was computed from all 4,096 input dimensions.
+
+The slicing happens strictly after the projection — which is exactly why the middle band in the diagram exists.
 
 The final `W_o` matters too, and it's easy to skip past. Without it you'd have 32 heads' outputs sitting in 32 disjoint stretches of the vector, never able to influence one another. `W_o` mixes them, so what one head found can combine with what another found.
 
