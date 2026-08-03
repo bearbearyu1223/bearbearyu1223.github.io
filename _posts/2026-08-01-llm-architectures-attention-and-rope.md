@@ -63,6 +63,13 @@ $$
 d_{model} = n_{heads} \times d_{head} \qquad 4096 = 32 \times 128
 $$
 
+![Multi-head attention: splitting the vector across heads](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/multi-head-light.png){: .light width="1000" }
+![Multi-head attention: splitting the vector across heads](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/multi-head-dark.png){: .dark width="1000" }
+
+The single most common misreading of that picture is worth heading off: **the slices divide the vector's dimensions, not the sequence.** Every head still sees every token. Head 3 doesn't get "the last quarter of the sentence" — it gets dimensions 384–511 of *all* the tokens, and runs a complete attention pass over the whole sequence using only those dimensions.
+
+The final `W_o` matters too, and it's easy to skip past. Without it you'd have 32 heads' outputs sitting in 32 disjoint stretches of the vector, never able to influence one another. `W_o` mixes them, so what one head found can combine with what another found.
+
 The natural worry is that this must be 32× the work. It isn't — and that's the part worth seeing, because it explains why every model does it:
 
 ```text
@@ -87,7 +94,14 @@ So multiple heads are free, and they buy several attention patterns at once inst
   3     0.05  0.08  0.12  0.13  0.00  0.16     2.19
 ```
 
-Four genuinely different distributions — head 0 concentrates half its weight on position 3 while head 1 spreads out. (These are random weights, so the differences here only show heads aren't redundant copies; they aren't *specialization*.) In trained models the specialization is real and has been catalogued: interpretability researchers have found "previous-token heads" that consistently look one step back, and "induction heads" that spot a repeated pattern and predict its continuation.
+Four genuinely different distributions — head 0 concentrates half its weight on position 3 while head 1 spreads out. Seen as full attention matrices rather than one row:
+
+![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-light.png){: .light width="1000" }
+![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-dark.png){: .dark width="1000" }
+
+Each triangle is one head's complete set of attention weights: row $i$ is where query $i$ looks, and the staircase edge is causal masking — position $i$ can only see positions up to $i$. Same input to all four, four visibly different patterns.
+
+A caveat I want to be exact about: **these are random weights.** Different heads produce different patterns here simply because they were initialized differently, which shows heads aren't redundant copies — it is *not* evidence of specialization. In trained models the specialization is real and has been catalogued: interpretability researchers have found "previous-token heads" that consistently look one step back, and "induction heads" that spot a repeated pattern and predict its continuation. Those patterns emerge from training, and you can't see them in a figure like this one.
 
 One connection that's easy to miss and matters shortly: **$d_{head}$ is the $d_k$ in the attention formula.** The $\sqrt{d_k}$ scale is set by the per-head width — 128, not 4,096. When we measure that scale below, that's the number in play.
 
