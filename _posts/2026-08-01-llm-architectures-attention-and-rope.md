@@ -31,13 +31,14 @@ Every number and figure below came out of that command on my M-series Mac.
 3. [What a "head" is](#what-a-head-is)
 4. [Following the shapes](#following-the-shapes)
 5. [Where attention sits in the model](#where-attention-sits-in-the-model)
-6. [The implementation, in five lines](#the-implementation-in-five-lines)
-7. [Why divide by sqrt(d_k)?](#why-divide-by-sqrt-dk)
-8. [Causal masking](#causal-masking)
-9. [RoPE: absolute rotation, relative score](#rope-absolute-rotation-relative-score)
-10. [A silent MPS bug that deleted RoPE](#a-silent-mps-bug-that-deleted-rope)
-11. [Sidebar: the probe](#sidebar-the-probe)
-12. [Appendix: all notation](#appendix-all-notation)
+6. [The FFN: where the model knows things](#the-ffn)
+7. [The implementation, in five lines](#the-implementation-in-five-lines)
+8. [Why divide by sqrt(d_k)?](#why-divide-by-sqrt-dk)
+9. [Causal masking](#causal-masking)
+10. [RoPE: absolute rotation, relative score](#rope-absolute-rotation-relative-score)
+11. [A silent MPS bug that deleted RoPE](#a-silent-mps-bug-that-deleted-rope)
+12. [Sidebar: the probe](#sidebar-the-probe)
+13. [Appendix: all notation](#appendix-all-notation)
 
 ---
 
@@ -84,7 +85,7 @@ $$
 Read it from the inside out:
 
 1. $QK^\top$ — every query dotted with every key, giving an $n \times n$ grid of relevance scores. Row $i$ holds "how relevant is each token to token $i$?"
-2. $\div \sqrt{d_k}$ — a constant that keeps those scores in a sane range. [§7](#why-divide-by-sqrt-dk) is devoted to why.
+2. $\div \sqrt{d_k}$ — a constant that keeps those scores in a sane range. [§8](#why-divide-by-sqrt-dk) is devoted to why.
 3. $\text{softmax}$ — turns each row of scores into weights that are positive and sum to 1.
 4. $\times V$ — uses those weights to average the values, giving each token its answer.
 
@@ -121,12 +122,12 @@ Two details make this work, and both are the reason it's written as an *addition
 - **$-\infty$, not a large negative number.** Softmax exponentiates, and $e^{-\infty} = 0$ exactly. Forbidden positions get precisely zero weight, not merely a small one.
 - **It's added *before* the softmax.** So the surviving weights renormalize among themselves and each row still sums to 1. Masking after the softmax would leave rows summing to less than 1 — a classic bug.
 
-Everything else in the formula is unchanged. [§8](#causal-masking) measures the result.
+Everything else in the formula is unchanged. [§9](#causal-masking) measures the result.
 
 Two consequences to carry forward:
 
 - **The dot product is the only place tokens interact.** Everything else in a transformer processes each token alone.
-- **The equation has no idea what order the tokens came in.** Shuffle them and you get the same outputs, shuffled. Position must be injected separately — that's [§9](#rope-absolute-rotation-relative-score).
+- **The equation has no idea what order the tokens came in.** Shuffle them and you get the same outputs, shuffled. Position must be injected separately — that's [§10](#rope-absolute-rotation-relative-score).
 
 ### 3. What a "head" is {#what-a-head-is}
 
@@ -138,41 +139,29 @@ The fix is to run attention several times in parallel. To keep that concrete, ev
 | --- | --- | --- |
 | $d_{model}$ | **4096** | how many numbers describe one token |
 | $n_{heads}$ | **32** | how many attention heads |
-| $d_{head}$ | **128** | width of one head's slice — note $4096 = 32 \times 128$ |
-| $n_{kv\_heads}$ | 8 | key/value heads; fewer than query heads — see [§4](#following-the-shapes) |
+| $d_{head}$ | **128** | width of one head's slice |
+| $n_{kv\_heads}$ | 8 | key/value heads — fewer than query heads, see [§4](#following-the-shapes) |
 | $d_{ff}$ | 14336 | width of the FFN's middle layer |
 | $L$ | 32 | how many blocks are stacked |
 
-These are one model's choices, not universal constants — GPT-2 XL used $d_{model} = 1600$ with 25 heads of 64, and every model picks differently. What *is* universal is the relationship in the third row: **the head count times the head width always equals $d_{model}$.** That one constraint drives most of this section.
+These are one model's choices, not universal constants — GPT-2 XL used $d_{model} = 1600$ with 25 heads of 64. What *is* universal is the relationship between the first three rows:
 
-Those scalars fully determine the matrices. One rule sets every shape:
+$$
+d_{model} = n_{heads} \times d_{head} \qquad 4096 = 32 \times 128
+$$
 
-> A projection is $(d_{model},\; \text{heads it feeds} \times d_{head})$. It always reads a full token vector; what varies is how wide its output is.
+**The head count times the head width always equals $d_{model}$.** That one constraint drives everything in this section.
 
-| Matrix | Llama-3-8B | Where the width comes from | Params |
-| --- | --- | --- | --- |
-| $W_q$ | $(4096,\; 4096)$ | 32 query heads × 128 = 4096 | 16.8M |
-| $W_k$ | $(4096,\; 1024)$ | 8 key heads × 128 = 1024 | 4.2M |
-| $W_v$ | $(4096,\; 1024)$ | 8 value heads × 128 = 1024 | 4.2M |
-| $W_o$ | $(4096,\; 4096)$ | takes the concatenated heads back to $d_{model}$ | 16.8M |
-| | | **total, per block** | **41.9M** |
+One simplification before we start: Llama-3-8B has fewer key/value heads than query heads (8 vs 32). §3 and §4 describe the textbook case where all of them are 32; [§4](#following-the-shapes) shows what changes and why.
 
-Two things to read off it. Every matrix has **4096 rows** — each one takes a whole token vector as input, which is the shape-level version of "no head ever sees only part of the input." And $W_k$ and $W_v$ are *narrower* than $W_q$, because Llama-3-8B has fewer key/value heads than query heads.
+#### What a head actually is
 
-That last asymmetry is the one simplification in what follows: **§3 and §4 describe the textbook case where all three are $(4096, 4096)$** — 32 heads of everything. [§4](#following-the-shapes) shows what actually changes with 8, and why it's $K$ and $V$ that were chosen to shrink.
-
-Each of the 32 blocks has its own copy of all four matrices.
-
-With that fixed, a **head** is one independent copy of attention, working on a 128-number slice of $Q$, $K$ and $V$. The order of operations matters, and it's the detail most explanations blur:
+A **head** is one independent copy of attention, working on a 128-number slice of $Q$, $K$ and $V$. The order of operations matters, and it's the detail most explanations blur:
 
 1. The token's full 4,096-number vector is projected into $Q$, $K$, $V$. Each projection is $4096 \times 4096$, so **$Q$, $K$ and $V$ are each 4,096 wide**, and every number in them combines *all* 4,096 inputs.
 2. *Then* $Q$, $K$, $V$ are each cut into 32 slices of 128.
 3. Head $h$ takes slice $h$ of each and runs a complete attention pass.
 4. The 32 results are concatenated back to 4,096 and mixed by a final matrix $W_o$.
-
-$$
-d_{model} = n_{heads} \times d_{head} \qquad 4096 = 32 \times 128
-$$
 
 ![Multi-head attention: splitting the vector across heads](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/multi-head-light.png){: .light width="1000" }
 ![Multi-head attention: splitting the vector across heads](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/multi-head-dark.png){: .dark width="1000" }
@@ -182,21 +171,13 @@ $$
 - **Not the sequence.** Every head sees every token. Head 3 doesn't get "the last quarter of the sentence."
 - **Not the input vector.** Head 3 doesn't get input dimensions 384–511 either. It gets dimensions 384–511 *of $Q$, $K$, $V$*, each computed from all 4,096 inputs.
 
-An equivalent way to say it: head $h$ owns the 128 columns of $W_q$, $W_k$, $W_v$ that produce its slice, and those columns read the whole vector. That's why you'll see the mechanism described both ways — "project everything, then reshape" is what the code does; "each head has its own smaller projections" is what the math says.
+Equivalently: head $h$ owns the 128 columns of $W_q$, $W_k$, $W_v$ that produce its slice, and those columns read the whole vector. That's why you'll see the mechanism described both ways — "project everything, then reshape" is what the code does; "each head has its own smaller projections" is what the math says.
 
 $W_o$ at the end is not bookkeeping. Without it, 32 heads' findings would sit in 32 disjoint stretches of the vector, unable to influence one another.
 
 #### Heads are free
 
-The natural worry is that 32 heads means 32× the work. It doesn't — and the reason is one line of algebra worth doing slowly, because it's the thing that makes multi-head attention obviously worth doing.
-
-**The invariant:** the head count and the head width always multiply back to the same total.
-
-$$
-n_{heads} \times d_{head} = d_{model} \qquad 32 \times 128 = 4096
-$$
-
-Choosing a head count doesn't add anything. It only decides how a fixed 4,096 gets partitioned. Both costs follow from that.
+The natural worry is that 32 heads means 32× the work. It doesn't, and the reason is one line of algebra worth doing slowly — it's what makes multi-head attention obviously worth doing.
 
 **Parameters.** $W_q$ maps $d_{model}$ into $n_{heads} \times d_{head}$ — which *is* $d_{model}$. So it's a $4096 \times 4096$ matrix whatever the head count, and so are the other three:
 
@@ -210,9 +191,9 @@ Choosing a head count doesn't add anything. It only decides how a fixed 4,096 ge
   total                                               67.1M
 ```
 
-$4096^2 = 16.8\text{M}$ per matrix, four matrices, $67.1$M total — for **any** head count. Nothing in that arithmetic mentions $n_{heads}$.
+$4096^2 = 16.8\text{M}$ per matrix, four matrices, $67.1$M per block — for **any** head count. Nothing in that arithmetic mentions $n_{heads}$. Note also that every matrix has 4,096 rows: each one takes a whole token vector as input, which is the shape-level version of "no head sees only part of the input."
 
-**Score FLOPs.** Now the part that looks like it should scale. Inside one head, computing $QK^\top$ is a $(seq, d_{head})$ matrix times a $(d_{head}, seq)$ matrix. Every one of the $seq \times seq$ outputs costs $d_{head}$ multiply-adds, and the usual convention counts a multiply-add as 2 FLOPs:
+**Score FLOPs.** Now the part that looks like it should scale. Inside one head, $QK^\top$ is a $(seq, d_{head})$ matrix times a $(d_{head}, seq)$ matrix. Each of the $seq \times seq$ outputs costs $d_{head}$ multiply-adds, and the usual convention counts a multiply-add as 2 FLOPs:
 
 $$
 \text{per head} = 2 \times seq^2 \times d_{head}
@@ -231,22 +212,20 @@ And $n_{heads} \times d_{head}$ is $d_{model}$ again, so the total is $2 \times 
   64           64              4096          0.13 G             8.59 G
 ```
 
-Read the last two columns together: **halving $d_{head}$ halves the per-head cost, and doubling the head count multiplies it straight back.** Going from 1 head to 64 makes each head 64× cheaper and there are 64× as many. The two changes are exactly inverse, which is why the final column never moves.
+Read the last two columns together: **halving $d_{head}$ halves the per-head cost, and doubling the head count multiplies it straight back.** Going from 1 head to 64 makes each head 64× cheaper and there are 64× as many — exactly inverse, so the final column never moves.
 
-So heads are a *reshape of a fixed budget*, not extra machinery — you're only choosing whether to read the same 4,096 numbers as one wide space or many narrow ones. What you buy is several attention patterns at once instead of one averaged compromise.
-
-*(Two caveats on the numbers. The FLOP column counts only $QK^\top$; multiplying by $V$ costs the same again, and the four projections cost $2 \cdot seq \cdot d_{model}^2$ each — larger than the scores until the sequence gets long. All of them are head-count independent for the same reason, so the conclusion holds.)*
-
-So heads cost nothing and buy several attention patterns at once. Running one input through four heads:
+So heads are a *reshape of a fixed budget*, not extra machinery. You're only choosing whether to read the same 4,096 numbers as one wide space or many narrow ones. What you buy is several attention patterns at once instead of one averaged compromise:
 
 ![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-light.png){: .light width="1000" }
 ![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-dark.png){: .dark width="1000" }
 
-Each triangle is one head's weights: row $i$ is where query $i$ looks, and the staircase edge is causal masking ([§8](#causal-masking)). Four visibly different patterns from the same input.
+Each triangle is one head's weights: row $i$ is where query $i$ looks, and the staircase edge is causal masking ([§9](#causal-masking)). Four visibly different patterns from the same input.
 
 One caveat I want to be exact about: **these are random weights.** The heads differ because they were initialized differently, which shows they aren't redundant copies — it is *not* specialization. In trained models specialization is real and catalogued: "previous-token heads" that look one step back, "induction heads" that spot a repeated pattern and predict its continuation. You can't see that in a figure like this.
 
-There's a trade-off in the head count: more heads means more distinct patterns but narrower ones — 64 heads leaves each only 64 dimensions. Models land at 32–64 because both extremes are bad.
+*(The FLOP column counts only $QK^\top$. Multiplying by $V$ costs the same again, and each projection costs $2 \cdot seq \cdot d_{model}^2$ — larger than the scores until the sequence gets long. All head-count independent for the same reason.)*
+
+Finally, a trade-off in the head count itself: more heads means more distinct patterns but narrower ones — 64 heads leaves each only 64 dimensions to describe a query. Models land at 32–64 because both extremes are bad.
 
 ### 4. Following the shapes {#following-the-shapes}
 
@@ -306,31 +285,25 @@ Attention applies it twice, and the two are mirror images:
   weights @ V   (10, 10)  (10, 128)  (10, 128)         10 (keys)
 ```
 
-So the whole per-head shape story is:
-
 $$
 (10, 128) \;\xrightarrow{\;Q K^\top\;}\; (10, 10) \;\xrightarrow{\;\times V\;}\; (10, 128)
 $$
 
-**First matmul:** the 128 features are summed away, and a *second* token axis appears. You've turned "each token's features" into "each token's relevance to each other token."
+**First matmul:** the 128 features are summed away and a *second* token axis appears. You've turned "each token's features" into "each token's relevance to each other token."
 
-**Second matmul:** the 10 keys are summed away, and V's 128 features come back. This is the step whose output shape surprises people, so it's worth being concrete: `weights` is $(10, 10)$ and `V` is $(10, 128)$; the shared 10 is the *token* axis, so it contracts, leaving one row per query and 128 columns from V.
-
-Written out, output row $i$ is literally a weighted sum of V's rows:
+**Second matmul:** the 10 keys are summed away and V's 128 features come back. This is the step whose output shape surprises people: `weights` is $(10, 10)$ and `V` is $(10, 128)$, so the shared axis is *tokens*, leaving one row per query and 128 columns from V. Written out, output row $i$ is literally a weighted sum of V's rows:
 
 $$
 \text{out}_i = \sum_{j} w_{ij} \cdot V_j
 $$
 
-Ten weights, ten value-vectors of 128 numbers each, one 128-number result. That's why the answer is 128 wide rather than 10 wide — **the weights say *how much* of each token to take, and V says *what* to take.** The demo checks this against the matmul directly:
+Ten weights, ten value-vectors of 128 numbers each, one 128-number result. That's why the answer is 128 wide rather than 10 wide — **the weights say *how much* of each token to take, and V says *what* to take.** Checked against the matmul:
 
 ```text
   out[h=0, q=3] via matmul           (128,)
   same, as sum_j w[3,j] * V[j]       (128,)
   max abs difference                 1.788e-07
 ```
-
-Same answer to float noise. Stacking all 32 heads back on, that's `(32, 10, 128) → (32, 10, 10) → (32, 10, 128)`.
 
 #### What changes with grouped-query attention
 
@@ -345,18 +318,29 @@ Here's the simplification promised in §3. Everything above is **classic multi-h
   K, V  split into heads      (32, 10, 128)             (8, 10, 128)
 ```
 
+Each projection still follows one rule — it is $(d_{model},\; \text{heads it feeds} \times d_{head})$ — so 8 key heads of 128 gives $(4096, 1024)$. That drops the block's attention parameters from 67.1M to **41.9M**.
+
 Note the asymmetry: **$Q$ keeps full width; only $K$ and $V$ shrink.** That's deliberate — $K$ and $V$ are the tensors generation has to *cache*, so shrinking them shrinks the memory that limits how many users you can serve. $Q$ is recomputed every step and never cached. Post 2 is largely about this.
 
 Read the rest of this post as classic MHA; the mechanism is identical either way.
 
 ### 5. Where attention sits in the model {#where-attention-sits-in-the-model}
 
-Attention is a *component*, not the model. A decoder stacks $N$ identical blocks, each doing two things: attention, then a feed-forward network, each wrapped in a residual connection with a normalization layer.
+Attention is a *component*, not the model. A decoder stacks $L$ identical blocks, each doing two things: attention, then a feed-forward network, each wrapped in a residual connection with a normalization layer.
 
 ![Where attention sits in a decoder block](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/block-anatomy-light.png){: .light width="700" }
 ![Where attention sits in a decoder block](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/block-anatomy-dark.png){: .dark width="700" }
 
-The names in that diagram are all jargon. In plain English:
+#### Inside the attention box
+
+That diagram draws attention as one box. Here's the data path inside it, with the tensor's shape down the right margin:
+
+![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-light.png){: .light width="900" }
+![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-dark.png){: .dark width="900" }
+
+Two steps in it are worth naming. **One input, three projections** — $Q$, $K$ and $V$ are three learned *views of the same vector*, which is what makes self-attention "self." And **RoPE rotates $Q$ and $K$, never $V$** — position belongs in the *matching* step; $V$ is the content you retrieve once matching is done, so rotating it would corrupt the payload. [§10](#rope-absolute-rotation-relative-score) covers RoPE properly.
+
+#### The other pieces, in plain English
 
 **Token embeddings** — a lookup table. Every token in the vocabulary owns a list of 4,096 numbers, and that list *is* the model's representation of it. At the start it encodes only "which token is this." Each block edits it toward "which token is this, *in this context*." The word *bank* enters generic and leaves nudged toward *riverbank* or *savings account*.
 
@@ -368,17 +352,27 @@ $$
 
 where $g$ is a learned per-dimension scale. The original transformer used **LayerNorm**, which also subtracts the mean first. RMSNorm's contribution is a *discovery, not an invention*: that mean-subtraction turned out not to matter. Dropping it costs no quality and saves a pass over the data.
 
-**FFN** (feed-forward network) — widen the vector, apply a nonlinear function, narrow it back:
+#### The residual, and what "pre-norm" means
+
+**The residual is a real bypass.** Each sublayer's input branches off, skips both the norm and the sublayer, and is added back at the $\oplus$. So a sublayer never computes its output — it computes a *correction*:
 
 $$
-\text{FFN}(x) = W_{\text{down}}\big(\,\text{nonlinearity}(W_{\text{up}}\,x)\,\big)
+x \leftarrow x + \text{Attention}(\text{Norm}(x))
 $$
 
-Typically 4,096 → 16,384 → 4,096, applied to each token on its own — that's what "position-wise" means; token 5 has no idea token 6 exists.
+If a sublayer learns nothing useful, the block degrades to the identity rather than to noise. That unbroken path is also the road the gradient travels back down undiminished, which is what lets you stack 80 of these.
 
-#### What it's actually made of
+**"Pre-norm"** describes where the norm sits relative to that bypass. The 2017 original normalized *after* adding the residual, putting a norm on the trunk itself. Modern decoders moved it *inside* the branch, so the residual highway stays unnormalized end to end — which is why deep models train stably without the learning-rate warmup gymnastics the original recipe needed.
 
-It isn't one matrix — it's **three matrices with an elementwise gate between them**. For Llama-3-8B, per block:
+That leaves one box in the diagram unexplained, and it's the biggest one.
+
+### 6. The FFN: where the model knows things {#the-ffn}
+
+**FFN** stands for **feed-forward network**. It processes each token entirely on its own — that's what "position-wise" means; token 5 has no idea token 6 exists. Next to attention it looks like filler. It isn't, and it's worth three questions: what it is, why it's there, and why facts end up inside it.
+
+#### What it's made of
+
+Not one matrix — **three matrices with an elementwise gate between them**. For Llama-3-8B, per block:
 
 ```text
   matrix          shape  params                          role
@@ -392,22 +386,30 @@ It isn't one matrix — it's **three matrices with an elementwise gate between t
 ![What an FFN is made of](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/ffn-anatomy-light.png){: .light width="960" }
 ![What an FFN is made of](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/ffn-anatomy-dark.png){: .dark width="960" }
 
-The bars are drawn to scale, so the widening is real: **4096 → 14336 → 4096**. The token vector goes through two projections in parallel — one produces the content, one produces gate values that SiLU squashes into dimmers — they're multiplied element by element, and $W_{\text{down}}$ writes the result back.
+The bars are drawn to scale, so the widening is real: **4096 → 14336 → 4096**. Widen, act, narrow.
 
-**Why more than one matrix?** Because two stacked matrices with nothing between them *are* one matrix:
+That gate is **SwiGLU**, and it's why there are three matrices rather than two. The original FFN used **ReLU** — keep positives, zero the negatives — one fixed rule applied to everything, with a single up-projection. SwiGLU replaces the rule with something learned:
+
+$$
+\text{SwiGLU}(x) = W_{\text{down}}\big(\,\text{SiLU}(W_{\text{gate}}\,x) \;\odot\; W_{\text{up}}\,x\,\big)
+$$
+
+Two up-projections run in parallel. One produces content; the other is squashed by a smooth S-curve (SiLU) into a set of dimmers, and the two are multiplied element by element. The network learns, per feature and per input, how much signal to let through — a dimmer it controls rather than a hard on/off switch. The third matrix is paid for by shrinking the expansion from $4d$ to about $\tfrac{8}{3}d$, which is why $d_{ff}$ is 14,336 rather than a rounder 16,384.
+
+Worth knowing for its honesty: the paper introducing SwiGLU tested a family of gated variants, found they worked better, offered no theory, and closed by attributing their success "to divine benevolence." Much of a modern transformer is there because it measured better, not because someone derived it.
+
+**Why more than one matrix at all?** Because two stacked matrices with nothing between them *are* one matrix:
 
 ```text
   (x @ W_up) @ W_down  vs  x @ (W_up @ W_down) 3.94e-13
   W_up @ W_down is a single matrix   (64, 64)
 ```
 
-Identical. Without a nonlinearity you could pre-multiply $W_{\text{up}}$ and $W_{\text{down}}$ into one $4096 \times 4096$ matrix, and all that widening would buy exactly nothing. **The nonlinearity is the only thing stopping the two from collapsing into one** — which is a good hint that it's carrying the weight here.
-
-That matters more than it sounds. Let's see why.
+Identical. Without a nonlinearity you could pre-multiply $W_{\text{up}}$ and $W_{\text{down}}$ into a single $4096 \times 4096$ matrix and all that widening would buy exactly nothing. **The nonlinearity is the only thing stopping them from collapsing into one** — a good hint that it's carrying the weight here.
 
 #### Why an FFN is needed at all
 
-**Because attention can only average.** Look at what a softmax guarantees: the weights are non-negative and sum to 1. So every output is a *blend* of the value rows — and a blend of things can never be anything other than a mixture of those things:
+**Because attention can only average.** Look at what a softmax guarantees: the weights are non-negative and sum to 1. So every output is a *blend* of the value rows — and a blend of things can never be anything but a mixture of those things:
 
 ```text
   softmax weights are all >= 0       yes
@@ -437,7 +439,7 @@ $$
 \text{FFN}(x) = \sum_{i=1}^{d_{ff}} \underbrace{a_i(x)}_{\text{did slot } i \text{ match?}} \cdot \underbrace{W_{\text{down}}[i]}_{\text{what slot } i \text{ says}}
 $$
 
-where $a_i(x)$ is the activation of the $i$-th middle neuron. Each of the 16,384 middle dimensions is one **memory slot** with two halves:
+where $a_i(x)$ is the activation of the $i$-th middle neuron. Each of the 14,336 middle dimensions is one **memory slot** with three parts:
 
 | Piece | Role |
 | --- | --- |
@@ -445,7 +447,7 @@ where $a_i(x)$ is the activation of the $i$-th middle neuron. Each of the 16,384
 | $a_i$, its activation | **how strongly** this token matched it |
 | row $i$ of $W_{\text{down}}$ | the **content** slot $i$ adds if it matched |
 
-Notice the structure: match against stored patterns, then add up the content of whatever matched, weighted by match strength. That's the same soft-lookup shape as attention itself — except attention looks up *other tokens*, while the FFN looks up *stored weights*. The demo confirms the decomposition is exact:
+Match against stored patterns, then add up the content of whatever matched, weighted by match strength. That's the same soft-lookup shape as attention itself — except attention looks up *other tokens*, while the FFN looks up *stored weights*. The decomposition is exact:
 
 ```text
   ffn(x)[row 3] via matmul           (64,)
@@ -453,33 +455,9 @@ Notice the structure: match against stored patterns, then add up the content of 
   max abs difference                 8.941e-08
 ```
 
-So "the model knows Paris is in France" has a concrete home: some slot whose up-projection fires on *the Eiffel Tower is in*, whose down-projection nudges the output toward *Paris*. Llama-3-8B has 14,336 such slots per layer across 32 layers — **458,752 of them**. This isn't just a metaphor: the ROME and MEMIT lines of work locate specific factual associations in specific FFN weights and *edit* them, changing what a model believes by writing to a handful of numbers.
+So "the model knows Paris is in France" has a concrete home: some slot whose up-projection fires on *the Eiffel Tower is in*, whose down-projection nudges the output toward *Paris*. Llama-3-8B has 14,336 slots per layer across 32 layers — **458,752 of them**. This isn't only a metaphor: the ROME and MEMIT lines of work locate specific factual associations in specific FFN weights and *edit* them, changing what a model believes by writing to a handful of numbers.
 
-Two caveats, so the picture isn't too tidy. Slots aren't cleanly one-fact-each — facts are spread across many, and a slot participates in many facts. And with the random weights above, most slots respond to anything; trained FFNs are far sparser, with a given token lighting up a small subset.
-
-That also explains the parameter split below: if the FFN is the model's memory, it needs to be big.
-
-**SwiGLU** — the gate in that diagram, and the reason there are three matrices rather than two. The original FFN used **ReLU**: keep positives, zero the negatives, one up-projection. SwiGLU replaces that fixed rule with a **learned gate**:
-
-$$
-\text{SwiGLU}(x) = W_{\text{down}}\big(\,\text{SiLU}(W_{\text{gate}}\,x) \;\odot\; W_{\text{up}}\,x\,\big)
-$$
-
-The network learns, per feature and per input, how much signal to let through — a dimmer it controls rather than a hard on/off switch. The cost is a third matrix, paid for by shrinking the expansion from $4d$ to about $\tfrac{8}{3}d$, which is why Llama-3-8B's $d_{ff}$ is 14,336 rather than a rounder 16,384.
-
-Worth knowing for its honesty: the paper introducing it tested a family of gated variants, found they worked better, offered no theory, and closed by attributing their success "to divine benevolence." Much of a modern transformer is there because it measured better, not because someone derived it.
-
-#### The residual, and what "pre-norm" means
-
-**The residual is a real bypass.** Each sublayer's input branches off, skips both the norm and the sublayer, and is added back at the $\oplus$. So a sublayer never computes its output — it computes a *correction*:
-
-$$
-x \leftarrow x + \text{Attention}(\text{Norm}(x))
-$$
-
-If a sublayer learns nothing useful, the block degrades to the identity rather than to noise. That unbroken path is also the road the gradient travels back down undiminished, which is what lets you stack 80 of these.
-
-**"Pre-norm"** describes where the norm sits relative to that bypass. The 2017 original normalized *after* adding the residual, putting a norm on the trunk itself. Modern decoders moved it *inside* the branch, so the residual highway stays unnormalized end to end — which is why deep models train stably without the learning-rate warmup gymnastics the original recipe needed.
+Two caveats so the picture isn't too tidy. Slots aren't cleanly one-fact-each — facts spread across many, and a slot participates in many facts. And with the random weights measured above, most slots respond to anything; trained FFNs are far sparser.
 
 #### Who gets the parameters?
 
@@ -493,22 +471,9 @@ If a sublayer learns nothing useful, the block degrades to the identity rather t
 
 Attention gets the name and the diagrams, but it's the **minority of the weights**. The classic two-thirds figure comes from the original shapes — attention $4d^2$, FFN $2 \cdot d \cdot 4d = 8d^2$. Modern decoders push further from both ends: GQA shrinks $K$/$V$ while SwiGLU adds a third FFN matrix.
 
-Which is the parameter-count version of the point above: **routing lives in attention, knowledge lives in the FFN.** It's why LoRA on attention alone underperforms (post 5), and why Mixture-of-Experts replaces the *FFN* (post 9).
+Which is the parameter-count version of the point above: **routing lives in attention, knowledge lives in the FFN.** If the FFN is the model's memory, it needs to be big. It's also why LoRA on attention alone underperforms (post 5), and why Mixture-of-Experts replaces the *FFN* (post 9).
 
-#### Inside the attention box
-
-The block diagram draws attention as one box. Here's the data path inside it, with the tensor's shape down the right margin:
-
-![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-light.png){: .light width="900" }
-![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-dark.png){: .dark width="900" }
-
-Three steps in it deserve a note:
-
-1. **One input, three projections.** $Q$, $K$, $V$ are three learned *views of the same vector* — which is what makes self-attention "self."
-2. **RoPE rotates $Q$ and $K$, never $V$.** Position belongs in the *matching* step. $V$ is the content you retrieve once matching is done; rotating it would corrupt the payload.
-3. **Mask, then softmax — in that order.** Masking sets forbidden scores to $-\infty$ *before* normalizing, so surviving weights renormalize among themselves and each row still sums to 1. Masking afterwards is a classic bug.
-
-### 6. The implementation, in five lines {#the-implementation-in-five-lines}
+### 7. The implementation, in five lines {#the-implementation-in-five-lines}
 
 ```python
 def scaled_dot_product_attention(q, k, v, *, causal=False, scale=None):
@@ -538,7 +503,7 @@ Checking it against PyTorch's fused `F.scaled_dot_product_attention`:
 
 Agreement to `5e-07` in float32 — floating-point reassociation noise, not an algorithmic difference. Worth internalizing early, because it's the same fact that makes Flash Attention work: **a fast kernel is an optimization, not an approximation.** Post 3 returns to this.
 
-### 7. Why divide by sqrt(d_k)? {#why-divide-by-sqrt-dk}
+### 8. Why divide by sqrt(d_k)? {#why-divide-by-sqrt-dk}
 
 The argument is short. If $q$ and $k$ have independent components with mean 0 and variance 1, then
 
@@ -576,9 +541,9 @@ Why does saturation hurt? Two reasons, and the second is what actually kills tra
 
 That second point reframes it. $1/\sqrt{d_k}$ is not about overflow — softmax handles large logits fine by subtracting the row max. It's there to **keep the softmax in a regime where it still has a gradient**, whatever width you make the heads.
 
-### 8. Causal masking {#causal-masking}
+### 9. Causal masking {#causal-masking}
 
-[§2](#the-formula-symbol-by-symbol) introduced the mask $M$. Here is what it actually does to the weights:
+[§2](#the-formula-symbol-by-symbol) introduced the mask $M$. Here is what it does to the weights:
 
 ```text
         key0    key1    key2    key3    key4    key5
@@ -593,11 +558,12 @@ That second point reframes it. $1/\sqrt{d_k}$ is not about overflow — softmax 
 ![Causal attention weight matrix](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/causal-mask-light.png){: .light width="820" }
 ![Causal attention weight matrix](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/causal-mask-dark.png){: .dark width="820" }
 
-Note row `q0`: weight exactly 1.000 on itself. The first token has nothing else to attend to, so a softmax over a single unmasked score returns 1 — the mask makes the earliest tokens progressively less interesting, not broken.
+Note row `q0`: weight exactly 1.000 on itself. The first token has nothing else to attend to, so a softmax over a single unmasked score returns 1.
 
-This one line is why the same architecture serves both BERT (unmasked, good for understanding) and GPT (masked, good for generation).
+This one matrix is why the same architecture serves both BERT (unmasked, good for understanding) and GPT (masked, good for generation).
 
-### 9. RoPE: absolute rotation, relative score {#rope-absolute-rotation-relative-score}
+
+### 10. RoPE: absolute rotation, relative score {#rope-absolute-rotation-relative-score}
 
 Back to the gap from §2: attention has no idea what order the tokens came in. Something must inject position.
 
@@ -654,7 +620,7 @@ Two panels, same y-axis. Left: slide both vectors along 128 positions, holding t
 
 One consequence that returns in post 12: because the rotation happens *after* the $Q$/$K$ projections, RoPE doesn't commute with tricks that absorb those projections into neighbouring matrices — exactly the complication DeepSeek's MLA has to work around.
 
-### 10. A silent MPS bug that deleted RoPE {#a-silent-mps-bug-that-deleted-rope}
+### 11. A silent MPS bug that deleted RoPE {#a-silent-mps-bug-that-deleted-rope}
 
 While building this demo, the RoPE section printed a score that was *identical for every offset*. Not wrong-looking — suspiciously perfect.
 
