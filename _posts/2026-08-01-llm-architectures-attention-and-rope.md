@@ -376,7 +376,34 @@ $$
 
 Typically 4,096 → 16,384 → 4,096, applied to each token on its own — that's what "position-wise" means; token 5 has no idea token 6 exists.
 
-It looks like filler next to attention. It isn't, and it's worth being precise about why.
+#### What it's actually made of
+
+It isn't one matrix — it's **three matrices with an elementwise gate between them**. For Llama-3-8B, per block:
+
+```text
+  matrix          shape  params                          role
+  -------------------------------------------------------------
+  W_gate  (4096, 14336)   58.7M     opens or closes each slot
+  W_up    (4096, 14336)   58.7M  the content each slot offers
+  W_down  (14336, 4096)   58.7M        writes the result back
+  total                  176.2M        per block, x 32 blocks
+```
+
+![What an FFN is made of](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/ffn-anatomy-light.png){: .light width="960" }
+![What an FFN is made of](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/ffn-anatomy-dark.png){: .dark width="960" }
+
+The bars are drawn to scale, so the widening is real: **4096 → 14336 → 4096**. The token vector goes through two projections in parallel — one produces the content, one produces gate values that SiLU squashes into dimmers — they're multiplied element by element, and $W_{\text{down}}$ writes the result back.
+
+**Why more than one matrix?** Because two stacked matrices with nothing between them *are* one matrix:
+
+```text
+  (x @ W_up) @ W_down  vs  x @ (W_up @ W_down) 3.94e-13
+  W_up @ W_down is a single matrix   (64, 64)
+```
+
+Identical. Without a nonlinearity you could pre-multiply $W_{\text{up}}$ and $W_{\text{down}}$ into one $4096 \times 4096$ matrix, and all that widening would buy exactly nothing. **The nonlinearity is the only thing stopping the two from collapsing into one** — which is a good hint that it's carrying the weight here.
+
+That matters more than it sounds. Let's see why.
 
 #### Why an FFN is needed at all
 
@@ -432,7 +459,7 @@ Two caveats, so the picture isn't too tidy. Slots aren't cleanly one-fact-each �
 
 That also explains the parameter split below: if the FFN is the model's memory, it needs to be big.
 
-**SwiGLU** — a better nonlinearity. The original FFN used **ReLU**: keep positives, zero the negatives. SwiGLU replaces that fixed rule with a **learned gate**. Run two up-projections in parallel; squash one through a smooth S-curve (SiLU) into a set of dimmer switches, and multiply:
+**SwiGLU** — the gate in that diagram, and the reason there are three matrices rather than two. The original FFN used **ReLU**: keep positives, zero the negatives, one up-projection. SwiGLU replaces that fixed rule with a **learned gate**:
 
 $$
 \text{SwiGLU}(x) = W_{\text{down}}\big(\,\text{SiLU}(W_{\text{gate}}\,x) \;\odot\; W_{\text{up}}\,x\,\big)
