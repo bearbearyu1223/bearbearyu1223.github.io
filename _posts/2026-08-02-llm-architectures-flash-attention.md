@@ -1,7 +1,7 @@
 ---
-title: "LLM Architectures [3]: Flash Attention Is Exact, and Here's the Proof"
+title: "LLM Architecture Refresh [3]: Flash Attention Is Exact, and Here's the Proof"
 date: 2026-08-02 01:00:00 -0700
-categories: [LLM Architectures, Inference]
+categories: [LLM Architecture Refresh, Inference]
 tags: [flash-attention, online-softmax, attention, memory-bandwidth, tiling, pytorch]
 description: >-
   Implementing online softmax and tiled attention from scratch to show that

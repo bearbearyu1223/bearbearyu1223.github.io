@@ -1,7 +1,7 @@
 ---
-title: "LLM Architectures [2]: The KV Cache, and Why Decode Is Memory-Bound"
+title: "LLM Architecture Refresh [2]: The KV Cache, and Why Decode Is Memory-Bound"
 date: 2026-08-02 00:00:00 -0700
-categories: [LLM Architectures, Inference]
+categories: [LLM Architecture Refresh, Inference]
 tags: [kv-cache, inference, gqa, mqa, batching, memory-bandwidth, pytorch]
 description: >-
   Measuring the KV cache — why generation is quadratic without it, why the
