@@ -194,7 +194,27 @@ The natural worry is that 32 heads means 32× the work. It doesn't, and the reas
 
 $4096^2 = 16.8\text{M}$ per matrix, four matrices, $67.1$M per block — for **any** head count. Nothing in that arithmetic mentions $n_{heads}$. Note also that every matrix has 4,096 rows: each one takes a whole token vector as input, which is the shape-level version of "no head sees only part of the input."
 
-**Score FLOPs.** Now the part that looks like it should scale. Inside one head, $QK^\top$ is a $(seq, d_{head})$ matrix times a $(d_{head}, seq)$ matrix. Each of the $seq \times seq$ outputs costs $d_{head}$ multiply-adds, and the usual convention counts a multiply-add as 2 FLOPs:
+#### An aside: what a FLOP is, and how to count one
+
+The other half of the cost is measured in FLOPs, so before using the word:
+
+A **FLOP** is one **fl**oating-point **op**eration — a single add or a single multiply on decimal numbers. "FLOPs" (lowercase s) counts operations; "FLOP/s" is a *rate*, operations per second. They look almost identical and mean different things: a model needs so many FLOPs, a GPU delivers so many FLOP/s, and dividing one by the other estimates time.
+
+Counting them in a transformer is easy, because nearly all the arithmetic is matrix multiplication, and one rule covers every matmul:
+
+$$
+(a, b) \times (b, c) \;\longrightarrow\; 2 \cdot a \cdot b \cdot c \;\text{ FLOPs}
+$$
+
+Where that comes from: the result has $a \times c$ entries, and each is a dot product of two length-$b$ vectors — $b$ multiplies and $b$ adds, so $2b$ operations. Multiply out and you get $2abc$. In words:
+
+> **FLOPs = 2 × (number of output entries) × (length of the dimension being summed away).**
+
+The 2 is the multiply-and-add pair. Hardware runs them as one fused instruction, but the convention counts both.
+
+That's the whole method. It also gives a rule of thumb worth carrying: since each weight is used in exactly one multiply-add per token, **a forward pass costs about $2N$ FLOPs per token**, where $N$ is the parameter count.
+
+**Score FLOPs.** Now the part that looks like it should scale. Inside one head, $QK^\top$ is $(seq, d_{head}) \times (d_{head}, seq)$ — so by the rule, $2 \cdot seq \cdot d_{head} \cdot seq$:
 
 $$
 \text{per head} = 2 \times seq^2 \times d_{head}
@@ -224,7 +244,30 @@ Each triangle is one head's weights: row $i$ is where query $i$ looks, and the s
 
 One caveat I want to be exact about: **these are random weights.** The heads differ because they were initialized differently, which shows they aren't redundant copies — it is *not* specialization. In trained models specialization is real and catalogued: "previous-token heads" that look one step back, "induction heads" that spot a repeated pattern and predict its continuation. You can't see that in a figure like this.
 
-*(The FLOP column counts only $QK^\top$. Multiplying by $V$ costs the same again, and each projection costs $2 \cdot seq \cdot d_{model}^2$ — larger than the scores until the sequence gets long. All head-count independent for the same reason.)*
+#### Where the FLOPs actually go
+
+That table counted only $QK^\top$. Applying the same rule to every matmul in one attention layer gives the full picture — and it's not what people expect:
+
+```text
+  step                                  shapes    FLOPs  share
+  --------------------------------------------------------------
+  W_q/W_k/W_v/W_o  4 x (1024,4096)@(4096,4096)  137.4 G    89%
+  Q @ K.T              (1024,4096)@(4096,1024)    8.6 G     6%
+  weights @ V          (1024,1024)@(1024,4096)    8.6 G     6%
+  total                                         154.6 G
+```
+
+**The quadratic term is the smallest item here.** At a 1,024-token sequence, attention's famous $n^2$ cost is 6% of the layer; the four projections are 89%. The $n^2$ term only takes over once $seq$ grows past $d_{model}$ — below that, a transformer is mostly big dense matrix multiplies, and "attention is quadratic" describes the *asymptote*, not the regime most models run in. Post 3 is about what happens when you do cross that line.
+
+The rule of thumb checks out too:
+
+```text
+  projection params N                67.1M
+  2 x N x tokens                     137.4 G
+  equals the measured projection cost yes
+```
+
+$2 \times 67.1\text{M} \times 1024$ lands exactly on the projection cost — because every weight is used in exactly one multiply-add per token. (Everything above is head-count independent for the same reason as before.)
 
 Finally, a trade-off in the head count itself: more heads means more distinct patterns but narrower ones — 64 heads leaves each only 64 dimensions to describe a query. Models land at 32–64 because both extremes are bad.
 
@@ -678,6 +721,7 @@ Post 2 takes the same measure-it-yourself approach to the **KV cache** — the t
 | $\odot$ | elementwise multiply (SwiGLU's gate) | — |
 | $R_m$ | RoPE's rotation for position $m$ | — |
 | $\theta_i$ | RoPE's rotation frequency for dimension pair $i$ | — |
+| FLOP | one floating-point add or multiply; a matmul $(a,b)\times(b,c)$ costs $2abc$ | — |
 
 $Q$, $K$ and $V$ get two rows because they have two shapes — full width leaving the projection, regrouped into heads immediately after. Nothing is added or discarded between them ($32 \times 128 = 4096$); papers write $Q$ for both and leave you to infer which is meant.
 
