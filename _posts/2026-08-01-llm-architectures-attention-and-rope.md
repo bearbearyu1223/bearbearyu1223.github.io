@@ -8,6 +8,7 @@ description: >-
   PyTorch's fused kernel — then measuring why the 1/sqrt(d_k) factor exists,
   and watching RoPE turn absolute rotations into relative positions.
 math: true
+pin: true
 ---
 
 ## Understanding attention by measuring it, not by reading about it
