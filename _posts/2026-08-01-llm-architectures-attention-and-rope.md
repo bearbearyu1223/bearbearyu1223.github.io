@@ -132,7 +132,22 @@ Two consequences to carry forward:
 
 Running attention once has a limitation: **a softmax produces exactly one set of weights** — one opinion about which tokens matter. But a token usually needs several unrelated things at once: what noun this pronoun refers to, which verb governs this subject, which adjective modifies this noun. One weighting blurs them together.
 
-A **head** is one independent copy of attention, working on a 128-number slice of $Q$, $K$ and $V$. The order of operations matters, and it's the detail most explanations blur:
+The fix is to run attention several times in parallel. To keep that concrete, everything from here on uses one real model — **Llama-3-8B** — so the numbers are a checkable config rather than placeholders:
+
+| | Llama-3-8B | What it is |
+| --- | --- | --- |
+| $d_{model}$ | **4096** | how many numbers describe one token |
+| $n_{heads}$ | **32** | how many attention heads |
+| $d_{head}$ | **128** | width of one head's slice — note $4096 = 32 \times 128$ |
+| $n_{kv\_heads}$ | 8 | key/value heads; fewer than query heads — see [§4](#following-the-shapes) |
+| $d_{ff}$ | 14336 | width of the FFN's middle layer |
+| $L$ | 32 | how many blocks are stacked |
+
+These are one model's choices, not universal constants — GPT-2 XL used $d_{model} = 1600$ with 25 heads of 64, and every model picks differently. What *is* universal is the relationship in the third row: **the head count times the head width always equals $d_{model}$.** That one constraint drives most of this section.
+
+(To keep the first pass simple, §3 and §4 describe the textbook case where key/value heads match query heads — 32 of each. Llama-3-8B actually shares 8 key/value heads across its 32 query heads; [§4](#following-the-shapes) covers what changes.)
+
+With that fixed, a **head** is one independent copy of attention, working on a 128-number slice of $Q$, $K$ and $V$. The order of operations matters, and it's the detail most explanations blur:
 
 1. The token's full 4,096-number vector is projected into $Q$, $K$, $V$. Each projection is $4096 \times 4096$, so **$Q$, $K$ and $V$ are each 4,096 wide**, and every number in them combines *all* 4,096 inputs.
 2. *Then* $Q$, $K$, $V$ are each cut into 32 slices of 128.
@@ -301,9 +316,9 @@ Ten weights, ten value-vectors of 128 numbers each, one 128-number result. That'
 
 Same answer to float noise. Stacking all 32 heads back on, that's `(32, 10, 128) → (32, 10, 10) → (32, 10, 128)`.
 
-#### A correction: Llama-3-8B isn't quite this shape
+#### What changes with grouped-query attention
 
-Everything above is **classic multi-head attention**, where every query head gets its own key and value head. But I've been quoting Llama-3-8B's dimensions, and it actually uses **grouped-query attention** — 32 query heads sharing only 8 key/value heads:
+Here's the simplification promised in §3. Everything above is **classic multi-head attention**, where every query head gets its own key and value head. Llama-3-8B instead uses **grouped-query attention**: 32 query heads sharing only 8 key/value heads, so its $K$ and $V$ projections are a quarter as wide:
 
 ```text
   tensor                  MHA (32 kv heads)  Llama-3-8B (8 kv heads)
