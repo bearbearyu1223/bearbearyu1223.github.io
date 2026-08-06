@@ -145,7 +145,23 @@ The fix is to run attention several times in parallel. To keep that concrete, ev
 
 These are one model's choices, not universal constants — GPT-2 XL used $d_{model} = 1600$ with 25 heads of 64, and every model picks differently. What *is* universal is the relationship in the third row: **the head count times the head width always equals $d_{model}$.** That one constraint drives most of this section.
 
-(To keep the first pass simple, §3 and §4 describe the textbook case where key/value heads match query heads — 32 of each. Llama-3-8B actually shares 8 key/value heads across its 32 query heads; [§4](#following-the-shapes) covers what changes.)
+Those scalars fully determine the matrices. One rule sets every shape:
+
+> A projection is $(d_{model},\; \text{heads it feeds} \times d_{head})$. It always reads a full token vector; what varies is how wide its output is.
+
+| Matrix | Llama-3-8B | Where the width comes from | Params |
+| --- | --- | --- | --- |
+| $W_q$ | $(4096,\; 4096)$ | 32 query heads × 128 = 4096 | 16.8M |
+| $W_k$ | $(4096,\; 1024)$ | 8 key heads × 128 = 1024 | 4.2M |
+| $W_v$ | $(4096,\; 1024)$ | 8 value heads × 128 = 1024 | 4.2M |
+| $W_o$ | $(4096,\; 4096)$ | takes the concatenated heads back to $d_{model}$ | 16.8M |
+| | | **total, per block** | **41.9M** |
+
+Two things to read off it. Every matrix has **4096 rows** — each one takes a whole token vector as input, which is the shape-level version of "no head ever sees only part of the input." And $W_k$ and $W_v$ are *narrower* than $W_q$, because Llama-3-8B has fewer key/value heads than query heads.
+
+That last asymmetry is the one simplification in what follows: **§3 and §4 describe the textbook case where all three are $(4096, 4096)$** — 32 heads of everything. [§4](#following-the-shapes) shows what actually changes with 8, and why it's $K$ and $V$ that were chosen to shrink.
+
+Each of the 32 blocks has its own copy of all four matrices.
 
 With that fixed, a **head** is one independent copy of attention, working on a 128-number slice of $Q$, $K$ and $V$. The order of operations matters, and it's the detail most explanations blur:
 
