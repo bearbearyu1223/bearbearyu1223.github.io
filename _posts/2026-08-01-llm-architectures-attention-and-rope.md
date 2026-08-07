@@ -180,7 +180,13 @@ $W_o$ at the end is not bookkeeping. Without it, 32 heads' findings would sit in
 
 The natural worry is that 32 heads means 32× the work. It doesn't, and the reason is one line of algebra worth doing slowly — it's what makes multi-head attention obviously worth doing.
 
-**Parameters.** $W_q$ maps $d_{model}$ into $n_{heads} \times d_{head}$ — which *is* $d_{model}$. So it's a $4096 \times 4096$ matrix whatever the head count, and so are the other three:
+**Parameters.** Start with a question: how wide does $W_q$'s output need to be?
+
+It has to hand every head one slice of queries. With 32 heads of 128 that's $32 \times 128 = 4096$ numbers — the same width as the input it started from. So $W_q$ takes 4,096 numbers in and produces 4,096 out: a $4096 \times 4096$ matrix.
+
+Now change the head count and watch what happens. With 64 heads, each slice is only 64 numbers wide — but $64 \times 64 = 4096$ again. With 8 heads, each slice is 512 wide, and $8 \times 512 = 4096$. The output width never moves, because the head count and the head width always multiply back to $d_{model}$.
+
+**So $W_q$ is $4096 \times 4096$ no matter how many heads you choose**, and the same holds for $W_k$, $W_v$ and $W_o$:
 
 ```text
   matrix                         maps         shape  params
@@ -214,15 +220,23 @@ The 2 is the multiply-and-add pair. Hardware runs them as one fused instruction,
 
 That's the whole method. It also gives a rule of thumb worth carrying: since each weight is used in exactly one multiply-add per token, **a forward pass costs about $2N$ FLOPs per token**, where $N$ is the parameter count.
 
-**Score FLOPs.** Now the part that looks like it should scale. Inside one head, $QK^\top$ is $(seq, d_{head}) \times (d_{head}, seq)$ — so by the rule, $2 \cdot seq \cdot d_{head} \cdot seq$:
+**Score FLOPs.** This is the part that really looks like it should scale with the head count — 32 heads each doing their own matrix multiply. It doesn't, and it fails to for the same reason.
+
+Inside one head, $QK^\top$ multiplies a $(seq, d_{head})$ matrix by a $(d_{head}, seq)$ one. Applying the rule from above — 2 × output entries × the dimension summed away:
 
 $$
-\text{per head} = 2 \times seq^2 \times d_{head}
-\qquad
-\text{all heads} = n_{heads} \times 2 \times seq^2 \times d_{head}
+\text{one head} \;=\; 2 \times seq^2 \times d_{head}
 $$
 
-And $n_{heads} \times d_{head}$ is $d_{model}$ again, so the total is $2 \times seq^2 \times d_{model}$ with **the head count cancelled out**. At $seq = 1024$:
+Then there are $n_{heads}$ of them, so multiply through:
+
+$$
+\text{all heads} \;=\; n_{heads} \times 2 \times seq^2 \times d_{head}
+\;=\; 2 \times seq^2 \times \underbrace{\big(n_{heads} \times d_{head}\big)}_{=\; d_{model}}
+\;=\; 2 \times seq^2 \times d_{model}
+$$
+
+The head count cancels, exactly as it did for the parameters — and for the same reason, that the two always multiply back to $d_{model}$. At $seq = 1024$:
 
 ```text
   n_heads  d_head  n_heads x d_head  FLOPs per head  x n_heads = total
