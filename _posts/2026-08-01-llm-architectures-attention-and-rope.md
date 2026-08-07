@@ -153,7 +153,7 @@ $$
 
 **The head count times the head width always equals $d_{model}$.** That one constraint drives everything in this section.
 
-One simplification before we start: Llama-3-8B has fewer key/value heads than query heads (8 vs 32). §3 and §4 describe the textbook case where all of them are 32; [§4](#following-the-shapes) shows what changes and why.
+One simplification before we start. The textbook design gives **every query head its own key and value head** — 32 of each. That's called **multi-head attention**, usually abbreviated **MHA**, and it's what §3 and §4 describe. Llama-3-8B actually shares 8 key/value heads across its 32 query heads; [§4](#following-the-shapes) shows what changes and why.
 
 #### What a head actually is
 
@@ -290,7 +290,8 @@ Finally, a trade-off in the head count itself: more heads means more distinct pa
 Shapes are where most confusion about attention lives. Rather than write a table by hand — easy to get subtly wrong — the demo runs a real attention module on a 10-token prompt and prints what PyTorch reports:
 
 ```text
-  classic MHA - seq=10, d_model=4096, n_heads=32, d_head=128
+  classic multi-head attention (MHA): one K and V head per query head
+  seq=10, d_model=4096, n_heads=32, d_head=128
 
   tensor                             shape                          note
   ------------------------------------------------------------------------
@@ -736,6 +737,8 @@ Post 2 takes the same measure-it-yourself approach to the **KV cache** — the t
 | $R_m$ | RoPE's rotation for position $m$ | — |
 | $\theta_i$ | RoPE's rotation frequency for dimension pair $i$ | — |
 | FLOP | one floating-point add or multiply; a matmul $(a,b)\times(b,c)$ costs $2abc$ | — |
+| MHA | multi-head attention — one key/value head per query head | 32 of each |
+| GQA | grouped-query attention — several query heads share one key/value head | 32 query, 8 kv |
 
 $Q$, $K$ and $V$ get two rows because they have two shapes — full width leaving the projection, regrouped into heads immediately after. Nothing is added or discarded between them ($32 \times 128 = 4096$); papers write $Q$ for both and leave you to infer which is meant.
 
