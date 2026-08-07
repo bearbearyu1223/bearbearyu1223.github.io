@@ -23,7 +23,7 @@ cd llm-architectures-refresher
 uv sync && uv run demo01
 ```
 
-Every number and figure below came out of that command on my M-series Mac.
+Every number and figure below came out of that command on my M-series Mac. The Python shown alongside each result is the part that matters, trimmed of setup — the runnable version is in [`demos/d01_attention.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d01_attention.py).
 
 ### Table of Contents
 
@@ -287,7 +287,24 @@ Finally, a trade-off in the head count itself: more heads means more distinct pa
 
 ### 4. Following the shapes {#following-the-shapes}
 
-Shapes are where most confusion about attention lives. Rather than write a table by hand — easy to get subtly wrong — the demo runs a real attention module on a 10-token prompt and prints what PyTorch reports:
+Shapes are where most confusion about attention lives. Rather than write a table by hand — easy to get subtly wrong — the demo runs a real attention module on a 10-token prompt and prints what PyTorch reports. This is the code it runs:
+
+```python
+q, k, v = x @ w_q, x @ w_k, x @ w_v                    # (seq, 4096) each
+
+# split into heads: view, then move the head axis to the front
+qh, kh, vh = (t.view(seq, n_heads, d_head).transpose(0, 1)
+              for t in (q, k, v))                      # (32, seq, 128)
+
+scores = (qh @ kh.transpose(-2, -1)) / math.sqrt(d_head)   # (32, seq, seq)
+weights = torch.softmax(scores.masked_fill(mask, float("-inf")), dim=-1)
+ctx = weights @ vh                                     # (32, seq, 128)
+
+merged = ctx.transpose(0, 1).reshape(seq, d_model)     # (seq, 4096)
+out = merged @ w_o                                     # (seq, 4096)
+```
+
+The `.transpose(0, 1)` on line 4 is worth noticing — it's what makes the head axis come *first*. And what PyTorch reports for each step:
 
 ```text
   classic multi-head attention (MHA): one K and V head per query head
@@ -468,7 +485,16 @@ Identical. Without a nonlinearity you could pre-multiply $W_{\text{up}}$ and $W_
 
 #### Why an FFN is needed at all
 
-**Because attention can only average.** Look at what a softmax guarantees: the weights are non-negative and sum to 1. So every output is a *blend* of the value rows — and a blend of things can never be anything but a mixture of those things:
+**Because attention can only average.** Look at what a softmax guarantees: the weights are non-negative and sum to 1. So every output is a *blend* of the value rows — and a blend of things can never be anything but a mixture of those things.
+
+```python
+w = torch.softmax(q @ k.T / math.sqrt(d_model), dim=-1)
+attn = w @ v
+
+(w >= 0).all()                          # every weight non-negative
+w.sum(-1)                               # every row sums to 1
+torch.allclose(w @ (2 * v), 2 * attn)   # exactly linear in V
+```
 
 ```text
   softmax weights are all >= 0       yes
@@ -486,6 +512,14 @@ The FFN is the only place in the block where a token's own features get transfor
 > **The doubling test.** A linear function must obey $f(2x) = 2f(x)$: feed it twice the input and you get exactly twice the output. That's what "linear" means.
 
 Run it on both:
+
+```python
+def ffn(t):
+    return F.silu(t @ w_up) @ w_down
+
+ffn(2 * x)   # what the function actually returns for a doubled input
+2 * ffn(x)   # what a linear function would have returned
+```
 
 ```text
   function                    f(2x)  2 x f(x)  off by  linear?
@@ -524,7 +558,18 @@ where $a_i(x)$ is the activation of the $i$-th middle neuron. Each of the 14,336
 | $a_i$, its activation | **how strongly** this token matched it |
 | row $i$ of $W_{\text{down}}$ | the **content** slot $i$ adds if it matched |
 
-Match against stored patterns, then add up the content of whatever matched, weighted by match strength. That's the same soft-lookup shape as attention itself — except attention looks up *other tokens*, while the FFN looks up *stored weights*. The decomposition is exact:
+Match against stored patterns, then add up the content of whatever matched, weighted by match strength. That's the same soft-lookup shape as attention itself — except attention looks up *other tokens*, while the FFN looks up *stored weights*.
+
+The claim is that the ordinary matmul and the slot-by-slot sum are the same thing:
+
+```python
+acts = F.silu(x @ w_up)                  # (seq, d_ff) — one score per slot
+out = acts @ w_down                      # the matmul the model runs
+
+by_hand = (acts[row, :, None] * w_down).sum(0)   # sum_i  a_i * W_down[i]
+```
+
+They agree:
 
 ```text
   ffn(x)[row 3] via matmul           (64,)
