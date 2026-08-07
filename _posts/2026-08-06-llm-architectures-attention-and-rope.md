@@ -1,6 +1,6 @@
 ---
 title: "LLM Architecture Refresh [1]: Attention, the sqrt(d_k) Scale, and RoPE"
-date: 2026-08-01 00:00:00 -0700
+date: 2026-08-06 00:00:00 -0700
 categories: [LLM Architecture Refresh, Transformers]
 tags: [attention, rope, transformer, pytorch, positional-encoding, softmax, mps]
 description: >-
