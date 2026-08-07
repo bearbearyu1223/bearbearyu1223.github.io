@@ -477,18 +477,36 @@ Identical. Without a nonlinearity you could pre-multiply $W_{\text{up}}$ and $W_
   attn(2V) == 2 x attn(V)            yes
 ```
 
-Two consequences. The output can never leave the range of the values it was handed. And holding the weights fixed, attention is exactly **linear** in $V$ — double the values and the output doubles precisely.
+Two consequences. The output can never leave the range of the values it was handed. And holding the weights fixed, attention is exactly **linear** in $V$ — that last row is the test, and we'll come back to it in a moment.
 
 That's a real limitation. Attention can bring "this is a plural noun" and "this sentence is about France" into the same vector, but it cannot compute anything *from* them. Averaging two facts doesn't produce a conclusion. "If A and B are both present, then C" is not something a weighted average can express — no matter how many attention layers you stack.
 
-The FFN is the only place in the block where a token's own features get transformed nonlinearly:
+The FFN is the only place in the block where a token's own features get transformed nonlinearly. Here's a test that shows the difference — the simplest possible one:
+
+> **The doubling test.** A linear function must obey $f(2x) = 2f(x)$: feed it twice the input and you get exactly twice the output. That's what "linear" means.
+
+Run it on both:
 
 ```text
-  ffn(2x) == 2 x ffn(x)              no
-    relative gap                     0.2095
+  function                    f(2x)  2 x f(x)  off by  linear?
+  --------------------------------------------------------------
+  attention (weights fixed)  23.542    23.542    0.0%      yes
+  FFN                        14.641    13.375   21.0%       no
 ```
 
-Not linear — and that's the entire point. **Attention decides what to look at; the FFN decides what it means.** A meeting where everyone shares information, then the work you actually do with what you heard.
+The first two columns are the two things being compared, measured by vector length: what the function *actually* returns when you double its input, versus what doubling its output would have given. **Attention matches exactly. The FFN is 21% off** — so it is not a linear function.
+
+Easier to hold onto with a single number from the output:
+
+```text
+    ffn(x) gives                     -0.1197
+    2 x that = what linear predicts  -0.2394
+    ffn(2x) actually gives           -0.3333
+```
+
+Double the input and a linear function would have moved that number to $-0.2394$. The FFN returns $-0.3333$ instead. It responds to *how much* signal arrives, not just proportionally — which is exactly the freedom attention doesn't have.
+
+And that's the entire point. **Attention decides what to look at; the FFN decides what it means.** A meeting where everyone shares information, then the work you actually do with what you heard.
 
 #### Why knowledge ends up there
 
