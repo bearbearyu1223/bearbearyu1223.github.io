@@ -164,8 +164,8 @@ A **head** is one independent copy of attention, working on a 128-number slice o
 3. Head $h$ takes slice $h$ of each and runs a complete attention pass.
 4. The 32 results are concatenated back to 4,096 and mixed by a final matrix $W_o$.
 
-![Multi-head attention: splitting the vector across heads](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/multi-head-light.png){: .light width="1000" }
-![Multi-head attention: splitting the vector across heads](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/multi-head-dark.png){: .dark width="1000" }
+![Multi-head attention: splitting the vector across heads](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/multi-head-light.png){: .light width="1000" height="899" }
+![Multi-head attention: splitting the vector across heads](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/multi-head-dark.png){: .dark width="1000" height="899" }
 
 **What gets sliced is $Q$/$K$/$V$, never the input.** Two misreadings to head off, one per axis:
 
@@ -251,8 +251,8 @@ Read the last two columns together: **halving $d_{head}$ halves the per-head cos
 
 So heads are a *reshape of a fixed budget*, not extra machinery. You're only choosing whether to read the same 4,096 numbers as one wide space or many narrow ones. What you buy is several attention patterns at once instead of one averaged compromise:
 
-![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-light.png){: .light width="1000" }
-![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-dark.png){: .dark width="1000" }
+![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-light.png){: .light width="1000" height="453" }
+![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-dark.png){: .dark width="1000" height="453" }
 
 Each triangle is one head's weights: row $i$ is where query $i$ looks, and the staircase edge is causal masking ([§9](#causal-masking)). Four visibly different patterns from the same input.
 
@@ -337,8 +337,8 @@ Three things fall out:
 
 Three-axis shapes are where notation stops being readable. The image that works: **a deck of 32 sheets, each sheet a 10 × 128 table** — 10 rows, one per token; 128 columns, that head's features.
 
-![Reading a (32, 10, 128) tensor](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/tensor-3d-light.png){: .light width="960" }
-![Reading a (32, 10, 128) tensor](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/tensor-3d-dark.png){: .dark width="960" }
+![Reading a (32, 10, 128) tensor](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/tensor-3d-light.png){: .light width="960" height="650" }
+![Reading a (32, 10, 128) tensor](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/tensor-3d-dark.png){: .dark width="960" height="650" }
 
 Resist drawing it as a solid cuboid. A cuboid suggests the three axes are interchangeable directions, and they aren't — **each axis has a different job**:
 
@@ -404,15 +404,15 @@ Read the rest of this post as classic MHA; the mechanism is identical either way
 
 Attention is a *component*, not the model. A decoder stacks $L$ identical blocks, each doing two things: attention, then a feed-forward network, each wrapped in a residual connection with a normalization layer.
 
-![Where attention sits in a decoder block](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/block-anatomy-light.png){: .light width="700" }
-![Where attention sits in a decoder block](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/block-anatomy-dark.png){: .dark width="700" }
+![Where attention sits in a decoder block](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/block-anatomy-light.png){: .light width="700" height="845" }
+![Where attention sits in a decoder block](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/block-anatomy-dark.png){: .dark width="700" height="845" }
 
 #### Inside the attention box
 
 That diagram draws attention as one box. Here's the data path inside it, with the tensor's shape down the right margin:
 
-![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-light.png){: .light width="900" }
-![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-dark.png){: .dark width="900" }
+![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-light.png){: .light width="900" height="964" }
+![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-dark.png){: .dark width="900" height="964" }
 
 Two steps in it are worth naming. **One input, three projections** — $Q$, $K$ and $V$ are three learned *views of the same vector*, which is what makes self-attention "self." And **RoPE rotates $Q$ and $K$, never $V$** — position belongs in the *matching* step; $V$ is the content you retrieve once matching is done, so rotating it would corrupt the payload. [§10](#rope-absolute-rotation-relative-score) covers RoPE properly.
 
@@ -459,8 +459,8 @@ Not one matrix — **three matrices with an elementwise gate between them**. For
   total                  176.2M        per block, x 32 blocks
 ```
 
-![What an FFN is made of](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/ffn-anatomy-light.png){: .light width="960" }
-![What an FFN is made of](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/ffn-anatomy-dark.png){: .dark width="960" }
+![What an FFN is made of](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/ffn-anatomy-light.png){: .light width="960" height="768" }
+![What an FFN is made of](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/ffn-anatomy-dark.png){: .dark width="960" height="768" }
 
 The bars are drawn to scale, so the widening is real: **4096 → 14336 → 4096**. Widen, act, narrow.
 
@@ -649,8 +649,8 @@ So let's measure it. Sample random queries and keys at several $d_k$, and report
   1024    32.4533       0.9735   0.0674         0.3701     1.7103
 ```
 
-![Softmax saturation without the sqrt(d_k) scale](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/softmax-saturation-light.png){: .light width="1000" }
-![Softmax saturation without the sqrt(d_k) scale](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/softmax-saturation-dark.png){: .dark width="1000" }
+![Softmax saturation without the sqrt(d_k) scale](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/softmax-saturation-light.png){: .light width="1000" height="696" }
+![Softmax saturation without the sqrt(d_k) scale](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/softmax-saturation-dark.png){: .dark width="1000" height="696" }
 
 Read the `logit std` column first: `1.96, 3.95, 7.94, 15.92, 32.45` — exactly $\sqrt{4}, \sqrt{16}, \sqrt{64}, \sqrt{256}, \sqrt{1024}$. The theory isn't approximately right, it's exactly right.
 
@@ -677,8 +677,8 @@ That second point reframes it. $1/\sqrt{d_k}$ is not about overflow — softmax 
   q5    0.126    0.348    0.240    0.160    0.040    0.086
 ```
 
-![Causal attention weight matrix](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/causal-mask-light.png){: .light width="820" }
-![Causal attention weight matrix](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/causal-mask-dark.png){: .dark width="820" }
+![Causal attention weight matrix](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/causal-mask-light.png){: .light width="820" height="726" }
+![Causal attention weight matrix](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/causal-mask-dark.png){: .dark width="820" height="726" }
 
 Note row `q0`: weight exactly 1.000 on itself. The first token has nothing else to attend to, so a softmax over a single unmasked score returns 1.
 
@@ -735,8 +735,8 @@ Now the receipt. Take one query and one key, place them at wildly different abso
 
 Position 5 and position 4093 give the same score to seven digits. The model never has to relearn "3 tokens back" for each position in the window — it gets that invariance from geometry, with **zero learned parameters**.
 
-![RoPE scores are invariant to absolute position, sensitive to relative offset](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/rope-relative-light.png){: .light width="1000" }
-![RoPE scores are invariant to absolute position, sensitive to relative offset](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/rope-relative-dark.png){: .dark width="1000" }
+![RoPE scores are invariant to absolute position, sensitive to relative offset](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/rope-relative-light.png){: .light width="1000" height="544" }
+![RoPE scores are invariant to absolute position, sensitive to relative offset](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/rope-relative-dark.png){: .dark width="1000" height="544" }
 
 Two panels, same y-axis. Left: slide both vectors along 128 positions, holding the gap at +3 — a flat line. Right: pin the query and sweep the offset — structure everywhere. Flat where you want invariance, expressive where you want sensitivity.
 

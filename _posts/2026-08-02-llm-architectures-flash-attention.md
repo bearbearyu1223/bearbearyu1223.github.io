@@ -172,8 +172,8 @@ Now the comparison that gives "exact" its meaning. Sliding-window attention is a
 
 The measured naive column tracks the analytic $n^2$ column to within a couple of MiB. The tiled residual is 0 because each tile is freed as the loop advances — that's the claim, not a measurement artifact; the meaningful number is the constant 0.5 MiB in column four.
 
-![Attention memory scaling](/assets/picture/2026-08-02-llm-architectures-flash-attention/memory-scaling-light.png){: .light width="1000" }
-![Attention memory scaling](/assets/picture/2026-08-02-llm-architectures-flash-attention/memory-scaling-dark.png){: .dark width="1000" }
+![Attention memory scaling](/assets/picture/2026-08-02-llm-architectures-flash-attention/memory-scaling-light.png){: .light width="1000" height="684" }
+![Attention memory scaling](/assets/picture/2026-08-02-llm-architectures-flash-attention/memory-scaling-dark.png){: .dark width="1000" height="684" }
 
 Extrapolating past what my laptop can hold:
 
@@ -206,8 +206,8 @@ if causal and j > i + rows - 1:
   512                     10              6               38%
 ```
 
-![Causal tiling schematic](/assets/picture/2026-08-02-llm-architectures-flash-attention/tiling-light.png){: .light width="820" }
-![Causal tiling schematic](/assets/picture/2026-08-02-llm-architectures-flash-attention/tiling-dark.png){: .dark width="820" }
+![Causal tiling schematic](/assets/picture/2026-08-02-llm-architectures-flash-attention/tiling-light.png){: .light width="820" height="781" }
+![Causal tiling schematic](/assets/picture/2026-08-02-llm-architectures-flash-attention/tiling-dark.png){: .dark width="820" height="781" }
 
 Just under half the work disappears. The naive path computes that entire upper triangle, writes it to HBM, reads it back, and softmaxes it into zeros. Only the diagonal tiles need an actual mask — everything below is fully visible, everything above is skipped outright. Smaller blocks skip a larger fraction, because the diagonal band they must compute is thinner.
 
@@ -226,8 +226,8 @@ So for timing, compare naive attention against `F.scaled_dot_product_attention`,
   4096     55.1674           7.0320    7.85x
 ```
 
-![Naive vs fused attention timing](/assets/picture/2026-08-02-llm-architectures-flash-attention/timing-light.png){: .light width="1000" }
-![Naive vs fused attention timing](/assets/picture/2026-08-02-llm-architectures-flash-attention/timing-dark.png){: .dark width="1000" }
+![Naive vs fused attention timing](/assets/picture/2026-08-02-llm-architectures-flash-attention/timing-light.png){: .light width="1000" height="684" }
+![Naive vs fused attention timing](/assets/picture/2026-08-02-llm-architectures-flash-attention/timing-dark.png){: .dark width="1000" height="684" }
 
 The speedup **grows with sequence length** — 3.7× at 512, 7.9× at 4096 — because the naive path's memory traffic grows quadratically while the fused path's grows linearly. Extrapolate and it keeps widening.
 

@@ -102,8 +102,8 @@ Now the cost. Generate from a 64-token prompt, with and without the cache:
   wasted work multiplier             284x
 ```
 
-![Cached vs uncached generation time](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-vs-nocache-light.png){: .light width="1000" }
-![Cached vs uncached generation time](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-vs-nocache-dark.png){: .dark width="1000" }
+![Cached vs uncached generation time](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-vs-nocache-light.png){: .light width="1000" height="682" }
+![Cached vs uncached generation time](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-vs-nocache-dark.png){: .dark width="1000" height="682" }
 
 The bottom rows are the clearest statement of it. To produce 512 tokens, the cached path embeds 576 tokens total. The uncached path embeds **163,584** — a 284× multiplier of pure repeated work, because step $i$ re-processes all $64 + i$ preceding tokens:
 
@@ -135,8 +135,8 @@ Llama-3-8B shapes, fp16, batch 1 — the weights are 15.0 GiB:
   as MQA                   1  0.06 GiB  0.12 GiB   0.50 GiB   2.00 GiB
 ```
 
-![KV cache size vs context length](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-size-light.png){: .light width="1000" }
-![KV cache size vs context length](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-size-dark.png){: .dark width="1000" }
+![KV cache size vs context length](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-size-light.png){: .light width="1000" height="678" }
+![KV cache size vs context length](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-size-dark.png){: .dark width="1000" height="678" }
 
 At 128k context, an 8B model's KV cache is **16 GiB against 15 GiB of weights**. The cache is bigger than the model. And that's one user:
 
@@ -240,8 +240,8 @@ Now the same sweep with a **512-token** prefix:
 
 The free lunch is gone: 16.4× throughput becomes **4.2×**.
 
-![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-light.png){: .light width="1000" }
-![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-dark.png){: .dark width="1000" }
+![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-light.png){: .light width="1000" height="540" }
+![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-dark.png){: .dark width="1000" height="540" }
 
 The reason is the formula from §4. **Weights are shared across the batch; the KV cache is not.** Every sequence brings its own cache, so KV traffic scales with batch while weight traffic stays flat. At batch 32 with a 512-token prefix, this model reads 0.250 GiB of KV cache against 0.23 GiB of weights — the cache has become the *majority* of memory traffic, and batching can't amortize it.
 
