@@ -24,7 +24,7 @@ If you read nothing else, these are the things this post establishes — each on
 
 - **Attention is a weighted average, nothing more exotic.** Each token looks at the others and pulls in a blend of what they offer, weighted by how relevant each one is. It is the *only* step in the entire model where tokens see each other at all.
 - **Extra heads are almost free.** Splitting attention into 32 parallel copies costs the same parameters and the same arithmetic as running it once — it's a reshape of a fixed budget, not extra machinery. What you buy is several opinions at once instead of one blurred compromise. The one cost that *does* grow with head count is the grid of token-against-token scores — a scratch value, discarded as soon as attention finishes, which at an 8k context still reaches 8 GiB per layer.
-- **What makes attention expensive is model width and context length — not head count.** And the famous quadratic term is smaller than its reputation: at a 1,024-token sequence it's 6% of the layer, while plain matrix multiplies are 89%.
+- **What makes attention expensive is how wide the model is and how many tokens you feed it — not the head count.** And the famous quadratic term is smaller than its reputation: at a 1,024-token sequence it's 6% of the layer, while plain matrix multiplies are 89%.
 - **Attention can average, but it cannot conclude.** Blending two facts never produces a third. That's why every block also has a feed-forward network — the only part that transforms a token on its own, shaped like a lookup table, and where a model's facts actually live.
 - **The $\sqrt{d_k}$ is not about overflow.** It keeps the softmax in a range where a gradient still flows back, so how wide you make the heads stays a free choice instead of silently breaking training.
 - **RoPE gets relative position out of absolute rotation.** Spin each token's query and key by an angle set by its position, and the score between any two tokens ends up depending only on the gap between them — with no learned parameters at all.
@@ -230,14 +230,19 @@ There is a trade-off in *how many* heads to use: more heads means more distinct 
 
 The natural worry is that 32 heads means 32× the work. It doesn't — but "heads are free" would be the wrong lesson, because attention is *not* cheap. It's just that the head count isn't what makes it expensive.
 
-Two things do: **how wide the model is** ($d_{model}$) and **how long the context is** ($seq$). Here is where every cost in an attention layer comes from:
+Two things do, and it's worth being exact about both:
+
+- **$d_{model}$ — how wide a token's vector is.** The 4,096 numbers the embedding table hands over, carried unchanged through every block. Wider model, wider everything.
+- **$seq$ — how many tokens you are running through right now.** Not the model's advertised context *window*, which is only a ceiling. A 128k-window model fed a 300-token prompt costs what 300 tokens cost.
+
+Here is where every cost in an attention layer comes from:
 
 | Cost | Kind | Formula | Grows with | Set by head count? |
 | --- | --- | --- | --- | --- |
-| the projection matrices | **memory** | $4 d_{model}^2$ | width, **squared** | no |
-| applying them | **compute** | $2 \cdot seq \cdot d_{model}^2$ | length × width² | no |
-| computing the scores | **compute** | $2 \cdot seq^2 \cdot d_{model}$ | **length squared** × width | no |
-| holding the scores | **memory** | $n_{heads} \cdot seq^2$ | length squared × head count | **yes** |
+| the projection matrices | **memory** | $4 d_{model}^2$ | vector width, **squared** | no |
+| applying them | **compute** | $2 \cdot seq \cdot d_{model}^2$ | tokens × width² | no |
+| computing the scores | **compute** | $2 \cdot seq^2 \cdot d_{model}$ | **tokens squared** × width | no |
+| holding the scores | **memory** | $n_{heads} \cdot seq^2$ | tokens squared × head count | **yes** |
 
 Two costs of each kind, and it's worth keeping them apart — **compute** is work the chip has to do, **memory** is bytes it has to hold, and on real hardware they run out at different times. Three of the four don't mention $n_{heads}$ at all, which is what makes the head count a free architectural choice; the fourth is a genuine exception.
 
