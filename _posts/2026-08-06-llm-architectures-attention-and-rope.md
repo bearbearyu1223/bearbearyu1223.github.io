@@ -14,7 +14,9 @@ pin: true
 
 ## Taking a transformer block apart, one measurement at a time
 
-I have read the attention equation many times. I can write it from memory. But when someone asks *why* the $1/\sqrt{d_k}$ is there, "for numerical stability" is the kind of answer that sounds fine and explains nothing — a phrase I'd absorbed rather than a thing I'd seen happen.
+I can draw a transformer block from memory. For a long time I still couldn't have told you which parts of it are actually expensive, why there's a feed-forward network in there at all, or what that $1/\sqrt{d_k}$ is really doing. I'd absorbed the names without the reasons — and the usual explanations hand you more names.
+
+So this post takes one block apart and puts a number on every piece.
 
 ### The short version {#the-short-version}
 
@@ -28,7 +30,7 @@ If you read nothing else, these are the things this post establishes — each on
 - **RoPE gets relative position out of absolute rotation.** Spin each token's query and key by an angle set by its position, and the score between any two tokens ends up depending only on the gap between them — with no learned parameters at all.
 - **Training and serving are different jobs.** Same model, 3× the arithmetic and 9× the memory to train it.
 
-So this series gives every claim a **receipt**: a small program that prints the number the claim asserts. The code lives in a companion repo and runs unchanged on Apple Silicon or a Linux + NVIDIA box:
+Every one of those has a **receipt** behind it — a small program that prints the number, so you can check it rather than take my word. The code lives in a companion repo and runs unchanged on Apple Silicon or a Linux + NVIDIA box:
 
 ```bash
 git clone https://github.com/bearbearyu1223/llm-architectures-refresher
@@ -381,7 +383,37 @@ Three times the arithmetic. That part is mild.
 
 **About 2 bytes per parameter to serve, about 18 to train** — and that's before activations, which training must also keep because the backward pass needs them.
 
-So an 8B model is 15 GiB to serve and roughly 135 GiB to train: **3× the compute, 9× the memory.** That's why a model you can serve on one accelerator can still need a cluster to train, and it's the first thing to check when a run won't fit — it's almost never the arithmetic.
+So an 8B model is 15 GiB to serve and roughly 135 GiB to train: **3× the compute, 9× the memory.** That's the first thing to check when a run won't fit — it's almost never the arithmetic.
+
+#### What that means in actual GPUs
+
+Gigabytes are easier to judge against hardware you can rent. Two common accelerators, at spec-sheet peaks:
+
+```text
+  GPU        memory  bandwidth  BF16 compute
+  --------------------------------------------
+  A100 80GB   80 GB  2.04 TB/s   312 TFLOP/s
+  H100 80GB   80 GB  3.35 TB/s   990 TFLOP/s
+```
+
+**Serving** an 8B model is comfortable. The weights are 16.1 GB, so one card holds them with ~64 GB to spare — worth roughly **488,000 tokens of KV cache**, which is post 2's currency.
+
+**Training** the same model doesn't fit at all: ~145 GB of optimizer state against an 80 GB card, before any activations. You need several GPUs and a sharding strategy for a model that serves happily on one. Same weights, different job.
+
+Then the number that decides how fast you can generate. A decode step reads every weight exactly once, so you can time it two ways — by the arithmetic it does, or by the bytes it moves:
+
+```text
+  GPU        if compute-bound  if bandwidth-bound   gap
+  -------------------------------------------------------
+  A100 80GB      19,427 tok/s           127 tok/s  153x
+  H100 80GB      61,644 tok/s           209 tok/s  296x
+```
+
+**Bandwidth wins by two orders of magnitude.** The chip finishes the multiplying and then sits waiting for the next weights to arrive. All those TFLOP/s are unreachable for this workload.
+
+And it's getting *worse*, not better: the H100 has 3.2× the compute of an A100 but only 1.6× the bandwidth, so the gap roughly doubles between generations. Buying a faster chip mostly buys compute you can't use.
+
+*(These are peak numbers; real kernels reach a fraction of them, and batching improves the picture a lot. But the ratio is what matters here, and it survives the discount.)*
 
 It also sets up the two posts that follow, which are both about memory rather than math. [Post 2](/posts/llm-architectures-kv-cache/) is about a cost that doesn't appear in any table here at all — generating text needs to *keep* every key and value it has computed, and that cache can outgrow the weights. [Post 3](/posts/llm-architectures-flash-attention/) is about the fourth row above: the $seq \times seq$ score grid, and how to get attention's answer without ever writing it down.
 
