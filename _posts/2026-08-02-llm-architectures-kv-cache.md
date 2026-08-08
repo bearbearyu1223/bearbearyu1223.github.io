@@ -22,7 +22,7 @@ cd llm-architectures-refresher
 uv sync && uv run demo02
 ```
 
-Every number and figure below came out of that command on my M-series Mac. The code for this post is in [`demos/d02_kv_cache.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d02_kv_cache.py).
+Every number and figure below came out of that command on my M-series Mac. The Python shown alongside each result is the part that matters, trimmed of setup — the runnable version is in [`demos/d02_kv_cache.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d02_kv_cache.py).
 
 This post needs a real model rather than loose tensors, so the repo gained one: `toy_model.py`, a Llama-shaped decoder — pre-norm, RMSNorm, RoPE, SwiGLU, no biases, configurable grouped-query attention. It's small (8–60M parameters) but not *wrong*, and the later posts on quantization and MoE will reuse it. The weights are random, because everything here measures time and memory, never output quality.
 
@@ -32,7 +32,7 @@ This post needs a real model rather than loose tensors, so the repo gained one: 
 2. [The cache changes nothing about the output](#the-cache-is-exact)
 3. [Without a cache, generation is quadratic](#generation-is-quadratic)
 4. [How big does the cache actually get?](#how-big-does-the-cache-actually-get)
-5. [GQA, MQA, and what you give up](#gqa-mqa-and-what-you-give-up)
+5. [Shrinking the cache: GQA, MQA, and what you give up](#gqa-mqa-and-what-you-give-up)
 6. [Prefill vs decode: the whole ballgame](#prefill-vs-decode-the-whole-ballgame)
 7. [The batch sweep, and where it stops working](#the-batch-sweep)
 8. [What follows from all this](#what-follows-from-all-this)
@@ -125,13 +125,21 @@ class KVCache:
 
 Two details in that code are worth pausing on.
 
-**It's pre-allocated to `max_seq_len`**, not grown per step. Growing would reallocate and copy the whole cache every token. The price is that every sequence reserves its worst case up front whether it needs it or not — which is the fragmentation problem PagedAttention was built to solve.
+**It's pre-allocated to `max_seq_len`**, not grown per step. Growing would reallocate and copy the whole cache every token. The price is that every sequence reserves its worst case up front whether it needs it or not — which is the fragmentation problem [PagedAttention](https://arxiv.org/abs/2309.06180) was built to solve.
 
 **RoPE is applied before K goes into the cache.** Cached keys carry their rotation permanently, and you never re-rotate one as the sequence grows. That's the point: position 3 stays position 3. Getting this wrong — re-rotating cached keys, or rotating a new token as though it were at position 0 — is the most common way to break a cache implementation.
 
 ### 2. The cache changes nothing about the output {#the-cache-is-exact}
 
-Before optimizing anything, verify that it changes nothing:
+Before optimizing anything, verify that it changes nothing. The model can generate
+either way, so run both on the same prompt and compare the tokens that come out:
+
+```python
+with_cache = model.generate(prompt, max_new_tokens=24, use_cache=True)
+without    = model.generate(prompt, max_new_tokens=24, use_cache=False)
+
+torch.equal(with_cache, without)
+```
 
 ```text
   generated shape                    (2, 40)
@@ -220,7 +228,7 @@ Thirty-two concurrent users at full context on an 8B model needs half a terabyte
 
 It's also why the 70B row is interesting: at batch 1 its cache is only 0.30× its weights, so a big model at short context is weight-dominated, while a small model at long context is cache-dominated. Two very different engineering problems wearing the same "LLM inference" label.
 
-### 5. GQA, MQA, and what you give up {#gqa-mqa-and-what-you-give-up}
+### 5. Shrinking the cache: GQA, MQA, and what you give up {#gqa-mqa-and-what-you-give-up}
 
 Notice that $H_{kv}$ — the number of *key/value* heads — is in the formula, but the number of *query* heads isn't. That's the lever.
 
@@ -242,7 +250,17 @@ The expansion happens *after* the cache read, which is the entire point: you sto
 
 Generation has two phases with completely different performance characteristics.
 
-**Prefill** processes the entire prompt in one parallel pass. **Decode** produces one token per pass. Measured on the same 62.6M-parameter model:
+**Prefill** processes the entire prompt in one parallel pass. **Decode** produces one token per pass. In code the only difference is how many tokens go in — the model, the weights and the cache are the same:
+
+```python
+# prefill: the whole 512-token prompt at once, into an empty cache
+model(prompt, start=0, cache=cache)          # prompt is (1, 512)
+
+# decode: one token, against a cache that already holds 512
+model(one_token, start=512, cache=cache)     # one_token is (1, 1)
+```
+
+Timing both on the same 62.6M-parameter model:
 
 ```text
   phase    tokens/pass  ms/pass  ms/token    tokens/s
@@ -264,7 +282,7 @@ The clean way to see why is arithmetic intensity — FLOPs performed per byte of
   decode        1        0.125 G      0.23 GiB     0.5000
 ```
 
-Modern accelerators need roughly 100–300 FLOP/byte to keep their tensor cores busy. Prefill sits at 256 — right in the productive zone, **compute-bound**. Decode sits at **0.5**, two to three orders of magnitude below the roofline. The hardware spends essentially all of decode waiting on memory. It is **memory-bandwidth-bound**.
+Modern accelerators need roughly 100–300 FLOP/byte to keep their tensor cores busy. Prefill sits at 256 — right in the productive zone, **compute-bound**. Decode sits at **0.5**, two to three orders of magnitude short of what the hardware needs to stay busy. The hardware spends essentially all of decode waiting on memory. It is **memory-bandwidth-bound**.
 
 This single fact explains a startling amount:
 
@@ -275,7 +293,18 @@ This single fact explains a startling amount:
 
 ### 7. The batch sweep, and where it stops working {#the-batch-sweep}
 
-If decode is really memory-bound, batching should buy throughput almost for free. Sweeping batch size with a short (32-token) prefix:
+If decode is really memory-bound, batching should buy throughput almost for free. The sweep fills a cache for `batch` sequences, then times a single decode step across all of them at once:
+
+```python
+for batch in (1, 2, 4, 8, 16, 32):
+    cache = KVCache(cfg, batch, device, dtype)
+    model(warm, start=0, cache=cache)        # warm is (batch, prefix)
+
+    step = torch.randint(0, cfg.vocab_size, (batch, 1))   # one token per sequence
+    ms = benchmark_ms(lambda: model(step, start=prefix, cache=cache))
+```
+
+With a short (32-token) prefix:
 
 ```text
   batch  ms/step  latency vs b=1  tokens/s  throughput vs b=1
