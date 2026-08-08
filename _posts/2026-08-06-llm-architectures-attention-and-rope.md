@@ -488,9 +488,14 @@ Worth knowing for its honesty: the paper introducing SwiGLU tested a family of g
 
 **Why more than one matrix at all?** Because two stacked matrices with nothing between them *are* one matrix:
 
+Multiply the two matrices together *first*, then apply the product. If that gives the same answer, the pair was never doing more than a single matrix could:
+
 ```text
-  (x @ W_up) @ W_down  vs  x @ (W_up @ W_down) 3.94e-13
-  W_up @ W_down is a single matrix   (64, 64)
+    two steps:  (x @ W_up) @ W_down  -11.776383  ...
+    one matrix: x @ (W_up @ W_down)  -11.776383  ...
+
+  largest disagreement               3.94e-13
+  shape of that single matrix        (64, 64)
 ```
 
 Identical. Without a nonlinearity you could pre-multiply $W_{\text{up}}$ and $W_{\text{down}}$ into a single $4096 \times 4096$ matrix and all that widening would buy exactly nothing. **The nonlinearity is the only thing stopping them from collapsing into one** — a good hint that it's carrying the weight here.
@@ -572,21 +577,19 @@ where $a_i(x)$ is the activation of the $i$-th middle neuron. Each of the 14,336
 
 Match against stored patterns, then add up the content of whatever matched, weighted by match strength. That's the same soft-lookup shape as attention itself — except attention looks up *other tokens*, while the FFN looks up *stored weights*.
 
-The claim is that the ordinary matmul and the slot-by-slot sum are the same thing:
+The claim is that the ordinary matmul and the slot-by-slot sum are the same thing. Same check as before — take one token's output and compute it both ways:
 
 ```python
-acts = F.silu(x @ w_up)                  # (seq, d_ff) — one score per slot
-out = acts @ w_down                      # the matmul the model runs
-
-by_hand = (acts[row, :, None] * w_down).sum(0)   # sum_i  a_i * W_down[i]
+acts = F.silu(x @ w_up)                          # one score per slot
+from_matmul = (acts @ w_down)[row]               # what the model runs
+by_hand = sum(acts[row, i] * w_down[i] for i in range(d_ff))   # slot by slot
 ```
 
-They agree:
-
 ```text
-  ffn(x)[row 3] via matmul           (64,)
-  same, as sum_i a_i * W_down[i]     (64,)
-  max abs difference                 8.941e-08
+    from the matmul                  -0.2740  +0.1003  +0.0076  -0.1433
+    from the slot-by-slot sum        -0.2740  +0.1003  +0.0076  -0.1433
+
+  largest disagreement, all 64       8.941e-08
 ```
 
 So "the model knows Paris is in France" has a concrete home: some slot whose up-projection fires on *the Eiffel Tower is in*, whose down-projection nudges the output toward *Paris*. Llama-3-8B has 14,336 slots per layer across 32 layers — **458,752 of them**. This isn't only a metaphor: the ROME and MEMIT lines of work locate specific factual associations in specific FFN weights and *edit* them, changing what a model believes by writing to a handful of numbers.
@@ -594,6 +597,8 @@ So "the model knows Paris is in France" has a concrete home: some slot whose up-
 Two caveats so the picture isn't too tidy. Slots aren't cleanly one-fact-each — facts spread across many, and a slot participates in many facts. And with the random weights measured above, most slots respond to anything; trained FFNs are far sparser.
 
 #### Who gets the parameters?
+
+Counting attention against FFN in a single block, across three real models:
 
 ```text
   block shape                  attention params  FFN params  FFN share
@@ -652,13 +657,13 @@ Logits with a standard deviation of 32 aren't "large numbers" — they're a **te
 So let's measure it. Sample random queries and keys at several $d_k$, and report two diagnostics: the average largest weight (1.0 = fully one-hot) and the entropy in nats (0.0 = one-hot; $\ln 8 = 2.08$ = uniform over our 8 keys).
 
 ```text
-  d_k   logit std  max w (raw)  H (raw)  max w (/sqrt)  H (/sqrt)
-  -----------------------------------------------------------------
-  4        1.9642       0.5222   1.2986         0.3401     1.7548
-  16       3.9493       0.7428   0.6825         0.3523     1.7350
-  64       7.9399       0.8738   0.3223         0.3506     1.7407
-  256     15.9159       0.9326   0.1691         0.3533     1.7318
-  1024    32.4533       0.9735   0.0674         0.3701     1.7103
+  d_k   logit std  max w unscaled  H unscaled  max w scaled  H scaled
+  ---------------------------------------------------------------------
+  4        1.9642          0.5222      1.2986        0.3401    1.7548
+  16       3.9493          0.7428      0.6825        0.3523    1.7350
+  64       7.9399          0.8738      0.3223        0.3506    1.7407
+  256     15.9159          0.9326      0.1691        0.3533    1.7318
+  1024    32.4533          0.9735      0.0674        0.3701    1.7103
 ```
 
 ![Softmax saturation without the sqrt(d_k) scale](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/softmax-saturation-light.png){: .light width="1000" height="696" }
