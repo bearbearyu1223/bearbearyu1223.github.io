@@ -1,6 +1,6 @@
 ---
 title: "LLM Architecture Refresh [1]: Inside a Transformer Block — Attention, Heads, and the FFN"
-date: 2026-08-06 00:00:00 -0700
+date: 2026-08-08 00:00:00 -0700
 categories: [LLM Architecture Refresh, Transformers]
 tags: [attention, multi-head-attention, transformer, ffn, swiglu, rmsnorm, rope, positional-encoding, softmax, flops, pytorch]
 description: >-
