@@ -925,7 +925,26 @@ The difference is entirely in what happens at the bottom.
 
 **Generating** never goes back. It takes the bottom row, throws away everything except the last position's scores, picks a word from them, sticks it on the end of the input, and runs the entire stack again — 32 blocks, from the top, for one more token. That loop is why a 500-token answer means 500 trips through the whole model.
 
-Two things follow, and they're the seeds of the next two posts:
+#### So what actually runs in parallel?
+
+Worth laying out plainly, because "the transformer is parallel" is true of some axes and flatly false of others. The rule underneath is simple: **things run in parallel exactly where nothing depends on anything else.**
+
+| Across | In parallel? | Why |
+| --- | --- | --- |
+| the 32 heads | **yes** | they never touch each other until $W_o$ |
+| positions, going forward | **yes** | each prediction depends on input tokens, never on another prediction |
+| positions, going backward | **yes** | one backward sweep produces the gradients for all positions at once |
+| the 32 blocks | no | block 2's input *is* block 1's output |
+| forward vs backward | no | the backward pass needs the values the forward pass computed |
+| tokens you're generating | **no** | token 502's input is token 501's output, which doesn't exist yet |
+
+The first three are why training is efficient at all. A 4,000-token document goes through in one forward sweep and one backward sweep, and both of those handle every position simultaneously — you are never looping over tokens.
+
+The last row is the one that costs you. **Generation cannot be parallelised over the thing you actually want more of.** You can process a 4,000-token prompt in a single pass, because those tokens already exist; you cannot produce a 4,000-token answer in a single pass, because each token has to exist before the next one can be conditioned on it. 4,000 sequential trips through all 32 blocks.
+
+That asymmetry — a prompt read in one pass, an answer written one token at a time — is the single most consequential fact about running these models, and it's what post 2 is about.
+
+Two more things follow, and they're the seeds of the next two posts:
 
 - **Nothing computes "just the last position".** The machinery is inherently parallel across the sequence; you can't ask it for one prediction. So generating a 500-token reply means 500 passes, each slightly longer than the last — and each recomputing what the previous one already worked out. That waste is what a KV cache exists to remove.
 - **Training and generating are the same forward pass**, which is why every cost in [§5](#what-attention-costs) applies to both. What differs is that training adds a backward pass, and that generating repeats the forward one over and over for a single answer.
