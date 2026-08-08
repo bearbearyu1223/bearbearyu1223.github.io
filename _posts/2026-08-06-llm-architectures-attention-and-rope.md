@@ -373,13 +373,25 @@ $$
 \text{out}_i = \sum_{j} w_{ij} \cdot V_j
 $$
 
-Ten weights, ten value-vectors of 128 numbers each, one 128-number result. That's why the answer is 128 wide rather than 10 wide — **the weights say *how much* of each token to take, and V says *what* to take.** Checked against the matmul:
+Ten weights, ten value-vectors of 128 numbers each, one 128-number result. That's why the answer is 128 wide rather than 10 wide — **the weights say *how much* of each token to take, and V says *what* to take.**
+
+Worth checking that claim rather than taking it. Pick any single output row — say head 0, query position 3 — and compute it two ways: once as the library does it, and once literally as the sum above, looping over tokens.
+
+```python
+from_matmul = (weights @ V)[0, 3]                                  # the matmul
+by_hand = sum(weights[0, 3, j] * V[0, j] for j in range(seq))      # the definition
+```
+
+Both should be the same 128 numbers. Their first four:
 
 ```text
-  out[h=0, q=3] via matmul           (128,)
-  same, as sum_j w[3,j] * V[j]       (128,)
-  max abs difference                 1.788e-07
+    from the matmul                  +0.5989  -0.0095  -0.3333  -0.4037
+    from the by-hand sum             +0.5989  -0.0095  -0.3333  -0.4037
+
+  largest disagreement, all 128      1.788e-07
 ```
+
+Agreement to `1.8e-07` across all 128 — float noise, not a real difference. **The matmul *is* the weighted sum**, written as one operation instead of a loop. Which is the point: `weights @ V` looks like opaque linear algebra, and it's doing exactly the "take 70% of this token, 20% of that one" averaging from §1.
 
 #### What changes with grouped-query attention
 
