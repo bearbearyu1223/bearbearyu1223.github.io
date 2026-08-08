@@ -214,14 +214,14 @@ The natural worry is that 32 heads means 32× the work. It doesn't — but "head
 
 Two things do: **how wide the model is** ($d_{model}$) and **how long the context is** ($seq$). Here is where every cost in an attention layer comes from:
 
-| Cost | Formula | Grows with | Set by head count? |
-| --- | --- | --- | --- |
-| projection parameters | $4 d_{model}^2$ | width, **squared** | no |
-| projection FLOPs | $2 \cdot seq \cdot d_{model}^2$ | length × width² | no |
-| score FLOPs | $2 \cdot seq^2 \cdot d_{model}$ | **length squared** × width | no |
-| score matrix memory | $n_{heads} \cdot seq^2$ | length squared × head count | **yes** |
+| Cost | Kind | Formula | Grows with | Set by head count? |
+| --- | --- | --- | --- | --- |
+| the projection matrices | **memory** | $4 d_{model}^2$ | width, **squared** | no |
+| applying them | **compute** | $2 \cdot seq \cdot d_{model}^2$ | length × width² | no |
+| computing the scores | **compute** | $2 \cdot seq^2 \cdot d_{model}$ | **length squared** × width | no |
+| holding the scores | **memory** | $n_{heads} \cdot seq^2$ | length squared × head count | **yes** |
 
-Three of those four don't mention $n_{heads}$ at all. That's worth deriving rather than accepting, because it's what makes the head count a free architectural choice — and because the fourth row is a real exception.
+Two costs of each kind, and it's worth keeping them apart — **compute** is work the chip has to do, **memory** is bytes it has to hold, and on real hardware they run out at different times. Three of the four don't mention $n_{heads}$ at all, which is what makes the head count a free architectural choice; the fourth is a genuine exception.
 
 **Parameters.** Start with a question: how wide does $W_q$'s output need to be?
 
@@ -337,6 +337,39 @@ The rule of thumb checks out too:
 ```
 
 $2 \times 67.1\text{M} \times 1024$ lands exactly on the projection cost — because every weight is used in exactly one multiply-add per token. (Everything above is head-count independent for the same reason as before.)
+
+#### What this costs on real hardware
+
+Everything so far is per layer. Scaled to a whole model, the interesting thing is that **training and inference are not the same job** — and they differ far more in memory than in arithmetic.
+
+**Compute.** A backward pass costs about twice a forward one, because every weight needs two gradients computed for it — one flowing back to its input, one for the weight itself. So:
+
+```text
+  per token        FLOPs                            why
+  -------------------------------------------------------
+  inference  2N = 16.1 G               one forward pass
+  training   6N = 48.2 G  forward, then backward at ~2x
+```
+
+Three times the arithmetic. That part is mild.
+
+**Memory** is where they separate. Inference needs the weights and nothing else structural. Training has to keep the optimizer's state beside them:
+
+```text
+  what                   cost    size  running total
+  ----------------------------------------------------
+  fp16 weights      2 B/param  15 GiB         15 GiB
+  fp32 master copy  4 B/param  30 GiB         45 GiB
+  fp32 gradients    4 B/param  30 GiB         75 GiB
+  Adam moment m     4 B/param  30 GiB        105 GiB
+  Adam moment v     4 B/param  30 GiB        135 GiB
+```
+
+**About 2 bytes per parameter to serve, about 18 to train** — and that's before activations, which training must also keep because the backward pass needs them.
+
+So an 8B model is 15 GiB to serve and roughly 135 GiB to train: **3× the compute, 9× the memory.** That's why a model you can serve on one accelerator can still need a cluster to train, and it's the first thing to check when a run won't fit — it's almost never the arithmetic.
+
+It also sets up the two posts that follow, which are both about memory rather than math. [Post 2](/posts/llm-architectures-kv-cache/) is about a cost that doesn't appear in any table here at all — generating text needs to *keep* every key and value it has computed, and that cache can outgrow the weights. [Post 3](/posts/llm-architectures-flash-attention/) is about the fourth row above: the $seq \times seq$ score grid, and how to get attention's answer without ever writing it down.
 
 
 ### 6. Following the shapes {#following-the-shapes}
