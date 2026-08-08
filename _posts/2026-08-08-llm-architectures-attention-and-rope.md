@@ -865,19 +865,37 @@ The answer is that it doesn't process one token. A forward pass takes the *whole
 
 **Do those guesses feed into each other?** No — and this is worth being precise about, because the picture invites it. Position 2 sees position 1's **input token**, not position 1's guess. The guesses are all produced together at the very end, by the final layer, and there is no path from one position's guess to another position's anything.
 
-You can check the related half of that directly. Change one input token and see which predictions move:
+The related half of that is checkable, so here it is. Run the model on a five-token sequence, then change **one** input token and run it again. Every position outputs a score for each word in the vocabulary; the question is whose scores move.
 
-```text
-  position  max change in its prediction  moved?
-  ------------------------------------------------
-  1                             0.00e+00      no
-  2                             0.00e+00      no
-  3                             2.29e+00     yes
-  4                             3.14e-01     yes
-  5                             1.76e-01     yes
+```python
+a = torch.tensor([[5, 9, 12, 3, 7]])
+b = a.clone()
+b[0, 2] = 41                       # swap position 3's token, leave the rest
+
+la, lb = model(a), model(b)        # scores for every word, at every position
+(la[0, i] - lb[0, i]).abs().max()  # how far position i's scores moved
 ```
 
-Changing position 3 leaves positions 1 and 2 **exactly** unchanged — not close, identical. Each prediction is a function of the input tokens up to it, and nothing else.
+```text
+  first run,  token ids              [5, 9, 12, 3, 7]
+  second run, token ids              [5, 9, 41, 3, 7]
+
+  position  its input token  max change in its scores  moved?
+  -------------------------------------------------------------
+  1                       5                  0.00e+00      no
+  2                       9                  0.00e+00      no
+  3                12 -> 41                  2.29e+00     yes
+  4                       3                  3.14e-01     yes
+  5                       7                  1.76e-01     yes
+```
+
+Read it in two halves.
+
+**Positions 1 and 2 didn't budge** — `0.00e+00`, not close but identical. They were computed from tokens 1–2 and cannot see position 3 at all. That's the causal mask, showing up as a zero.
+
+**Positions 4 and 5 are the interesting ones.** Their *own* input tokens never changed — still `3` and `7` — yet their scores moved anyway, because they attend *back* to position 3 and it changed underneath them. Information flows forward only, and here you can watch it arrive. The effect fades with distance too: one altered token matters less among four inputs than among three.
+
+So each prediction is a function of the input tokens up to it, and nothing else.
 
 So during training, every position is conditioned on the **real text**, never on what the model came up with. If position 1 wrongly guessed "dog", position 2 is still working from the actual "cat" that was in the document. That convention has a name — **teacher forcing** — and it's what makes the parallel training above possible at all.
 
