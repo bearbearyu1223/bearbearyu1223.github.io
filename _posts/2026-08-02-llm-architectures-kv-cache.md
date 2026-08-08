@@ -29,30 +29,85 @@ This post needs a real model rather than loose tensors, so the repo gained one: 
 ### Table of Contents
 
 1. [Why a cache exists at all](#why-a-cache-exists-at-all)
-2. [Receipt 1: the cache is exact](#receipt-1-the-cache-is-exact)
-3. [Receipt 2: without it, generation is quadratic](#receipt-2-without-it-generation-is-quadratic)
+2. [The cache changes nothing about the output](#the-cache-is-exact)
+3. [Without a cache, generation is quadratic](#generation-is-quadratic)
 4. [How big does the cache actually get?](#how-big-does-the-cache-actually-get)
 5. [GQA, MQA, and what you give up](#gqa-mqa-and-what-you-give-up)
 6. [Prefill vs decode: the whole ballgame](#prefill-vs-decode-the-whole-ballgame)
-7. [Receipt 4: the batch sweep, and where it stops working](#receipt-4-the-batch-sweep-and-where-it-stops-working)
+7. [The batch sweep, and where it stops working](#the-batch-sweep)
 8. [What follows from all this](#what-follows-from-all-this)
 9. [Sidebar: the probe](#sidebar-the-probe)
 
 ---
 
-### Why a cache exists at all {#why-a-cache-exists-at-all}
+### 1. Why a cache exists at all {#why-a-cache-exists-at-all}
 
-Autoregressive generation appends one token at a time. Naively, each step re-runs the model over the entire sequence so far:
+Start from what [post 1](/posts/llm-architectures-attention-and-rope/) established, because the cache falls straight out of it.
 
+To compute attention for one token, you need three things: that token's **query**, and the **key** and **value** of every token it is allowed to look at. Causal masking means "allowed to look at" is "itself and everything before it". So for token 5:
+
+$$
+\text{output}_5 \;=\; \sum_{j \le 5} w_{5j} \cdot V_j
+\qquad \text{where} \qquad
+w_{5j} \;\propto\; Q_5 \cdot K_j
+$$
+
+Now generate text. Each step appends one token and asks for the next, so the model runs again with a sequence one token longer:
+
+```text
+step 1:  [The cat sat]           -> needs  Q3  and  K1 K2 K3,  V1 V2 V3   -> "on"
+step 2:  [The cat sat on]        -> needs  Q4  and  K1..K4,   V1..V4     -> "the"
+step 3:  [The cat sat on the]    -> needs  Q5  and  K1..K5,   V1..V5     -> "mat"
 ```
-step 1:  [The cat sat]              -> "on"
-step 2:  [The cat sat on]           -> "the"
-step 3:  [The cat sat on the]       -> "mat"
+
+Read down the K and V columns. Step 2 needs $K_1, K_2, K_3$ — **the same $K_1, K_2, K_3$ step 1 already computed.** Step 3 needs them again. Every step recomputes almost everything the previous step just finished computing.
+
+#### Why they're safe to reuse
+
+That only works if those keys and values are genuinely unchanged, and two facts from post 1 guarantee it:
+
+1. **$K_j$ and $V_j$ depend only on token $j$ and its position.** They're $W_k$ and $W_v$ applied to one token's vector, with RoPE applied for position $j$. Appending a token later changes neither input.
+2. **Causal masking means no token's representation can depend on anything after it.** Token 3 could not see token 4 even in principle, so token 4's arrival cannot disturb it.
+
+That's an argument, so let's check it. Run the model on a 4-token prefix, then on those same tokens plus two more, and compare what each run computed for the first four positions:
+
+```python
+short = KVCache(cfg, 1, device, dtype)
+model(tokens[:, :4], start=0, cache=short)   # the first four tokens
+
+long = KVCache(cfg, 1, device, dtype)
+model(tokens[:, :6], start=0, cache=long)    # the same four, plus two more
+
+(short.k[:, :, :, :4] - long.k[:, :, :, :4]).abs().max()
 ```
 
-Look at what step 2 recomputes. The keys and values for "The", "cat", and "sat" are **identical** to step 1 — they're a function of those tokens and their positions, neither of which changed. Causal masking guarantees it: a token's representation can never depend on anything after it, so appending a token cannot alter any earlier K or V.
+```text
+  max difference in K                0.0000
+  max difference in V                0.0000
+  bitwise identical                  yes
+```
 
-So cache them. Each step computes K and V for exactly one new token, appends to the cache, and attends over the whole stored prefix:
+Not merely close — **bitwise identical**. So recomputing them is pure waste, and storing them is safe.
+
+#### Why K and V but not Q
+
+The name is "KV cache", not "QKV cache", and the reason is in the table above. Look at when each tensor is *used*:
+
+```text
+  tensor  cached?                                                   why
+  -----------------------------------------------------------------------
+  K           yes                   every later query scores against it
+  V           yes                         every later query averages it
+  Q            no  position i's query is used at step i and never again
+```
+
+$K_3$ and $V_3$ get read at step 3, and again at step 4, and at every step after. $Q_3$ is used once — to produce token 4 — and is then dead. Storing it would cost memory and save nothing.
+
+This is also the answer to a question post 1 raised and left hanging: why does grouped-query attention shrink $K$ and $V$ but leave $Q$ at full width? Because $K$ and $V$ are what you have to keep. $Q$ is recomputed from scratch every step regardless.
+
+#### The cache itself
+
+So: compute $K$ and $V$ for exactly one new token per step, append them, and attend over everything stored.
 
 ```python
 class KVCache:
@@ -68,11 +123,13 @@ class KVCache:
         return self.k[layer, :, :, :end], self.v[layer, :, :, :end]
 ```
 
-Note it's pre-allocated to `max_seq_len` rather than grown per step — growing would reallocate and copy the entire cache every token. The cost of that choice is that every sequence reserves its worst case up front, whether it needs it or not. Hold that thought; it's the fragmentation problem PagedAttention was built to solve.
+Two details in that code are worth pausing on.
 
-One subtlety worth stating because it's a common bug source: **RoPE is applied before the K/V go into the cache.** Cached keys carry their positional rotation permanently. You never re-rotate a cached key when the sequence grows — the whole point is that position 3 stays position 3.
+**It's pre-allocated to `max_seq_len`**, not grown per step. Growing would reallocate and copy the whole cache every token. The price is that every sequence reserves its worst case up front whether it needs it or not — which is the fragmentation problem PagedAttention was built to solve.
 
-### Receipt 1: the cache is exact {#receipt-1-the-cache-is-exact}
+**RoPE is applied before K goes into the cache.** Cached keys carry their rotation permanently, and you never re-rotate one as the sequence grows. That's the point: position 3 stays position 3. Getting this wrong — re-rotating cached keys, or rotating a new token as though it were at position 0 — is the most common way to break a cache implementation.
+
+### 2. The cache changes nothing about the output {#the-cache-is-exact}
 
 Before optimizing anything, verify that it changes nothing:
 
@@ -85,7 +142,7 @@ Before optimizing anything, verify that it changes nothing:
 
 Identical token ids. This is the same category of claim as [post 1](/posts/llm-architectures-attention-and-rope/)'s check against the fused kernel, and it's worth stating plainly because it's the thing people get uneasy about: **the KV cache is memoization, not approximation.** If your cached and uncached outputs diverge, you have a bug — most often a position-offset error where the new token is rotated as though it were at position 0.
 
-### Receipt 2: without it, generation is quadratic {#receipt-2-without-it-generation-is-quadratic}
+### 3. Without a cache, generation is quadratic {#generation-is-quadratic}
 
 Now the cost. Generate from a 64-token prompt, with and without the cache:
 
@@ -119,7 +176,7 @@ Quadratic in the number of generated tokens. The measured growth reflects it: 8�
 
 One honest note about this measurement. I used a *short* prompt on purpose. With a long prompt the $np$ term dominates at these values of $n$ and the curve looks straight — you'd still see a big absolute saving, but not the shape. A short prompt isolates the $n^2/2$ term. Real serving has both: long prompts *and* long generations.
 
-### How big does the cache actually get? {#how-big-does-the-cache-actually-get}
+### 4. How big does the cache actually get? {#how-big-does-the-cache-actually-get}
 
 Here's where it stops being a nice optimization and starts being the constraint. The size is exactly:
 
@@ -129,7 +186,11 @@ $$
 
 The 2 is for K and V. Note what's in there: sequence length $S$ **and** batch size $B$, both linear. The weights are a fixed cost; this is not.
 
-Llama-3-8B shapes, fp16, batch 1 — the weights are 15.0 GiB:
+Llama-3-8B shapes, fp16, batch 1 — the weights are 15.0 GiB. The three rows are the
+three ways a model can allocate key/value heads: one per query head (**MHA**, multi-head
+attention), eight shared across 32 (**GQA**, grouped-query attention — what Llama-3-8B
+actually does), or a single one for all of them (**MQA**, multi-query attention).
+[§5](#gqa-mqa-and-what-you-give-up) covers what each costs you.
 
 ```text
   variant           kv heads   4k ctx   8k ctx   32k ctx  128k ctx
@@ -159,7 +220,7 @@ Thirty-two concurrent users at full context on an 8B model needs half a terabyte
 
 It's also why the 70B row is interesting: at batch 1 its cache is only 0.30× its weights, so a big model at short context is weight-dominated, while a small model at long context is cache-dominated. Two very different engineering problems wearing the same "LLM inference" label.
 
-### GQA, MQA, and what you give up {#gqa-mqa-and-what-you-give-up}
+### 5. GQA, MQA, and what you give up {#gqa-mqa-and-what-you-give-up}
 
 Notice that $H_{kv}$ — the number of *key/value* heads — is in the formula, but the number of *query* heads isn't. That's the lever.
 
@@ -177,7 +238,7 @@ if self.n_rep > 1:
 
 The expansion happens *after* the cache read, which is the entire point: you store 8 heads and compute against 32. Post 12 covers DeepSeek's MLA, which attacks the same problem differently — compressing K and V into a shared low-rank latent and caching that instead.
 
-### Prefill vs decode: the whole ballgame {#prefill-vs-decode-the-whole-ballgame}
+### 6. Prefill vs decode: the whole ballgame {#prefill-vs-decode-the-whole-ballgame}
 
 Generation has two phases with completely different performance characteristics.
 
@@ -192,7 +253,7 @@ Generation has two phases with completely different performance characteristics.
   per-token cost, decode / prefill   81.6x
 ```
 
-**A token costs 82× more to generate than to read.** Both passes stream the same weights through the ALUs. Prefill amortizes that read across 512 tokens; decode pays it in full for one.
+**A token costs 82× more to generate than to read.** Both passes stream the same weights through the chip's arithmetic units (ALUs — the circuits that actually do the multiplying). Prefill amortizes that read across 512 tokens; decode pays it in full for one.
 
 The clean way to see why is arithmetic intensity — FLOPs performed per byte of weights moved:
 
@@ -212,7 +273,7 @@ This single fact explains a startling amount:
 - **Speculative decoding wins** because verifying $k$ draft tokens in one pass costs about the same as generating one — you were bandwidth-bound, not compute-bound.
 - **Bigger GPUs don't help decode much** unless their *bandwidth* went up.
 
-### Receipt 4: the batch sweep, and where it stops working {#receipt-4-the-batch-sweep-and-where-it-stops-working}
+### 7. The batch sweep, and where it stops working {#the-batch-sweep}
 
 If decode is really memory-bound, batching should buy throughput almost for free. Sweeping batch size with a short (32-token) prefix:
 
@@ -253,7 +314,7 @@ I find this the most useful thing in the post, because the textbook version ("de
 
 *(These are laptop numbers on Apple Silicon with a small model, so the absolute values reflect a modest bandwidth budget and some kernel-launch overhead. The shape of both curves, and the crossover between them, is what transfers — that's arithmetic, not hardware.)*
 
-### What follows from all this {#what-follows-from-all-this}
+### 8. What follows from all this {#what-follows-from-all-this}
 
 A short mental checklist I now use when reasoning about an inference setup:
 
@@ -264,7 +325,7 @@ A short mental checklist I now use when reasoning about an inference setup:
 | Can't fit more users | KV cache | GQA/MLA, cache quantization, paging, shorter context |
 | Throughput plateaus as batch grows | KV traffic overtook weight traffic | Prefix sharing, cache quantization, smaller batch × longer context tradeoff |
 
-### Sidebar: the probe {#sidebar-the-probe}
+### 9. Sidebar: the probe {#sidebar-the-probe}
 
 > **"Why does generating 500 tokens take so much longer than reading a 5,000-token prompt?"**
 
