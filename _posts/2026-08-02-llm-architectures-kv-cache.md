@@ -219,13 +219,50 @@ One honest note about this measurement. I used a *short* prompt on purpose. With
 
 ### 4. How big does the cache actually get? {#how-big-does-the-cache-actually-get}
 
-Here's where it stops being a nice optimization and starts being the constraint. The size is exactly:
+First, what is physically in there. **The cache stores computed numbers, not weights** — and that distinction matters, because the two are different kinds of thing:
+
+| | Model weights | KV cache |
+| --- | --- | --- |
+| What it is | the learned parameters | K and V vectors computed from your tokens |
+| Where it comes from | training | running the model on this conversation |
+| Size | fixed | grows with every token |
+| Shared between users? | yes, one copy serves everyone | **no, every sequence has its own** |
+
+So they aren't competing for the same reason. The weights are a one-time cost you pay to load the model. The cache is a running cost you pay *per conversation, per token*.
+
+#### What one token costs
+
+Concretely: for every token, at every layer, each key/value head stores one key vector and one value vector. Nothing else — no queries, no attention weights, no FFN activations. For Llama-3-8B in fp16:
+
+```text
+  what                      count   running total
+  -------------------------------------------------
+  one key vector      128 numbers             128
+  + one value vector  128 numbers             256
+  x 8 KV heads                              2,048
+  x 32 layers                      65,536 numbers
+  x 2 bytes (fp16)                        128 KiB
+```
+
+**One token of context costs 128 KiB.** That's the number worth remembering — everything else is multiplication.
+
+And you pay it for *every* token in the conversation, not just the new one: the prompt you sent, the reply so far, all of it, for as long as the conversation lives.
+
+```text
+  context         x KiB/token  cache (batch 1)
+  ----------------------------------------------
+  8,192 tokens        128 KiB         1.00 GiB
+  32,768 tokens       128 KiB         4.00 GiB
+  131,072 tokens      128 KiB        16.00 GiB
+```
+
+Which is just the formula written out in order:
 
 $$
-\text{KV bytes} = 2 \times L \times H_{kv} \times d_{head} \times S \times B \times \text{bytes}
+\text{KV bytes} = \underbrace{2}_{K \text{ and } V} \times L \times H_{kv} \times d_{head} \times S \times B \times \text{bytes}
 $$
 
-The 2 is for K and V. Note what's in there: sequence length $S$ **and** batch size $B$, both linear. The weights are a fixed cost; this is not.
+Note what's in there: sequence length $S$ **and** batch size $B$, both linear. The weights don't have either.
 
 Llama-3-8B shapes, fp16, batch 1 — the weights are 15.0 GiB. The three rows are the
 three ways a model can allocate key/value heads: one per query head (**MHA**, multi-head
@@ -244,7 +281,9 @@ actually does), or a single one for all of them (**MQA**, multi-query attention)
 ![KV cache size vs context length](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-size-light.png){: .light width="1000" height="678" }
 ![KV cache size vs context length](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-size-dark.png){: .dark width="1000" height="678" }
 
-At 128k context, an 8B model's KV cache is **16 GiB against 15 GiB of weights**. The cache is bigger than the model. And that's one user:
+So at a 128k context, one conversation's cache is **16 GiB** — against 15 GiB for the entire model. One user's scratch space outweighs the thing that took a fortune to train.
+
+And it is one user. The weights row never changes; the cache row multiplies:
 
 ```text
   model        batch   weights  KV cache @128k  cache/weights
