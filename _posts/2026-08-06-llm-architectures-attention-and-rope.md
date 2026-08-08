@@ -310,13 +310,17 @@ One caveat I want to be exact about: **these are random weights.** The heads dif
 That table counted only $QK^\top$. Applying the same rule to every matmul in one attention layer gives the full picture — and it's not what people expect:
 
 ```text
-  step                                  shapes    FLOPs  share
+  step                       shapes (32 heads)    FLOPs  share
   --------------------------------------------------------------
   W_q/W_k/W_v/W_o  4 x (1024,4096)@(4096,4096)  137.4 G    89%
-  Q @ K.T              (1024,4096)@(4096,1024)    8.6 G     6%
-  weights @ V          (1024,1024)@(1024,4096)    8.6 G     6%
+  Q @ K.T           32 x (1024,128)@(128,1024)    8.6 G     6%
+  weights @ V      32 x (1024,1024)@(1024,128)    8.6 G     6%
   total                                         154.6 G
 ```
+
+Note the `32 ×` on the attention rows: those are **thirty-two small matmuls, one per head**, summed — not one big one. It happens not to change the total, because $32 \times 128 = 4096$ makes the arithmetic identical either way, but it is what actually runs.
+
+Worth stating while we're here, since it's a natural assumption: **GQA doesn't shrink these.** Its 8 key/value heads are broadcast back up to 32 right before the matmul, so every query head still scores against a full-width key. GQA saves cache and parameters, not attention FLOPs.
 
 **The quadratic term is the smallest item here.** At a 1,024-token sequence, attention's famous $n^2$ cost is 6% of the layer; the four projections are 89%. The $n^2$ term only takes over once $seq$ grows past $d_{model}$ — below that, a transformer is mostly big dense matrix multiplies, and "attention is quadratic" describes the *asymptote*, not the regime most models run in. [Post 3](/posts/llm-architectures-flash-attention/) is about what happens when you do cross that line.
 
