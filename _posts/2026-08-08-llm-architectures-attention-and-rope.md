@@ -892,6 +892,21 @@ This is where the causal mask earns its keep. Position 2 is being asked to guess
 
 **Generating** runs exactly the same pass and throws almost all of it away. You feed in what exists, every position dutifully produces a guess, and you keep only the last one — the others are answers to questions you already know. That kept token gets appended, and the whole thing runs again, one token longer.
 
+#### The same picture, at the level of the architecture
+
+That diagram shows *what* each position produces. Here's *where in the model* it happens — the stack from [§1](#what-a-language-model-does), doing both jobs:
+
+![Training and generating through the same stack](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/stack-two-jobs-light.png){: .light width="900" height="756" }
+![Training and generating through the same stack](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/stack-two-jobs-dark.png){: .dark width="900" height="756" }
+
+Read down the middle of either column and it's the same path, box for box: tokens, embeddings, 32 blocks, a final norm, the LM head, and out the bottom a score for every word in the vocabulary — **one full set per position**, which is the parallelism from the previous diagram, seen from the side.
+
+The difference is entirely in what happens at the bottom.
+
+**Training** compares all those scores against the real next tokens and boils the result down to one number: how wrong the model was. Then comes the part that has no counterpart on the right — **the return trip.** That error is walked back down through every layer, working out how each individual weight contributed to it, and every weight is nudged. That backward journey is where the extra cost from [§5](#what-attention-costs) comes from: roughly twice the forward pass, which is what turns $2N$ into $6N$.
+
+**Generating** never goes back. It takes the bottom row, throws away everything except the last position's scores, picks a word from them, sticks it on the end of the input, and runs the entire stack again — 32 blocks, from the top, for one more token. That loop is why a 500-token answer means 500 trips through the whole model.
+
 Two things follow, and they're the seeds of the next two posts:
 
 - **Nothing computes "just the last position".** The machinery is inherently parallel across the sequence; you can't ask it for one prediction. So generating a 500-token reply means 500 passes, each slightly longer than the last — and each recomputing what the previous one already worked out. That waste is what a KV cache exists to remove.
