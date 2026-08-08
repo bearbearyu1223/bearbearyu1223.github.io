@@ -12,13 +12,17 @@ math: true
 
 ## The number that decides what you can serve
 
-Post 1 was about how attention works. This one is about the single fact that determines what you can actually deploy: **generating a token is a fundamentally different workload from reading one**, and almost every inference optimization you've heard of follows from that one asymmetry.
+[Post 1](/posts/llm-architectures-attention-and-rope/) was about how attention works. This one is about the single fact that determines what you can actually deploy: **generating a token is a fundamentally different workload from reading one**, and almost every inference optimization you've heard of follows from that one asymmetry.
 
-The setup is the same as before. Every claim gets a receipt from the companion repo:
+The setup is the same as before: every claim gets a **receipt** — a small program that prints the number the claim asserts. The code lives in a companion repo, [`llm-architectures-refresher`](https://github.com/bearbearyu1223/llm-architectures-refresher), and runs unchanged on Apple Silicon or a Linux + NVIDIA box:
 
 ```bash
-uv run demo02
+git clone https://github.com/bearbearyu1223/llm-architectures-refresher
+cd llm-architectures-refresher
+uv sync && uv run demo02
 ```
+
+Every number and figure below came out of that command on my M-series Mac. The code for this post is in [`demos/d02_kv_cache.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d02_kv_cache.py).
 
 This post needs a real model rather than loose tensors, so the repo gained one: `toy_model.py`, a Llama-shaped decoder — pre-norm, RMSNorm, RoPE, SwiGLU, no biases, configurable grouped-query attention. It's small (8–60M parameters) but not *wrong*, and the later posts on quantization and MoE will reuse it. The weights are random, because everything here measures time and memory, never output quality.
 
@@ -79,7 +83,7 @@ Before optimizing anything, verify that it changes nothing:
   first 8 new tokens (uncached)      [228, 432, 131, 158, 24, 111, 281, 506]
 ```
 
-Identical token ids. This is the same category of claim as post 1's check against the fused kernel, and it's worth stating plainly because it's the thing people get uneasy about: **the KV cache is memoization, not approximation.** If your cached and uncached outputs diverge, you have a bug — most often a position-offset error where the new token is rotated as though it were at position 0.
+Identical token ids. This is the same category of claim as [post 1](/posts/llm-architectures-attention-and-rope/)'s check against the fused kernel, and it's worth stating plainly because it's the thing people get uneasy about: **the KV cache is memoization, not approximation.** If your cached and uncached outputs diverge, you have a bug — most often a position-offset error where the new token is rotated as though it were at position 0.
 
 ### Receipt 2: without it, generation is quadratic {#receipt-2-without-it-generation-is-quadratic}
 
@@ -274,7 +278,7 @@ The difference is that the second answer names the bottleneck resource and predi
 
 ### What's next {#whats-next}
 
-Post 3 is **Flash Attention** — the other half of the memory-traffic story. We've been treating attention itself as cheap, but at long context the $n \times n$ score matrix is the problem, and the fix is the same insight as this post applied one level down: don't move bytes you don't have to. We'll implement online softmax from scratch and confirm it's exact to floating-point noise.
+[Post 3](/posts/llm-architectures-flash-attention/) is **Flash Attention** — the other half of the memory-traffic story. We've been treating attention itself as cheap, but at long context the $n \times n$ score matrix is the problem, and the fix is the same insight as this post applied one level down: don't move bytes you don't have to. We'll implement online softmax from scratch and confirm it's exact to floating-point noise.
 
 ### References
 

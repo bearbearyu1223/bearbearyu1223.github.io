@@ -12,15 +12,19 @@ math: true
 
 ## The optimization that doesn't change the answer
 
-Post 2 ended on a principle: don't move bytes you don't have to. That was about weights and the KV cache. This post applies the same idea one level down, to attention itself.
+[Post 2](/posts/llm-architectures-kv-cache/) ended on a principle: don't move bytes you don't have to. That was about weights and the KV cache. This post applies the same idea one level down, to attention itself.
 
-The first thing to say about Flash Attention — and the thing that trips people up — is that **it is exact**. It is not a sparse approximation, not a low-rank factorization, not a kernel trick. It computes precisely the same function as the attention you wrote in post 1. It just computes it in an order that touches memory far less.
+The first thing to say about Flash Attention — and the thing that trips people up — is that **it is exact**. It is not a sparse approximation, not a low-rank factorization, not a kernel trick. It computes precisely the same function as the attention in [post 1](/posts/llm-architectures-attention-and-rope/). It just computes it in an order that touches memory far less.
 
-Which means it's a claim you can check. Let's check it.
+Which means it's a claim you can check — and as in the earlier posts, every claim here gets a **receipt** you can run yourself, from the companion repo [`llm-architectures-refresher`](https://github.com/bearbearyu1223/llm-architectures-refresher):
 
 ```bash
-uv run demo03
+git clone https://github.com/bearbearyu1223/llm-architectures-refresher
+cd llm-architectures-refresher
+uv sync && uv run demo03
 ```
+
+Every number and figure below came out of that command on my M-series Mac. The code for this post is in [`demos/d03_flash_attention.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d03_flash_attention.py).
 
 ### Table of Contents
 
@@ -46,7 +50,7 @@ Standard attention does this:
 
 Three round-trips through main memory for a matrix that grows quadratically with sequence length. At $n = 8192$ with 8 heads in fp32, that intermediate is **2 GiB** — per layer, per forward pass.
 
-Now the hardware. On an A100, HBM bandwidth is roughly 2 TB/s, while on-chip SRAM runs at about 19 TB/s — an order of magnitude faster, but there's only ~20 MB of it. So attention at long context isn't waiting on arithmetic. It's waiting on the trip to HBM and back, exactly like decode in post 2.
+Now the hardware. On an A100, HBM bandwidth is roughly 2 TB/s, while on-chip SRAM runs at about 19 TB/s — an order of magnitude faster, but there's only ~20 MB of it. So attention at long context isn't waiting on arithmetic. It's waiting on the trip to HBM and back, exactly like decode in [post 2](/posts/llm-architectures-kv-cache/).
 
 The fix is the standard one for memory-bound problems: **fuse the steps so intermediates never leave fast memory**. Compute a tile of $S$, softmax it, multiply by $V$, accumulate, discard — all while the tile sits in SRAM.
 
@@ -142,7 +146,7 @@ Against `F.scaled_dot_product_attention`, across tile shapes:
   256 x 512              4.917e-07   256 x 512              1.431e-06
 ```
 
-That's floating-point reassociation noise — the same order as post 1's check. The tile shape doesn't move it, because the tile shape isn't part of the math.
+That's floating-point reassociation noise — the same order as [post 1](/posts/llm-architectures-attention-and-rope/)'s check. The tile shape doesn't move it, because the tile shape isn't part of the math.
 
 Now the comparison that gives "exact" its meaning. Sliding-window attention is a *genuine* approximation — each query attends only to the last $w$ keys:
 

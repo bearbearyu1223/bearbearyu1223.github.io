@@ -271,7 +271,7 @@ That table counted only $QK^\top$. Applying the same rule to every matmul in one
   total                                         154.6 G
 ```
 
-**The quadratic term is the smallest item here.** At a 1,024-token sequence, attention's famous $n^2$ cost is 6% of the layer; the four projections are 89%. The $n^2$ term only takes over once $seq$ grows past $d_{model}$ — below that, a transformer is mostly big dense matrix multiplies, and "attention is quadratic" describes the *asymptote*, not the regime most models run in. Post 3 is about what happens when you do cross that line.
+**The quadratic term is the smallest item here.** At a 1,024-token sequence, attention's famous $n^2$ cost is 6% of the layer; the four projections are 89%. The $n^2$ term only takes over once $seq$ grows past $d_{model}$ — below that, a transformer is mostly big dense matrix multiplies, and "attention is quadratic" describes the *asymptote*, not the regime most models run in. [Post 3](/posts/llm-architectures-flash-attention/) is about what happens when you do cross that line.
 
 The rule of thumb checks out too:
 
@@ -396,7 +396,7 @@ Here's the simplification promised in §3. Everything above is **classic multi-h
 
 Each projection still follows one rule — it is $(d_{model},\; \text{heads it feeds} \times d_{head})$ — so 8 key heads of 128 gives $(4096, 1024)$. That drops the block's attention parameters from 67.1M to **41.9M**.
 
-Note the asymmetry: **$Q$ keeps full width; only $K$ and $V$ shrink.** That's deliberate — $K$ and $V$ are the tensors generation has to *cache*, so shrinking them shrinks the memory that limits how many users you can serve. $Q$ is recomputed every step and never cached. Post 2 is largely about this.
+Note the asymmetry: **$Q$ keeps full width; only $K$ and $V$ shrink.** That's deliberate — $K$ and $V$ are the tensors generation has to *cache*, so shrinking them shrinks the memory that limits how many users you can serve. $Q$ is recomputed every step and never cached. [Post 2](/posts/llm-architectures-kv-cache/) is largely about this.
 
 Read the rest of this post as classic MHA; the mechanism is identical either way.
 
