@@ -215,10 +215,12 @@ $W_o$ at the end is not bookkeeping. Without it, 32 heads' findings would sit in
 
 So what does all that buy? Several attention patterns at once, instead of one averaged compromise:
 
-![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-light.png){: .light width="1000" height="453" }
-![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-dark.png){: .dark width="1000" height="453" }
+![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-light.png){: .light width="1000" height="502" }
+![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-dark.png){: .dark width="1000" height="502" }
 
-Each triangle is one head's weights: row $i$ is where query $i$ looks, and the staircase edge is causal masking ([§11](#causal-masking)). Four visibly different patterns from the same input.
+Each triangle is one head's weights: row $i$ is where query $i$ looks, darker meaning more weight. The staircase edge is causal masking ([§11](#causal-masking)) — a token can't look at anything to its right.
+
+The **spread** number under each is a one-figure summary of how concentrated that head's last row is. It's the *entropy* of those weights: **0 would mean the head put everything on a single token**, and **2.48 would mean it spread the weight evenly across all 12**. Head 0 sits at 1.72, so it's picking favourites; head 1 at 2.28 is much more even-handed. Same input, four different opinions.
 
 One caveat I want to be exact about: **these are random weights.** The heads differ because they were initialized differently, which shows they aren't redundant copies — it is *not* specialization. In trained models specialization is real and catalogued: "previous-token heads" that look one step back, "induction heads" that spot a repeated pattern and predict its continuation. You can't see that in a figure like this.
 
