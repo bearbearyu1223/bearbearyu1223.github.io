@@ -281,6 +281,26 @@ actually does), or a single one for all of them (**MQA**, multi-query attention)
 ![KV cache size vs context length](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-size-light.png){: .light width="1000" height="678" }
 ![KV cache size vs context length](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-size-dark.png){: .dark width="1000" height="678" }
 
+#### So caching costs memory?
+
+Yes — and it's worth being explicit about that, because everything so far has made the cache sound like free money. It isn't. **It's a time-memory trade.**
+
+Without a cache you still compute exactly the same keys and values every step. You just throw them away immediately, so they exist only *while that layer is running* — one layer's worth at a time, then freed. The cache keeps all of them, for all 32 layers, alive for the whole conversation:
+
+```text
+  approach             K/V memory held                           for how long
+  -----------------------------------------------------------------------------
+  with a cache               16.00 GiB  all 32 layers, the whole conversation
+  without a cache             0.50 GiB  one layer, freed as the pass moves on
+    + its activations         1.00 GiB                         also transient
+
+  memory held, cached vs not         10.7x more
+```
+
+So you hold roughly **an order of magnitude more memory** than you otherwise would. Everyone takes that trade anyway, because the alternative is the 284× wasted-work multiplier from [§3](#generation-is-quadratic) — memory is expensive, but recomputing the entire prefix on every single token is worse.
+
+That's the honest framing for the rest of this section: the numbers below aren't the cost of a mistake, they're the price of a deliberate bargain. What makes them interesting is how quickly the price grows.
+
 So at a 128k context, one conversation's cache is **16 GiB** — against 15 GiB for the entire model. One user's scratch space outweighs the thing that took a fortune to train.
 
 And it is one user. The weights row never changes; the cache row multiplies:
