@@ -69,7 +69,7 @@ That only works if those keys and values are genuinely unchanged, and two facts 
 1. **$K_j$ and $V_j$ depend only on token $j$ and its position.** They're $W_k$ and $W_v$ applied to one token's vector, with RoPE applied for position $j$. Appending a token later changes neither input.
 2. **Causal masking means no token's representation can depend on anything after it.** Token 3 could not see token 4 even in principle, so token 4's arrival cannot disturb it.
 
-That's an argument, so let's check it. Run the model on a 4-token prefix, then on those same tokens plus two more, and compare what each run computed for the first four positions:
+That's an argument, so let's check it. Run the model on a 4-token prefix, then on those same tokens plus two more, and compare what each run stored for the first four positions:
 
 ```python
 short = KVCache(cfg, 1, device, dtype)
@@ -77,17 +77,37 @@ model(tokens[:, :4], start=0, cache=short)   # the first four tokens
 
 long = KVCache(cfg, 1, device, dtype)
 model(tokens[:, :6], start=0, cache=long)    # the same four, plus two more
+```
 
+A cache holds one tensor per layer, so `cache.k` has five axes. Slicing the fourth to `:4` keeps every layer, sequence, head and feature, and takes only the token positions the two runs have in common:
+
+```text
+                         shape                                       meaning
+  ----------------------------------------------------------------------------
+  cache.k    (2, 1, 4, 64, 32)  layers, batch, kv_heads, positions, head_dim
+  the slice   (2, 1, 4, 4, 32)          same, but only the first 4 positions
+
+  numbers being compared             1,024
+```
+
+Now compare them. Subtract one from the other, take absolute values, and keep the largest — if nothing moved, that largest value is zero:
+
+```python
 (short.k[:, :, :, :4] - long.k[:, :, :, :4]).abs().max()
 ```
 
 ```text
-  max difference in K                0.0000
-  max difference in V                0.0000
-  bitwise identical                  yes
+  max |K_short - K_long|             0.0000
+  max |V_short - V_long|             0.0000
 ```
 
-Not merely close — **bitwise identical**. So recomputing them is pure waste, and storing them is safe.
+`0.0000` is a rounded display though, so it's worth the stronger check — exact equality, which rules out a tiny non-zero difference hiding behind the rounding:
+
+```text
+  torch.equal(K_short, K_long)       yes
+```
+
+Not merely close — **identical, across all 1,024 numbers**. So recomputing them is pure waste, and storing them is safe.
 
 #### Why K and V but not Q
 
