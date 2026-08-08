@@ -16,6 +16,18 @@ pin: true
 
 I have read the attention equation many times. I can write it from memory. But when someone asks *why* the $1/\sqrt{d_k}$ is there, "for numerical stability" is the kind of answer that sounds fine and explains nothing — a phrase I'd absorbed rather than a thing I'd seen happen.
 
+### The short version {#the-short-version}
+
+If you read nothing else, these are the things this post establishes — each one measured rather than asserted:
+
+- **Attention is a weighted average, nothing more exotic.** Each token looks at the others and pulls in a blend of what they offer, weighted by how relevant each one is. It is the *only* step in the entire model where tokens see each other at all.
+- **Extra heads are almost free.** Splitting attention into 32 parallel copies costs the same parameters and the same arithmetic as running it once — it's a reshape of a fixed budget, not extra machinery. What you buy is several opinions at once instead of one blurred compromise. The one thing that *does* grow with head count is the score matrix, which is the tensor nobody wants to store anyway.
+- **What makes attention expensive is model width and context length — not head count.** And the famous quadratic term is smaller than its reputation: at a 1,024-token sequence it's 6% of the layer, while plain matrix multiplies are 89%.
+- **Attention can average, but it cannot conclude.** Blending two facts never produces a third. That's why every block also has a feed-forward network — the only part that transforms a token on its own, shaped like a lookup table, and where a model's facts actually live.
+- **The $\sqrt{d_k}$ is not about overflow.** It keeps the softmax in a range where a gradient still flows back, so how wide you make the heads stays a free choice instead of silently breaking training.
+- **RoPE gets relative position out of absolute rotation.** Spin each token's query and key by an angle set by its position, and the score between any two tokens ends up depending only on the gap between them — with no learned parameters at all.
+- **Training and serving are different jobs.** Same model, 3× the arithmetic and 9× the memory to train it.
+
 So this series gives every claim a **receipt**: a small program that prints the number the claim asserts. The code lives in a companion repo and runs unchanged on Apple Silicon or a Linux + NVIDIA box:
 
 ```bash
@@ -27,6 +39,8 @@ uv sync && uv run demo01
 Every number and figure below came out of that command on my M-series Mac. The Python shown alongside each result is the part that matters, trimmed of setup — the runnable version is in [`demos/d01_attention.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d01_attention.py).
 
 ### Table of Contents
+
+Skip to [the short version](#the-short-version) for the findings without the derivations.
 
 1. [What a language model actually does](#what-a-language-model-does)
 2. [What attention is for](#what-attention-is-for)
