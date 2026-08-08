@@ -31,16 +31,17 @@ Every number and figure below came out of that command on my M-series Mac. The P
 2. [What attention is for](#what-attention-is-for)
 3. [The formula, symbol by symbol](#the-formula-symbol-by-symbol)
 4. [What a "head" is](#what-a-head-is)
-5. [Following the shapes](#following-the-shapes)
-6. [The rest of the block](#where-attention-sits-in-the-model)
-7. [The FFN: where the model knows things](#the-ffn)
-8. [The implementation, in five lines](#the-implementation-in-five-lines)
-9. [Why divide by sqrt(d_k)?](#why-divide-by-sqrt-dk)
-10. [Causal masking](#causal-masking)
-11. [RoPE: absolute rotation, relative score](#rope-absolute-rotation-relative-score)
-12. [A silent MPS bug that deleted RoPE](#a-silent-mps-bug-that-deleted-rope)
-13. [Sidebar: the probe](#sidebar-the-probe)
-14. [Appendix: all notation](#appendix-all-notation)
+5. [What attention costs](#what-attention-costs)
+6. [Following the shapes](#following-the-shapes)
+7. [The rest of the block](#where-attention-sits-in-the-model)
+8. [The FFN: where the model knows things](#the-ffn)
+9. [The implementation, in five lines](#the-implementation-in-five-lines)
+10. [Why divide by sqrt(d_k)?](#why-divide-by-sqrt-dk)
+11. [Causal masking](#causal-masking)
+12. [RoPE: absolute rotation, relative score](#rope-absolute-rotation-relative-score)
+13. [A silent MPS bug that deleted RoPE](#a-silent-mps-bug-that-deleted-rope)
+14. [Sidebar: the probe](#sidebar-the-probe)
+15. [Appendix: all notation](#appendix-all-notation)
 
 ---
 
@@ -60,7 +61,26 @@ That computation is a **transformer**: a stack of $L$ identical **blocks** — 3
 
 Gather, then think. Thirty-two times over. At the end, one more layer turns the final token's numbers into a probability for every word in the vocabulary, and you pick one.
 
-**This post is about step 1**, where most of the interesting design lives. [§7](#the-ffn) comes back for the FFN, and [§6](#where-attention-sits-in-the-model) for the norms and residuals, once the vocabulary is in place.
+**This post is about step 1**, where most of the interesting design lives. [§8](#the-ffn) comes back for the FFN, and [§7](#where-attention-sits-in-the-model) for the norms and residuals, once the vocabulary is in place.
+
+Numbers throughout this post come from one real model, **Llama-3-8B**, so they're a checkable config rather than placeholders:
+
+| | Llama-3-8B | What it is |
+| --- | --- | --- |
+| $d_{model}$ | **4096** | how many numbers describe one token |
+| $n_{heads}$ | **32** | how many attention heads (§4) |
+| $d_{head}$ | **128** | width of one head's slice |
+| $n_{kv\_heads}$ | 8 | key/value heads — fewer than query heads (§6) |
+| $d_{ff}$ | 14336 | width of the FFN's middle layer (§8) |
+| $L$ | 32 | how many blocks are stacked |
+
+These are one model's choices, not universal constants — GPT-2 XL used $d_{model} = 1600$ with 25 heads of 64. One relationship *is* universal, and it does a lot of work later:
+
+$$
+d_{model} = n_{heads} \times d_{head} \qquad 4096 = 32 \times 128
+$$
+
+For simplicity, §4 and §5 assume every query head has its own key and value head — 32 of each. That's **multi-head attention**, or **MHA**. Llama-3-8B actually shares 8 key/value heads across its 32 query heads; [§6](#following-the-shapes) covers what changes.
 
 ### 2. What attention is for {#what-attention-is-for}
 
@@ -105,7 +125,7 @@ $$
 Read it from the inside out:
 
 1. $QK^\top$ — every query dotted with every key, giving an $n \times n$ grid of relevance scores. Row $i$ holds "how relevant is each token to token $i$?"
-2. $\div \sqrt{d_k}$ — a constant that keeps those scores in a sane range. [§9](#why-divide-by-sqrt-dk) is devoted to why.
+2. $\div \sqrt{d_k}$ — a constant that keeps those scores in a sane range. [§10](#why-divide-by-sqrt-dk) is devoted to why.
 3. $\text{softmax}$ — turns each row of scores into weights that are positive and sum to 1.
 4. $\times V$ — uses those weights to average the values, giving each token its answer.
 
@@ -142,37 +162,18 @@ Two details make this work, and both are the reason it's written as an *addition
 - **$-\infty$, not a large negative number.** Softmax exponentiates, and $e^{-\infty} = 0$ exactly. Forbidden positions get precisely zero weight, not merely a small one.
 - **It's added *before* the softmax.** So the surviving weights renormalize among themselves and each row still sums to 1. Masking after the softmax would leave rows summing to less than 1 — a classic bug.
 
-Everything else in the formula is unchanged. [§10](#causal-masking) measures the result.
+Everything else in the formula is unchanged. [§11](#causal-masking) measures the result.
 
 Two consequences to carry forward:
 
 - **The dot product is the only place tokens interact.** Everything else in a transformer processes each token alone.
-- **The equation has no idea what order the tokens came in.** Shuffle them and you get the same outputs, shuffled. Position must be injected separately — that's [§11](#rope-absolute-rotation-relative-score).
+- **The equation has no idea what order the tokens came in.** Shuffle them and you get the same outputs, shuffled. Position must be injected separately — that's [§12](#rope-absolute-rotation-relative-score).
 
 ### 4. What a "head" is {#what-a-head-is}
 
 Running attention once has a limitation: **a softmax produces exactly one set of weights** — one opinion about which tokens matter. But a token usually needs several unrelated things at once: what noun this pronoun refers to, which verb governs this subject, which adjective modifies this noun. One weighting blurs them together.
 
-The fix is to run attention several times in parallel. To keep that concrete, everything from here on uses one real model — **Llama-3-8B** — so the numbers are a checkable config rather than placeholders:
-
-| | Llama-3-8B | What it is |
-| --- | --- | --- |
-| $d_{model}$ | **4096** | how many numbers describe one token |
-| $n_{heads}$ | **32** | how many attention heads |
-| $d_{head}$ | **128** | width of one head's slice |
-| $n_{kv\_heads}$ | 8 | key/value heads — fewer than query heads, see [§5](#following-the-shapes) |
-| $d_{ff}$ | 14336 | width of the FFN's middle layer |
-| $L$ | 32 | how many blocks are stacked |
-
-These are one model's choices, not universal constants — GPT-2 XL used $d_{model} = 1600$ with 25 heads of 64. What *is* universal is the relationship between the first three rows:
-
-$$
-d_{model} = n_{heads} \times d_{head} \qquad 4096 = 32 \times 128
-$$
-
-**The head count times the head width always equals $d_{model}$.** That one constraint drives everything in this section.
-
-One simplification before we start. The textbook design gives **every query head its own key and value head** — 32 of each. That's called **multi-head attention**, usually abbreviated **MHA**, and it's what §3 and §4 describe. Llama-3-8B actually shares 8 key/value heads across its 32 query heads; [§5](#following-the-shapes) shows what changes and why.
+The fix is to run attention several times in parallel, on different slices of the same vector — each copy free to form its own opinion.
 
 #### What a head actually is
 
@@ -195,7 +196,18 @@ Equivalently: head $h$ owns the 128 columns of $W_q$, $W_k$, $W_v$ that produce 
 
 $W_o$ at the end is not bookkeeping. Without it, 32 heads' findings would sit in 32 disjoint stretches of the vector, unable to influence one another.
 
-#### What actually drives the cost
+So what does all that buy? Several attention patterns at once, instead of one averaged compromise:
+
+![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-light.png){: .light width="1000" height="453" }
+![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-dark.png){: .dark width="1000" height="453" }
+
+Each triangle is one head's weights: row $i$ is where query $i$ looks, and the staircase edge is causal masking ([§11](#causal-masking)). Four visibly different patterns from the same input.
+
+One caveat I want to be exact about: **these are random weights.** The heads differ because they were initialized differently, which shows they aren't redundant copies — it is *not* specialization. In trained models specialization is real and catalogued: "previous-token heads" that look one step back, "induction heads" that spot a repeated pattern and predict its continuation. You can't see that in a figure like this.
+
+There is a trade-off in *how many* heads to use: more heads means more distinct patterns, but each one gets narrower — 64 heads leaves each only 64 dimensions to describe a query with. Models land at 32–64 because both extremes are bad.
+
+### 5. What attention costs {#what-attention-costs}
 
 The natural worry is that 32 heads means 32× the work. It doesn't — but "heads are free" would be the wrong lesson, because attention is *not* cheap. It's just that the head count isn't what makes it expensive.
 
@@ -228,7 +240,7 @@ Now change the head count and watch what happens. With 64 heads, each slice is o
   total                                               67.1M
 ```
 
-$4096^2 = 16.8\text{M}$ per matrix, four matrices, $67.1$M per block — for **any** head count. Nothing in that arithmetic mentions $n_{heads}$. Note also that every matrix has 4,096 rows: each one takes a whole token vector as input, which is the shape-level version of "no head sees only part of the input."
+$4096^2 = 16.8\text{M}$ per matrix, four matrices, $67.1$M per block — for **any** head count. Nothing in that arithmetic mentions $n_{heads}$. Note also that every matrix has 4,096 rows — the shape-level version of the point from §4, that each head reads the whole vector.
 
 #### An aside: what a FLOP is, and how to count one
 
@@ -296,15 +308,6 @@ That table had a fourth row, and it's the honest exception. The scores live in a
 
 **Identical arithmetic, 64× the activation memory.** So the accurate statement isn't "heads are free" — it's that heads cost nothing in *parameters or arithmetic*, and cost linearly in *the one tensor nobody wants to store anyway*. [Post 3](/posts/llm-architectures-flash-attention/) is entirely about not storing it.
 
-What the heads buy, meanwhile, is several attention patterns at once instead of one averaged compromise:
-
-![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-light.png){: .light width="1000" height="453" }
-![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-dark.png){: .dark width="1000" height="453" }
-
-Each triangle is one head's weights: row $i$ is where query $i$ looks, and the staircase edge is causal masking ([§10](#causal-masking)). Four visibly different patterns from the same input.
-
-One caveat I want to be exact about: **these are random weights.** The heads differ because they were initialized differently, which shows they aren't redundant copies — it is *not* specialization. In trained models specialization is real and catalogued: "previous-token heads" that look one step back, "induction heads" that spot a repeated pattern and predict its continuation. You can't see that in a figure like this.
-
 #### Where the FLOPs actually go
 
 That table counted only $QK^\top$. Applying the same rule to every matmul in one attention layer gives the full picture — and it's not what people expect:
@@ -334,9 +337,8 @@ The rule of thumb checks out too:
 
 $2 \times 67.1\text{M} \times 1024$ lands exactly on the projection cost — because every weight is used in exactly one multiply-add per token. (Everything above is head-count independent for the same reason as before.)
 
-Finally, a trade-off in the head count itself: more heads means more distinct patterns but narrower ones — 64 heads leaves each only 64 dimensions to describe a query. Models land at 32–64 because both extremes are bad.
 
-### 5. Following the shapes {#following-the-shapes}
+### 6. Following the shapes {#following-the-shapes}
 
 Shapes are where most confusion about attention lives. Rather than write a table by hand — easy to get subtly wrong — the demo runs a real attention module on a 10-token prompt and prints what PyTorch reports. This is the code it runs:
 
@@ -463,7 +465,7 @@ Note the asymmetry: **$Q$ keeps full width; only $K$ and $V$ shrink.** That's de
 
 Read the rest of this post as classic MHA; the mechanism is identical either way.
 
-### 6. The rest of the block {#where-attention-sits-in-the-model}
+### 7. The rest of the block {#where-attention-sits-in-the-model}
 
 Back to the diagram from [§1](#what-a-language-model-does). Attention was one box in it. Here are the others — and the wrapping around all of them.
 
@@ -474,7 +476,7 @@ Start with the box this post has been about. Here's the data path inside it, wit
 ![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-light.png){: .light width="900" height="964" }
 ![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-dark.png){: .dark width="900" height="964" }
 
-Two steps in it are worth naming. **One input, three projections** — $Q$, $K$ and $V$ are three learned *views of the same vector*, which is what makes self-attention "self." And **RoPE rotates $Q$ and $K$, never $V$** — position belongs in the *matching* step; $V$ is the content you retrieve once matching is done, so rotating it would corrupt the payload. [§11](#rope-absolute-rotation-relative-score) covers RoPE properly.
+Two steps in it are worth naming. **One input, three projections** — $Q$, $K$ and $V$ are three learned *views of the same vector*, which is what makes self-attention "self." And **RoPE rotates $Q$ and $K$, never $V$** — position belongs in the *matching* step; $V$ is the content you retrieve once matching is done, so rotating it would corrupt the payload. [§12](#rope-absolute-rotation-relative-score) covers RoPE properly.
 
 #### The other pieces, in plain English
 
@@ -502,7 +504,7 @@ If a sublayer learns nothing useful, the block degrades to the identity rather t
 
 That leaves one box in the diagram unexplained, and it's the biggest one.
 
-### 7. The FFN: where the model knows things {#the-ffn}
+### 8. The FFN: where the model knows things {#the-ffn}
 
 **FFN** stands for **feed-forward network**. It processes each token entirely on its own — that's what "position-wise" means; token 5 has no idea token 6 exists. Next to attention it looks like filler. It isn't, and it's worth three questions: what it is, why it's there, and why facts end up inside it.
 
@@ -660,7 +662,7 @@ Attention gets the name and the diagrams, but it's the **minority of the weights
 
 Which is the parameter-count version of the point above: **routing lives in attention, knowledge lives in the FFN.** If the FFN is the model's memory, it needs to be big. It's also why LoRA on attention alone underperforms (post 5), and why Mixture-of-Experts replaces the *FFN* (post 9).
 
-### 8. The implementation, in five lines {#the-implementation-in-five-lines}
+### 9. The implementation, in five lines {#the-implementation-in-five-lines}
 
 ```python
 def scaled_dot_product_attention(q, k, v, *, causal=False, scale=None):
@@ -690,7 +692,7 @@ Checking it against PyTorch's fused `F.scaled_dot_product_attention`:
 
 Agreement to `5e-07` in float32 — floating-point reassociation noise, not an algorithmic difference. Worth internalizing early, because it's the same fact that makes Flash Attention work: **a fast kernel is an optimization, not an approximation.** Post 3 returns to this.
 
-### 9. Why divide by sqrt(d_k)? {#why-divide-by-sqrt-dk}
+### 10. Why divide by sqrt(d_k)? {#why-divide-by-sqrt-dk}
 
 The argument is short. If $q$ and $k$ have independent components with mean 0 and variance 1, then
 
@@ -728,7 +730,7 @@ Why does saturation hurt? Two reasons, and the second is what actually kills tra
 
 That second point reframes it. $1/\sqrt{d_k}$ is not about overflow — softmax handles large logits fine by subtracting the row max. It's there to **keep the softmax in a regime where it still has a gradient**, whatever width you make the heads.
 
-### 10. Causal masking {#causal-masking}
+### 11. Causal masking {#causal-masking}
 
 [§3](#the-formula-symbol-by-symbol) introduced the mask $M$. Here is what it does to the weights:
 
@@ -750,7 +752,7 @@ Note row `q0`: weight exactly 1.000 on itself. The first token has nothing else 
 This one matrix is why the same architecture serves both BERT (unmasked, good for understanding) and GPT (masked, good for generation).
 
 
-### 11. RoPE: absolute rotation, relative score {#rope-absolute-rotation-relative-score}
+### 12. RoPE: absolute rotation, relative score {#rope-absolute-rotation-relative-score}
 
 Back to the gap from §2: attention has no idea what order the tokens came in. Something must inject position.
 
@@ -807,7 +809,7 @@ Two panels, same y-axis. Left: slide both vectors along 128 positions, holding t
 
 One consequence that returns in post 12: because the rotation happens *after* the $Q$/$K$ projections, RoPE doesn't commute with tricks that absorb those projections into neighbouring matrices — exactly the complication DeepSeek's MLA has to work around.
 
-### 12. A silent MPS bug that deleted RoPE {#a-silent-mps-bug-that-deleted-rope}
+### 13. A silent MPS bug that deleted RoPE {#a-silent-mps-bug-that-deleted-rope}
 
 While building this demo, the RoPE section printed a score that was *identical for every offset*. Not wrong-looking — suspiciously perfect.
 
