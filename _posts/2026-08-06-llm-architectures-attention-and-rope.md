@@ -1,17 +1,18 @@
 ---
-title: "LLM Architecture Refresh [1]: Attention, the sqrt(d_k) Scale, and RoPE"
+title: "LLM Architecture Refresh [1]: Inside a Transformer Block — Attention, Heads, and the FFN"
 date: 2026-08-06 00:00:00 -0700
 categories: [LLM Architecture Refresh, Transformers]
-tags: [attention, rope, transformer, pytorch, positional-encoding, softmax, mps]
+tags: [attention, multi-head-attention, transformer, ffn, swiglu, rmsnorm, rope, positional-encoding, softmax, flops, pytorch]
 description: >-
-  Building scaled dot-product attention from scratch and checking it against
-  PyTorch's fused kernel — then measuring why the 1/sqrt(d_k) factor exists,
-  and watching RoPE turn absolute rotations into relative positions.
+  Taking a transformer block apart and measuring every piece — what attention
+  computes and what it costs, why heads are a reshape rather than extra
+  machinery, why the FFN is where a model keeps what it knows, and why the
+  1/sqrt(d_k) factor and RoPE are there at all.
 math: true
 pin: true
 ---
 
-## Understanding attention by measuring it, not by reading about it
+## Taking a transformer block apart, one measurement at a time
 
 I have read the attention equation many times. I can write it from memory. But when someone asks *why* the $1/\sqrt{d_k}$ is there, "for numerical stability" is the kind of answer that sounds fine and explains nothing — a phrase I'd absorbed rather than a thing I'd seen happen.
 
