@@ -863,6 +863,26 @@ Everything so far has described what happens to **one token's vector**. That lea
 
 The answer is that it doesn't process one token. A forward pass takes the *whole* sequence at once, and every position produces its own guess at what comes next — position 1 guesses what follows "The", position 2 guesses what follows "The cat", and so on. One pass, one guess per position.
 
+**Do those guesses feed into each other?** No — and this is worth being precise about, because the picture invites it. Position 2 sees position 1's **input token**, not position 1's guess. The guesses are all produced together at the very end, by the final layer, and there is no path from one position's guess to another position's anything.
+
+You can check the related half of that directly. Change one input token and see which predictions move:
+
+```text
+  position  max change in its prediction  moved?
+  ------------------------------------------------
+  1                             0.00e+00      no
+  2                             0.00e+00      no
+  3                             2.29e+00     yes
+  4                             3.14e-01     yes
+  5                             1.76e-01     yes
+```
+
+Changing position 3 leaves positions 1 and 2 **exactly** unchanged — not close, identical. Each prediction is a function of the input tokens up to it, and nothing else.
+
+So during training, every position is conditioned on the **real text**, never on what the model came up with. If position 1 wrongly guessed "dog", position 2 is still working from the actual "cat" that was in the document. That convention has a name — **teacher forcing** — and it's what makes the parallel training above possible at all.
+
+Generation is the one place a guess does feed forward, and only because you explicitly append it and run the whole thing again. That's the orange arrow in the diagram, and it's a genuine difference between the two jobs: the model is trained on flawless prefixes and then asked to run on prefixes it wrote itself, mistakes included.
+
 ![Training and generating with the same forward pass](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/train-vs-infer-light.png){: .light width="1000" height="571" }
 ![Training and generating with the same forward pass](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/train-vs-infer-dark.png){: .dark width="1000" height="571" }
 
