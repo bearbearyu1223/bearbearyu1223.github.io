@@ -297,13 +297,28 @@ Without a cache you still compute exactly the same keys and values every step. Y
   memory held, cached vs not         10.7x more
 ```
 
-So you hold roughly **an order of magnitude more memory** than you otherwise would. Everyone takes that trade anyway, because the alternative is the 284× wasted-work multiplier from [§3](#generation-is-quadratic) — memory is expensive, but recomputing the entire prefix on every single token is worse.
+So you hold roughly **an order of magnitude more memory** than you otherwise would. What does that buy?
+
+A request costs roughly in proportion to how many tokens the model has to push through itself. With a cache that's the prompt and the reply, once. Without one, it's the entire prefix again on every single step:
+
+```text
+  prompt  reply  cached    uncached  compute saved
+  --------------------------------------------------
+  512       256     768     163,712           213x
+  2,048     512   2,560   1,179,392           461x
+  8,192   1,024   9,216   8,912,384           967x
+  32,768  2,048  34,816  69,204,992          1988x
+```
+
+**Roughly 10× the memory, for 200–2000× the compute.** And the two sides scale differently: the memory cost grows *linearly* with context, while the compute saving grows *quadratically*. The longer the conversation, the better the bargain looks.
+
+That's why no serving stack ships without a KV cache. It isn't a tuning option you enable for extra throughput — a 2,048-token prompt with a 512-token reply would cost 461× more to serve without it, which is the difference between a viable product and an impossible one.
 
 That's the honest framing for the rest of this section: the numbers below aren't the cost of a mistake, they're the price of a deliberate bargain. What makes them interesting is how quickly the price grows.
 
 So at a 128k context, one conversation's cache is **16 GiB** — against 15 GiB for the entire model. One user's scratch space outweighs the thing that took a fortune to train.
 
-And it is one user. The weights row never changes; the cache row multiplies:
+And that's **one** user. Serving more doesn't mean loading the model again — one copy of the weights answers everybody. But each concurrent conversation brings its own cache. So read the next table down the columns: the weights stay at 15.0 GiB no matter how many people you serve, while the cache multiplies by however many of them there are.
 
 ```text
   model        batch   weights  KV cache @128k  cache/weights
