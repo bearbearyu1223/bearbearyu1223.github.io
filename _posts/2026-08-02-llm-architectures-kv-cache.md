@@ -111,7 +111,20 @@ Not merely close — **identical, across all 1,024 numbers**. So recomputing the
 
 #### Why K and V but not Q
 
-The name is "KV cache", not "QKV cache", and the reason is in the table above. Look at when each tensor is *used*:
+The name is "KV cache", not "QKV cache". The reason is easiest to see as a picture. Put generation steps down the side and token positions across the top, then shade in which tensors each step actually needs:
+
+![Why the cache holds K and V but not Q](/assets/picture/2026-08-02-llm-architectures-kv-cache/why-cache-light.png){: .light width="1000" height="618" }
+![Why the cache holds K and V but not Q](/assets/picture/2026-08-02-llm-architectures-kv-cache/why-cache-dark.png){: .dark width="1000" height="618" }
+
+**The shapes are the whole argument.**
+
+$Q$ fills a **diagonal**. Step 3 computes $Q_3$, uses it to produce token 4, and is then done with it — no later step ever asks for $Q_3$ again. A diagonal has nothing to reuse, so there is nothing a cache could save you.
+
+$K$ and $V$ fill a **triangle**. Step 3 needs $K_1, K_2, K_3$; step 4 needs those *plus* $K_4$; step 5 needs all five. Every column extends downward forever. Across five steps, five keys get computed once each but **read fifteen times** between them — and by the arithmetic in the next section, that gap widens quadratically.
+
+So the rule is not "keys and values are special". It's simply: **cache what gets read again.** In the diagram, that's everything below the diagonal.
+
+The same thing said as a table:
 
 ```text
   tensor  cached?                                                   why
