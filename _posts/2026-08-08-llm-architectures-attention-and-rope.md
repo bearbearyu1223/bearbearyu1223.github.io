@@ -23,7 +23,7 @@ So this post takes one block apart and puts a number on every piece.
 If you read nothing else, these are the things this post establishes — each one measured rather than asserted:
 
 - **Attention is a weighted average, nothing more exotic.** Each token looks at the others and pulls in a blend of what they offer, weighted by how relevant each one is. It is the *only* step in the entire model where tokens see each other at all.
-- **Extra heads are almost free.** Splitting attention into 32 parallel copies costs the same parameters and the same arithmetic as running it once — it's a reshape of a fixed budget, not extra machinery. What you buy is several opinions at once instead of one blurred compromise. The one thing that *does* grow with head count is the score matrix, which is the tensor nobody wants to store anyway.
+- **Extra heads are almost free.** Splitting attention into 32 parallel copies costs the same parameters and the same arithmetic as running it once — it's a reshape of a fixed budget, not extra machinery. What you buy is several opinions at once instead of one blurred compromise. The one cost that *does* grow with head count is the grid of token-against-token scores — a scratch value, discarded as soon as attention finishes, which at an 8k context still reaches 8 GiB per layer.
 - **What makes attention expensive is model width and context length — not head count.** And the famous quadratic term is smaller than its reputation: at a 1,024-token sequence it's 6% of the layer, while plain matrix multiplies are 89%.
 - **Attention can average, but it cannot conclude.** Blending two facts never produces a third. That's why every block also has a feed-forward network — the only part that transforms a token on its own, shaped like a lookup table, and where a model's facts actually live.
 - **The $\sqrt{d_k}$ is not about overflow.** It keeps the softmax in a range where a gradient still flows back, so how wide you make the heads stays a free choice instead of silently breaking training.
@@ -325,7 +325,24 @@ That table had a fourth row, and it's the honest exception. The scores live in a
   64           64       8.59 G              256 MiB
 ```
 
-**Identical arithmetic, 64× the activation memory.** So the accurate statement isn't "heads are free" — it's that heads cost nothing in *parameters or arithmetic*, and cost linearly in *the one tensor nobody wants to store anyway*. Post 3 is entirely about not storing it.
+**Identical arithmetic, 64× the activation memory.**
+
+Now, 128 MiB doesn't sound alarming — but that's at a 1,024-token sequence, and this term is quadratic. Stretch the context and it goes somewhere ridiculous:
+
+```text
+  seq   1,024:   128 MiB  per layer, per forward pass
+  seq   8,192:     8 GiB  per layer, per forward pass
+  seq  32,768:   128 GiB  per layer, per forward pass
+  seq 131,072:   2.0 TiB  per layer, per forward pass
+```
+
+At an 8k context, **one layer's scores are 8 GiB — over half the size of the entire 15 GiB model**, and there are 32 layers. At 128k it's 2 TiB per layer, which no accelerator on earth has.
+
+And here's the thing that makes it worth avoiding rather than budgeting for: **it's scratch.** The score matrix isn't part of the model and isn't part of the answer. It's computed, softmaxed, multiplied by $V$, and thrown away microseconds later. Nothing wants it — it's just an unavoidable-looking step on the way to the output.
+
+Except training *does* want it, which is the twist. The backward pass needs those attention weights to compute gradients, so the obvious implementation has to keep every one of them alive until the backward pass arrives. That's what turns a transient into a memory ceiling, and it's why long context was impractical for years.
+
+The escape is to compute attention in small tiles so the full grid never exists at once, and to recompute the pieces the backward pass needs instead of storing them — trading arithmetic, which is cheap, for memory traffic, which isn't. That's Flash Attention, and post 3 is entirely about it.
 
 #### Where the FLOPs actually go
 
