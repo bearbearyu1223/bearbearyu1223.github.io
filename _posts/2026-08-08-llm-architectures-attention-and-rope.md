@@ -55,8 +55,9 @@ Skip to [the short version](#the-short-version) for the findings without the der
 9. [The implementation, in five lines](#the-implementation-in-five-lines)
 10. [Why divide by sqrt(d_k)?](#why-divide-by-sqrt-dk)
 11. [Causal masking](#causal-masking)
-12. [RoPE: absolute rotation, relative score](#rope-absolute-rotation-relative-score)
-13. [A silent MPS bug that deleted RoPE](#a-silent-mps-bug-that-deleted-rope)
+12. [How this becomes learning, and becomes writing](#training-and-inference)
+13. [RoPE: absolute rotation, relative score](#rope-absolute-rotation-relative-score)
+14. [A silent MPS bug that deleted RoPE](#a-silent-mps-bug-that-deleted-rope)
 14. [Sidebar: the probe](#sidebar-the-probe)
 15. [Appendix: all notation](#appendix-all-notation)
 
@@ -78,7 +79,7 @@ That computation is a **transformer**: a stack of $L$ identical **blocks** — 3
 
 Gather, then think. Thirty-two times over. At the end, one more layer turns the final token's numbers into a probability for every word in the vocabulary, and you pick one.
 
-**This post is about step 1**, where most of the interesting design lives. [§8](#the-ffn) comes back for the FFN, and [§7](#where-attention-sits-in-the-model) for the norms and residuals, once the vocabulary is in place.
+**This post is about step 1**, where most of the interesting design lives. ([§12](#training-and-inference) comes back to the loop itself — how a stack of per-token machinery ends up learning from a sequence, and writing one.) [§8](#the-ffn) comes back for the FFN, and [§7](#where-attention-sits-in-the-model) for the norms and residuals, once the vocabulary is in place.
 
 Numbers throughout this post come from one real model, **Llama-3-8B**, so they're a checkable config rather than placeholders:
 
@@ -184,7 +185,7 @@ Everything else in the formula is unchanged. [§11](#causal-masking) measures th
 Two consequences to carry forward:
 
 - **The dot product is the only place tokens interact.** Everything else in a transformer processes each token alone.
-- **The equation has no idea what order the tokens came in.** Shuffle them and you get the same outputs, shuffled. Position must be injected separately — that's [§12](#rope-absolute-rotation-relative-score).
+- **The equation has no idea what order the tokens came in.** Shuffle them and you get the same outputs, shuffled. Position must be injected separately — that's [§13](#rope-absolute-rotation-relative-score).
 
 ### 4. What a "head" is {#what-a-head-is}
 
@@ -580,7 +581,7 @@ Start with the box this post has been about. Here's the data path inside it, wit
 ![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-light.png){: .light width="900" height="964" }
 ![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-dark.png){: .dark width="900" height="964" }
 
-Two steps in it are worth naming. **One input, three projections** — $Q$, $K$ and $V$ are three learned *views of the same vector*, which is what makes self-attention "self." And **RoPE rotates $Q$ and $K$, never $V$** — position belongs in the *matching* step; $V$ is the content you retrieve once matching is done, so rotating it would corrupt the payload. [§12](#rope-absolute-rotation-relative-score) covers RoPE properly.
+Two steps in it are worth naming. **One input, three projections** — $Q$, $K$ and $V$ are three learned *views of the same vector*, which is what makes self-attention "self." And **RoPE rotates $Q$ and $K$, never $V$** — position belongs in the *matching* step; $V$ is the content you retrieve once matching is done, so rotating it would corrupt the payload. [§13](#rope-absolute-rotation-relative-score) covers RoPE properly.
 
 #### The other pieces, in plain English
 
@@ -856,7 +857,27 @@ Note row `q0`: weight exactly 1.000 on itself. The first token has nothing else 
 This one matrix is why the same architecture serves both BERT (unmasked, good for understanding) and GPT (masked, good for generation).
 
 
-### 12. RoPE: absolute rotation, relative score {#rope-absolute-rotation-relative-score}
+### 12. How this becomes learning, and becomes writing {#training-and-inference}
+
+Everything so far has described what happens to **one token's vector**. That leaves the question this post opened with only half answered: how does a pile of per-token machinery learn anything, or write a sentence?
+
+The answer is that it doesn't process one token. A forward pass takes the *whole* sequence at once, and every position produces its own guess at what comes next — position 1 guesses what follows "The", position 2 guesses what follows "The cat", and so on. One pass, one guess per position.
+
+![Training and generating with the same forward pass](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/train-vs-infer-light.png){: .light width="1000" height="571" }
+![Training and generating with the same forward pass](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/train-vs-infer-dark.png){: .dark width="1000" height="571" }
+
+**Training** grades all of them. You already know what came next — it's the very next token in the text — so a single pass over a 5-token sentence gives you 5 graded predictions, and over a 4,000-token document, 4,000 of them. The model nudges its weights to make the right answers likelier, and repeats a few trillion tokens' worth.
+
+This is where the causal mask earns its keep. Position 2 is being asked to guess "sat" while "sat" is sitting *right there* in the input, two boxes along. The mask is what makes that a real question rather than a copying exercise — and it's why one pass can train every position at once instead of needing a separate pass per prediction. Without it you'd need 4,000 forward passes for that document instead of one.
+
+**Generating** runs exactly the same pass and throws almost all of it away. You feed in what exists, every position dutifully produces a guess, and you keep only the last one — the others are answers to questions you already know. That kept token gets appended, and the whole thing runs again, one token longer.
+
+Two things follow, and they're the seeds of the next two posts:
+
+- **Nothing computes "just the last position".** The machinery is inherently parallel across the sequence; you can't ask it for one prediction. So generating a 500-token reply means 500 passes, each slightly longer than the last — and each recomputing what the previous one already worked out. That waste is what a KV cache exists to remove.
+- **Training and generating are the same forward pass**, which is why every cost in [§5](#what-attention-costs) applies to both. What differs is that training adds a backward pass, and that generating repeats the forward one over and over for a single answer.
+
+### 13. RoPE: absolute rotation, relative score {#rope-absolute-rotation-relative-score}
 
 Back to the gap from §2: attention has no idea what order the tokens came in. Something must inject position.
 
@@ -913,7 +934,7 @@ Two panels, same y-axis. Left: slide both vectors along 128 positions, holding t
 
 One consequence that returns in post 12: because the rotation happens *after* the $Q$/$K$ projections, RoPE doesn't commute with tricks that absorb those projections into neighbouring matrices — exactly the complication DeepSeek's MLA has to work around.
 
-### 13. A silent MPS bug that deleted RoPE {#a-silent-mps-bug-that-deleted-rope}
+### 14. A silent MPS bug that deleted RoPE {#a-silent-mps-bug-that-deleted-rope}
 
 While building this demo, the RoPE section printed a score that was *identical for every offset*. Not wrong-looking — suspiciously perfect.
 
