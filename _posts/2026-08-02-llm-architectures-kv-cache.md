@@ -246,6 +246,8 @@ Concretely: for every token, at every layer, each key/value head stores one key 
 
 **One token of context costs 128 KiB.** That's the number worth remembering — everything else is multiplication.
 
+*(One label to be precise about: the layer shapes above are Llama-3-8B's, but its own context window is 8k. The 128k figures throughout this post are Llama-3.1-8B, which has the identical layer shapes and differs only in how far the context extends. The per-token cost is the same either way; only how many tokens you can accumulate changes.)*
+
 And you pay it for *every* token in the conversation, not just the new one: the prompt you sent, the reply so far, all of it, for as long as the conversation lives.
 
 ```text
@@ -331,7 +333,15 @@ And that's **one** user. Serving more doesn't mean loading the model again — o
   Llama-3-70B     32  131.5 GiB       1280.0 GiB          9.73x
 ```
 
-Thirty-two concurrent users at full context on an 8B model needs half a terabyte of KV cache. This is why "how many users can I serve?" is a KV-cache question, not a model-size question — and why the answer changes completely with context length.
+That last row is worth doing by hand, because it's the one that decides hardware budgets:
+
+$$
+\underbrace{128\ \text{KiB}}_{\text{per token}} \times \underbrace{131{,}072}_{\text{tokens}} = \underbrace{16\ \text{GiB}}_{\text{one conversation}}
+\qquad
+16\ \text{GiB} \times 32\ \text{users} = 512\ \text{GiB}
+$$
+
+**Thirty-two concurrent conversations at 128k context need half a terabyte of KV cache** — about six 80 GiB accelerators' worth, for a model whose weights fit comfortably on one. This is why "how many users can I serve?" is a KV-cache question, not a model-size question, and why the answer changes completely with context length.
 
 It's also why the 70B row is interesting: at batch 1 its cache is only 0.30× its weights, so a big model at short context is weight-dominated, while a small model at long context is cache-dominated. Two very different engineering problems wearing the same "LLM inference" label.
 
