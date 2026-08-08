@@ -195,9 +195,20 @@ Equivalently: head $h$ owns the 128 columns of $W_q$, $W_k$, $W_v$ that produce 
 
 $W_o$ at the end is not bookkeeping. Without it, 32 heads' findings would sit in 32 disjoint stretches of the vector, unable to influence one another.
 
-#### Heads are free
+#### What actually drives the cost
 
-The natural worry is that 32 heads means 32× the work. It doesn't, and the reason is one line of algebra worth doing slowly — it's what makes multi-head attention obviously worth doing.
+The natural worry is that 32 heads means 32× the work. It doesn't — but "heads are free" would be the wrong lesson, because attention is *not* cheap. It's just that the head count isn't what makes it expensive.
+
+Two things do: **how wide the model is** ($d_{model}$) and **how long the context is** ($seq$). Here is where every cost in an attention layer comes from:
+
+| Cost | Formula | Grows with | Set by head count? |
+| --- | --- | --- | --- |
+| projection parameters | $4 d_{model}^2$ | width, **squared** | no |
+| projection FLOPs | $2 \cdot seq \cdot d_{model}^2$ | length × width² | no |
+| score FLOPs | $2 \cdot seq^2 \cdot d_{model}$ | **length squared** × width | no |
+| score matrix memory | $n_{heads} \cdot seq^2$ | length squared × head count | **yes** |
+
+Three of those four don't mention $n_{heads}$ at all. That's worth deriving rather than accepting, because it's what makes the head count a free architectural choice — and because the fourth row is a real exception.
 
 **Parameters.** Start with a question: how wide does $W_q$'s output need to be?
 
@@ -268,7 +279,24 @@ The head count cancels, exactly as it did for the parameters — and for the sam
 
 Read the last two columns together: **halving $d_{head}$ halves the per-head cost, and doubling the head count multiplies it straight back.** Going from 1 head to 64 makes each head 64× cheaper and there are 64× as many — exactly inverse, so the final column never moves.
 
-So heads are a *reshape of a fixed budget*, not extra machinery. You're only choosing whether to read the same 4,096 numbers as one wide space or many narrow ones. What you buy is several attention patterns at once instead of one averaged compromise:
+So heads are a *reshape of a fixed budget*, not extra machinery. You're only choosing whether to read the same 4,096 numbers as one wide space or many narrow ones.
+
+#### Except in one place: the score matrix
+
+That table had a fourth row, and it's the honest exception. The scores live in a tensor of shape $(n_{heads}, seq, seq)$ — one $seq \times seq$ grid *per head*. Narrower heads make each dot product cheaper, which is why the FLOPs cancel; they do **not** make each grid smaller.
+
+```text
+  n_heads  d_head  score FLOPs  score matrix (fp32)
+  ---------------------------------------------------
+  1          4096       8.59 G                4 MiB
+  8           512       8.59 G               32 MiB
+  32          128       8.59 G              128 MiB
+  64           64       8.59 G              256 MiB
+```
+
+**Identical arithmetic, 64× the activation memory.** So the accurate statement isn't "heads are free" — it's that heads cost nothing in *parameters or arithmetic*, and cost linearly in *the one tensor nobody wants to store anyway*. [Post 3](/posts/llm-architectures-flash-attention/) is entirely about not storing it.
+
+What the heads buy, meanwhile, is several attention patterns at once instead of one averaged compromise:
 
 ![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-light.png){: .light width="1000" height="453" }
 ![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-dark.png){: .dark width="1000" height="453" }
