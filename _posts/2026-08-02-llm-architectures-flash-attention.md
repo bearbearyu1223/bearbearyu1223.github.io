@@ -8,6 +8,7 @@ description: >-
   Flash Attention returns the same answer as the textbook version — and that
   the win is memory traffic, not arithmetic.
 math: true
+published: false
 ---
 
 ## The optimization that doesn't change the answer

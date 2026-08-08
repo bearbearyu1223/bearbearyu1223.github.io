@@ -8,6 +8,7 @@ description: >-
   cache outgrows the model weights at long context, and why decode is
   memory-bandwidth-bound while prefill is compute-bound.
 math: true
+published: false
 ---
 
 ## The number that decides what you can serve

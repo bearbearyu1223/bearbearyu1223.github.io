@@ -325,7 +325,7 @@ That table had a fourth row, and it's the honest exception. The scores live in a
   64           64       8.59 G              256 MiB
 ```
 
-**Identical arithmetic, 64× the activation memory.** So the accurate statement isn't "heads are free" — it's that heads cost nothing in *parameters or arithmetic*, and cost linearly in *the one tensor nobody wants to store anyway*. [Post 3](/posts/llm-architectures-flash-attention/) is entirely about not storing it.
+**Identical arithmetic, 64× the activation memory.** So the accurate statement isn't "heads are free" — it's that heads cost nothing in *parameters or arithmetic*, and cost linearly in *the one tensor nobody wants to store anyway*. Post 3 is entirely about not storing it.
 
 #### Where the FLOPs actually go
 
@@ -344,7 +344,7 @@ Note the `32 ×` on the attention rows: those are **thirty-two small matmuls, on
 
 Worth stating while we're here, since it's a natural assumption: **GQA doesn't shrink these.** Its 8 key/value heads are broadcast back up to 32 right before the matmul, so every query head still scores against a full-width key. GQA saves cache and parameters, not attention FLOPs.
 
-**The quadratic term is the smallest item here.** At a 1,024-token sequence, attention's famous $n^2$ cost is 6% of the layer; the four projections are 89%. The $n^2$ term only takes over once $seq$ grows past $d_{model}$ — below that, a transformer is mostly big dense matrix multiplies, and "attention is quadratic" describes the *asymptote*, not the regime most models run in. [Post 3](/posts/llm-architectures-flash-attention/) is about what happens when you do cross that line.
+**The quadratic term is the smallest item here.** At a 1,024-token sequence, attention's famous $n^2$ cost is 6% of the layer; the four projections are 89%. The $n^2$ term only takes over once $seq$ grows past $d_{model}$ — below that, a transformer is mostly big dense matrix multiplies, and "attention is quadratic" describes the *asymptote*, not the regime most models run in. Post 3 is about what happens when you do cross that line.
 
 The rule of thumb checks out too:
 
@@ -417,7 +417,7 @@ And it's getting *worse*, not better: the H100 has 3.2× the compute of an A100 
 
 *(These are peak numbers; real kernels reach a fraction of them, and batching improves the picture a lot. But the ratio is what matters here, and it survives the discount.)*
 
-It also sets up the two posts that follow, which are both about memory rather than math. [Post 2](/posts/llm-architectures-kv-cache/) is about a cost that doesn't appear in any table here at all — generating text needs to *keep* every key and value it has computed, and that cache can outgrow the weights. [Post 3](/posts/llm-architectures-flash-attention/) is about the fourth row above: the $seq \times seq$ score grid, and how to get attention's answer without ever writing it down.
+It also sets up the two posts that follow, which are both about memory rather than math. Post 2 is about a cost that doesn't appear in any table here at all — generating text needs to *keep* every key and value it has computed, and that cache can outgrow the weights. Post 3 is about the fourth row above: the $seq \times seq$ score grid, and how to get attention's answer without ever writing it down.
 
 
 ### 6. Following the shapes {#following-the-shapes}
@@ -543,7 +543,7 @@ Here's the simplification promised in §3. Everything above is **classic multi-h
 
 Each projection still follows one rule — it is $(d_{model},\; \text{heads it feeds} \times d_{head})$ — so 8 key heads of 128 gives $(4096, 1024)$. That drops the block's attention parameters from 67.1M to **41.9M**.
 
-Note the asymmetry: **$Q$ keeps full width; only $K$ and $V$ shrink.** That's deliberate — $K$ and $V$ are the tensors generation has to *cache*, so shrinking them shrinks the memory that limits how many users you can serve. $Q$ is recomputed every step and never cached. [Post 2](/posts/llm-architectures-kv-cache/) is largely about this.
+Note the asymmetry: **$Q$ keeps full width; only $K$ and $V$ shrink.** That's deliberate — $K$ and $V$ are the tensors generation has to *cache*, so shrinking them shrinks the memory that limits how many users you can serve. $Q$ is recomputed every step and never cached. Post 2 is largely about this.
 
 Read the rest of this post as classic MHA; the mechanism is identical either way.
 
@@ -927,7 +927,9 @@ The difference is that the second answer says what breaks, and where.
 
 ### What's next
 
-Post 2 takes the same measure-it-yourself approach to the **KV cache** — the thing that decides what you can actually serve. We time generation with and without it, work out why decode is memory-bandwidth-bound while prefill is compute-bound, and see why that one distinction explains batching, quantization and speculative decoding at once.
+Post 2 takes the same measure-it-yourself approach to the **KV cache** — the thing that decides what you can actually serve. It times generation with and without one, works out why decode is memory-bandwidth-bound while prefill is compute-bound, and shows why that single distinction explains batching, quantization and speculative decoding at once. Post 3 goes after the $seq \times seq$ score grid from §5, and how Flash Attention gets attention's answer without ever writing it down.
+
+Both are drafted and will go up shortly.
 
 ### Appendix: all notation {#appendix-all-notation}
 
