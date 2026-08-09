@@ -423,7 +423,14 @@ which is the projection row of the table above, to the digit. The demo checks th
 
 Everything so far is per layer. Scaled to a whole model, the interesting thing is that **training and inference are not the same job** — and they differ far more in memory than in arithmetic.
 
-**Compute.** A backward pass costs about twice a forward one, because every weight needs two gradients computed for it — one flowing back to its input, one for the weight itself. So:
+**Compute.** Training runs the model forward, then backward — and the backward pass costs about twice the forward one. The reason is that on the way back, every layer has to answer *two* questions, where on the way in it answered only one.
+
+Going in, a layer has one job: take its input, produce its output. Coming back, it needs to work out both
+
+- **how its own weights should change** — the correction that actually gets applied, and
+- **how wrong its input was** — which is precisely what the layer *before* it needs before it can answer these same two questions.
+
+Each of those is a matrix multiply the same size as the forward one, so the way back costs two forward passes' worth of arithmetic. Add the original forward pass and training comes to **3× inference, per token**:
 
 ```text
   per token        FLOPs                            why
