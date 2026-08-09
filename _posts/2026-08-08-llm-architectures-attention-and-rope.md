@@ -427,7 +427,7 @@ Everything so far is per layer. Scaled to a whole model, the interesting thing i
 
 Going in, a layer has one job: take its input, produce its output. Coming back, it is handed a message — *the output you produced was wrong; it should have been a little higher here, a little lower there* — and from that one message it works out two different things:
 
-- **how its own weights should change**, given that its output was wrong that way. This is the correction that actually gets applied, and the point of the whole exercise.
+- **how its own weights should change**, given that its output was wrong that way. This is the point of the whole exercise — though the backward pass only *computes* that correction. It gets stored, and a separate optimizer step applies it once the whole pass is done.
 - **what its input should have been**, for that output to have come out right. It can't act on this one — its input is whatever the previous layer handed over. But "what my input should have been" is the same statement as "what your output should have been" to the layer behind it, so this answer is the message that keeps the chain moving.
 
 Each of those is a matrix multiply the same size as the forward one, so the way back costs two forward passes' worth of arithmetic. It's also why the backward pass is a *chain* rather than 32 independent calculations: a layer can't start until the layer after it has produced that message. Add the original forward pass and training comes to **3× inference, per token**:
@@ -452,6 +452,8 @@ Three times the arithmetic. That part is mild.
   Adam moment m     4 B/param  30 GiB        105 GiB
   Adam moment v     4 B/param  30 GiB        135 GiB
 ```
+
+Those last three rows are the compute story made concrete. The gradients need their own 30 GiB precisely because the backward pass computes corrections rather than applying them — they have to sit somewhere until the optimizer step runs. Adam then keeps two more running averages of past gradients, so each update is smoothed against recent history instead of following the raw gradient. Nothing here would exist if the backward pass simply changed the weights as it went.
 
 **About 2 bytes per parameter to serve, about 18 to train** — and that's before activations, which training must also keep because the backward pass needs them.
 
