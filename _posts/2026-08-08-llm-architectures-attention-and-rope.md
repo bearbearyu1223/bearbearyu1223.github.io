@@ -425,12 +425,12 @@ Everything so far is per layer. Scaled to a whole model, the interesting thing i
 
 **Compute.** Training runs the model forward, then backward — and the backward pass costs about twice the forward one. The reason is that on the way back, every layer has to answer *two* questions, where on the way in it answered only one.
 
-Going in, a layer has one job: take its input, produce its output. Coming back, it needs to work out both
+Going in, a layer has one job: take its input, produce its output. Coming back, it is handed a message — *the output you produced was wrong; it should have been a little higher here, a little lower there* — and from that one message it works out two different things:
 
-- **how its own weights should change** — the correction that actually gets applied, and
-- **how wrong its input was** — which is precisely what the layer *before* it needs before it can answer these same two questions.
+- **how its own weights should change**, given that its output was wrong that way. This is the correction that actually gets applied, and the point of the whole exercise.
+- **what its input should have been**, for that output to have come out right. It can't act on this one — its input is whatever the previous layer handed over. But "what my input should have been" is the same statement as "what your output should have been" to the layer behind it, so this answer is the message that keeps the chain moving.
 
-Each of those is a matrix multiply the same size as the forward one, so the way back costs two forward passes' worth of arithmetic. Add the original forward pass and training comes to **3× inference, per token**:
+Each of those is a matrix multiply the same size as the forward one, so the way back costs two forward passes' worth of arithmetic. It's also why the backward pass is a *chain* rather than 32 independent calculations: a layer can't start until the layer after it has produced that message. Add the original forward pass and training comes to **3× inference, per token**:
 
 ```text
   per token        FLOPs                            why
