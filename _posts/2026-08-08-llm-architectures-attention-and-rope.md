@@ -28,7 +28,7 @@ If you read nothing else, these are the things this post establishes — each on
 - **Attention can average, but it cannot conclude.** Blending two facts never produces a third. That's why every block also has a feed-forward network — the only part that transforms a token on its own, shaped like a lookup table, and where a model's facts actually live.
 - **The $\sqrt{d_k}$ is not about overflow.** It keeps the softmax in a range where a gradient still flows back, so how wide you make the heads stays a free choice instead of silently breaking training.
 - **RoPE gets relative position out of absolute rotation.** Spin each token's query and key by an angle set by its position, and the score between any two tokens ends up depending only on the gap between them — with no learned parameters at all.
-- **Training and serving are different jobs.** Same model, 3× the arithmetic and 9× the memory to train it.
+- **Training and serving are different jobs.** Same model, 3× the arithmetic and 8× the memory to train it — 16 GB to serve, 128 GB before a single activation. And what limits serving isn't the weights at all, it's the KV cache: about 1 GiB per 8k sequence, which grouped-query attention already made four times smaller than it would otherwise be.
 
 Every one of those has a **receipt** behind it — a small program that prints the number, so you can check it rather than take my word. The code lives in a companion repo and runs unchanged on Apple Silicon or a Linux + NVIDIA box:
 
@@ -49,15 +49,16 @@ Skip to [the short version](#the-short-version) for the findings without the der
 3. [The formula, symbol by symbol](#the-formula-symbol-by-symbol)
 4. [What a "head" is](#what-a-head-is)
 5. [What attention costs](#what-attention-costs)
-6. [Following the shapes](#following-the-shapes)
-7. [The rest of the block](#where-attention-sits-in-the-model)
-8. [The FFN: where the model knows things](#the-ffn)
-9. [The implementation, in five lines](#the-implementation-in-five-lines)
-10. [Why divide by sqrt(d_k)?](#why-divide-by-sqrt-dk)
-11. [Causal masking](#causal-masking)
-12. [How this becomes learning, and becomes writing](#training-and-inference)
-13. [RoPE: absolute rotation, relative score](#rope-absolute-rotation-relative-score)
-14. [A silent MPS bug that deleted RoPE](#a-silent-mps-bug-that-deleted-rope)
+6. [What the whole model costs to run](#what-the-model-costs)
+7. [Following the shapes](#following-the-shapes)
+8. [The rest of the block](#where-attention-sits-in-the-model)
+9. [The FFN: where the model knows things](#the-ffn)
+10. [The implementation, in five lines](#the-implementation-in-five-lines)
+11. [Why divide by sqrt(d_k)?](#why-divide-by-sqrt-dk)
+12. [Causal masking](#causal-masking)
+13. [How this becomes learning, and becomes writing](#training-and-inference)
+14. [RoPE: absolute rotation, relative score](#rope-absolute-rotation-relative-score)
+15. [A silent MPS bug that deleted RoPE](#a-silent-mps-bug-that-deleted-rope)
 
 Plus a closing [sidebar: the probe](#sidebar-the-probe) and an [appendix of all notation](#appendix-all-notation).
 
@@ -77,20 +78,20 @@ That computation is a **transformer**: a stack of $L$ identical **blocks** — 3
 1. **Attention** — each token looks at the other tokens and pulls in whatever it needs. This is the *only* step where tokens see each other.
 2. **A feed-forward network (FFN)** — each token, now holding some context, gets transformed on its own. No looking around.
 
-Gather, then think. Thirty-two times over. At the end, one more layer turns a token's numbers into a probability for every word in the vocabulary, and you pick one — [§12](#training-and-inference) opens that layer up.
+Gather, then think. Thirty-two times over. At the end, one more layer turns a token's numbers into a probability for every word in the vocabulary, and you pick one — [§13](#training-and-inference) opens that layer up.
 
-**This post takes the whole block apart**, in the order the vocabulary allows. Step 1 comes first and gets the most space — attention is where most of the design decisions are, and the rest is easier to describe once it's in hand. Then [§7](#where-attention-sits-in-the-model) returns for the norms, those side arrows, and the "pre-norm" arrangement they add up to; [§8](#the-ffn) for the FFN, which holds more of a model's parameters than attention does; and [§12](#training-and-inference) for the loop itself — how a stack of per-token machinery ends up learning from a sequence, and writing one.
+**This post takes the whole block apart**, in the order the vocabulary allows. Step 1 comes first and gets the most space — attention is where most of the design decisions are, and the rest is easier to describe once it's in hand. Then [§8](#where-attention-sits-in-the-model) returns for the norms, those side arrows, and the "pre-norm" arrangement they add up to; [§9](#the-ffn) for the FFN, which holds more of a model's parameters than attention does; and [§13](#training-and-inference) for the loop itself — how a stack of per-token machinery ends up learning from a sequence, and writing one.
 
 Numbers throughout this post come from one real model, **Llama-3-8B**, so they're a checkable config rather than placeholders:
 
 | | Llama-3-8B | What it is |
 | --- | --- | --- |
 | $d_{model}$ | **4096** | how many numbers describe one token |
-| $n_{vocab}$ | 128256 | how many distinct tokens the model knows (§7) |
+| $n_{vocab}$ | 128256 | how many distinct tokens the model knows (§8) |
 | $n_{heads}$ | **32** | how many attention heads (§4) |
 | $d_{head}$ | **128** | width of one head's slice |
-| $n_{kv}$ | 8 | key/value heads — fewer than query heads (§6) |
-| $d_{ff}$ | 14336 | width of the FFN's middle layer (§8) |
+| $n_{kv}$ | 8 | key/value heads — fewer than query heads (§7) |
+| $d_{ff}$ | 14336 | width of the FFN's middle layer (§9) |
 | $L$ | 32 | how many blocks are stacked |
 
 These are one model's choices, not universal constants: GPT-2 XL had $d_{model} = 1600$, split across 25 heads of 64 each. One relationship *is* universal, though — it holds for both models, and it does a lot of work later:
@@ -99,7 +100,7 @@ $$
 d_{model} = n_{heads} \times d_{head} \qquad 4096 = 32 \times 128
 $$
 
-For simplicity, §4 and §5 assume every query head has its own key and value head — 32 of each. That's **multi-head attention**, or **MHA**. Llama-3-8B actually shares 8 key/value heads across its 32 query heads; [§6](#following-the-shapes) covers what changes.
+For simplicity, §4 and §5 assume every query head has its own key and value head — 32 of each. That's **multi-head attention**, or **MHA**. Llama-3-8B actually shares 8 key/value heads across its 32 query heads; [§7](#following-the-shapes) covers what changes.
 
 ### 2. What attention is for {#what-attention-is-for}
 
@@ -144,7 +145,7 @@ $$
 Read it from the inside out:
 
 1. $QK^\top$ — every query dotted with every key, giving an $n \times n$ grid of relevance scores. Row $i$ holds "how relevant is each token to token $i$?"
-2. $\div \sqrt{d_k}$ — a constant that keeps those scores in a sane range. [§10](#why-divide-by-sqrt-dk) is devoted to why.
+2. $\div \sqrt{d_k}$ — a constant that keeps those scores in a sane range. [§11](#why-divide-by-sqrt-dk) is devoted to why.
 3. $\text{softmax}$ — turns each row of scores into weights that are positive and sum to 1.
 4. $\times V$ — uses those weights to average the values, giving each token its answer.
 
@@ -181,12 +182,12 @@ Two details make this work, and both are the reason it's written as an *addition
 - **$-\infty$, not a large negative number.** Softmax exponentiates, and $e^{-\infty} = 0$ exactly. Forbidden positions get precisely zero weight, not merely a small one.
 - **It's added *before* the softmax.** So the surviving weights renormalize among themselves and each row still sums to 1. Masking after the softmax would leave rows summing to less than 1 — a classic bug.
 
-Everything else in the formula is unchanged. [§11](#causal-masking) measures the result.
+Everything else in the formula is unchanged. [§12](#causal-masking) measures the result.
 
 Two consequences to carry forward:
 
 - **The dot product is the only place tokens interact.** Everything else in a transformer processes each token alone.
-- **The equation has no idea what order the tokens came in.** Shuffle them and you get the same outputs, shuffled. Position must be injected separately — that's [§13](#rope-absolute-rotation-relative-score).
+- **The equation has no idea what order the tokens came in.** Shuffle them and you get the same outputs, shuffled. Position must be injected separately — that's [§14](#rope-absolute-rotation-relative-score).
 
 ### 4. What a "head" is {#what-a-head-is}
 
@@ -220,7 +221,7 @@ So what does all that buy? Several attention patterns at once, instead of one av
 ![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-light.png){: .light width="1000" height="502" }
 ![Four heads, four attention patterns on the same input](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/head-patterns-dark.png){: .dark width="1000" height="502" }
 
-One triangle per head, all four fed the same 12 tokens. Read a triangle one row at a time: row $i$ is token $i$ doing the looking, and the cells along it are how much weight it puts on each token it can see — columns are those tokens, darker is more weight. The triangular shape *is* causal masking ([§11](#causal-masking)): row $i$ stops at column $i$, because a token can't look at anything to its right.
+One triangle per head, all four fed the same 12 tokens. Read a triangle one row at a time: row $i$ is token $i$ doing the looking, and the cells along it are how much weight it puts on each token it can see — columns are those tokens, darker is more weight. The triangular shape *is* causal masking ([§12](#causal-masking)): row $i$ stops at column $i$, because a token can't look at anything to its right.
 
 The thing to notice is that the four are not copies of each other. Compare their **bottom rows** — the last token's view of the sentence, and the row that the number under each triangle summarizes. That number, **spread**, answers one question: is this row's weight concentrated on a few tokens, or shared out across many? It's the *entropy* of the row — a standard way to score how spread out a set of weights is. Put everything on a single token and it reads **0**. Share it perfectly evenly across all 12 and it reads **2.48**, the largest value possible here. **Low means picky, high means even-handed**, and the reason the ceiling is 2.48 rather than 12 is just that entropy is built from natural logarithms: $\ln 12 = 2.48$.
 
@@ -237,7 +238,7 @@ The natural worry is that 32 heads means 32× the work. It doesn't — but "head
 Two things do, and it's worth being exact about both:
 
 - **$d_{model}$ — how wide a token's vector is.** The 4,096 numbers the embedding table hands over, carried unchanged through every block. Wider model, wider everything.
-- **$seq$ — how many tokens you are running through right now.** Not the model's advertised context *window*, which is only a ceiling. Feed a 128k-window model a 300-token prompt and every formula below uses $seq = 300$, not 128,000 — headroom you don't use costs nothing. (Where that ceiling comes from in the first place turns out to be a RoPE question, so it waits for [§13](#rope-absolute-rotation-relative-score).)
+- **$seq$ — how many tokens you are running through right now.** Not the model's advertised context *window*, which is only a ceiling. Feed a 128k-window model a 300-token prompt and every formula below uses $seq = 300$, not 128,000 — headroom you don't use costs nothing. (Where that ceiling comes from in the first place turns out to be a RoPE question, so it waits for [§14](#rope-absolute-rotation-relative-score).)
 
 Here is where every cost in an attention layer comes from:
 
@@ -297,9 +298,9 @@ Same architecture, down to a quarter of the memory, decided long after the model
 
 **What those three groups of bits do.** Floating point is binary scientific notation — a sign, an exponent and a fraction — which is how one fixed budget of bits can hold both enormous and tiny values. The **exponent** bits buy *range*: how large or small a number can get before it overflows to infinity or collapses to zero. The **fraction** bits buy *precision*: how many significant digits survive. That split is why training settled on bf16 rather than fp16 despite both being 16 bits — bf16 keeps all 8 of fp32's exponent bits and gives up fraction instead, and gradients span enormous magnitudes, so a value that underflows to zero stops training that weight altogether, while a slightly imprecise one does little harm. (fp8 comes in two flavours for the same reason: the 1/4/3 split above, and a 1/5/2 variant that trades one more fraction bit for range.) The training breakdown further down uses exactly that trade: fp16 weights for speed, alongside an fp32 master copy so millions of tiny updates don't vanish into rounding.
 
-Those totals land on round numbers because every quantity here is a power of two. $4096 = 2^{12}$, so one matrix is $2^{24}$ numbers and four of them are $2^{26}$; at 4 bytes each that's $2^{28}$ bytes, and since a MiB is $2^{20}$ bytes, the answer is exactly $2^8 = 256$ MiB. Worth watching the units, though — a MiB is $1024^2$ bytes while a MB is $10^6$, so those same weights are an unlovely 268.4 MB in the decimal units GPU spec sheets quote. This post stays in MiB until [the hardware section](#what-that-means-in-actual-gpus), where the comparison is against real cards.
+Those totals land on round numbers because every quantity here is a power of two. $4096 = 2^{12}$, so one matrix is $2^{24}$ numbers and four of them are $2^{26}$; at 4 bytes each that's $2^{28}$ bytes, and since a MiB is $2^{20}$ bytes, the answer is exactly $2^8 = 256$ MiB. Worth watching the units, though — a MiB is $1024^2$ bytes while a MB is $10^6$, so those same weights are an unlovely 268.4 MB in the decimal units GPU spec sheets quote. This post stays in MiB until [§6](#what-the-model-costs), where the comparison is against real cards and their decimal spec sheets.
 
-One warning the capacity number hides. Memory bills you on two separate meters: **how many bytes you have to hold**, in GB, and **how fast you can move them**, in GB/s. The weights sit in the GPU's memory while the arithmetic happens in its compute units, so every number has to make that trip — capacity decides whether the model runs at all, bandwidth decides how fast it runs. Two budgets, two ways to fail: miss the first and you get an out-of-memory error, miss the second and it runs correctly but slowly, with all that spare capacity doing nothing to help. [The hardware section below](#what-that-means-in-actual-gpus) works through a decode step where the second meter, not the first, sets the token rate.
+One warning the capacity number hides. Memory bills you on two separate meters: **how many bytes you have to hold**, in GB, and **how fast you can move them**, in GB/s. The weights sit in the GPU's memory while the arithmetic happens in its compute units, so every number has to make that trip — capacity decides whether the model runs at all, bandwidth decides how fast it runs. Two budgets, two ways to fail: miss the first and you get an out-of-memory error, miss the second and it runs correctly but slowly, with all that spare capacity doing nothing to help. [§6](#what-the-model-costs) works through a decode step where the second meter, not the first, sets the token rate.
 
 #### An aside: what a FLOP is, and how to count one
 
@@ -399,7 +400,7 @@ That table counted only $QK^\top$. Applying the same rule to every matmul in one
 
 Note the `32 ×` on the attention rows: those are **thirty-two small matmuls, one per head**, summed — not one big one. It happens not to change the total, because $32 \times 128 = 4096$ makes the arithmetic identical either way, but it is what actually runs.
 
-Worth stating while we're here, since it's a natural assumption: **grouped-query attention — GQA, the arrangement Llama-3-8B actually uses — doesn't shrink these.** Its 8 key/value heads are broadcast back up to 32 right before the matmul, so every query head still scores against a full-width key. GQA saves cache and parameters, not attention FLOPs.
+Worth stating while we're here, since it's a natural assumption: **grouped-query attention — GQA, the arrangement Llama-3-8B actually uses — doesn't shrink these.** Its 8 key/value heads are broadcast back up to 32 right before the matmul, so every query head still scores against a full-width key. GQA saves cache and parameters, not attention FLOPs — and [§6](#what-the-model-costs) puts a number on the cache it does save.
 
 **The quadratic term is the smallest item here.** At a 1,024-token sequence, attention's famous $n^2$ cost is 6% of the layer; the four projections are 89%. The $n^2$ term only takes over once $seq$ grows past $d_{model}$ — below that, a transformer is mostly big dense matrix multiplies, and "attention is quadratic" describes the *asymptote*, not the regime most models run in. Post 3 is about what happens when you do cross that line.
 
@@ -419,60 +420,22 @@ which is the projection row of the table above, to the digit. The demo checks th
 
 (Everything above is head-count independent for the same reason as before.)
 
-#### Pricing a whole model: Llama-3-8B
+### 6. What the whole model costs to run {#what-the-model-costs}
 
-Everything so far has been one layer. Scaled up to the whole model, the interesting thing is that **training and inference are not the same job** — and they diverge far more in memory than in arithmetic.
+Everything so far has been one layer, priced in $d_{model}$ and $seq$. Now put the whole model on a card you could actually rent and ask the two questions that decide everything: **does it fit, and how fast does it go?**
 
-One number carries the rest of this section, and it has just changed meaning:
+One number carries the section, and it has just changed meaning:
 
 ```text
   N, whole-model parameters          8.03B
   (not the 67.1M above — that was one layer's four projections)
 ```
 
-Worth pinning down, because every figure below is $N$ times some small constant. [The FLOP aside](#an-aside-what-a-flop-is-and-how-to-count-one) used $N$ for a single layer's four projections; from here on it means the whole model — all 32 blocks, plus the embedding table and the LM head.
+[The FLOP aside](#an-aside-what-a-flop-is-and-how-to-count-one) used $N$ for a single layer's four projections. From here it means the whole model — all 32 blocks, plus the embedding table and the LM head.
 
-**Serving** is the cheap case. One forward pass, so the $2N$ rule applies directly: $2 \times 8.03\text{B} = 16.1$ GFLOPs of arithmetic per token, and the only structural memory is the weights themselves.
+#### The budget
 
-**Training** runs that same forward pass and then a backward one costing about twice as much, because on the way back every layer has to answer *two* questions where on the way in it answered only one.
-
-Going in, a layer has one job: take its input, produce its output. Coming back, it is handed a message — *the output you produced was wrong; it should have been a little higher here, a little lower there* — and from that one message it works out two different things:
-
-- **how its own weights should change**, given that its output was wrong that way. This is the point of the whole exercise — though the backward pass only *computes* that correction. It gets stored, and a separate optimizer step applies it once the whole pass is done.
-- **what its input should have been**, for that output to have come out right. It can't act on this one — its input is whatever the previous layer handed over. But "what my input should have been" is the same statement as "what your output should have been" to the layer behind it, so this answer is the message that keeps the chain moving.
-
-Each of those is a matrix multiply the same size as the forward one, so the way back costs two forward passes' worth of arithmetic. It's also why the backward pass is a *chain* rather than 32 independent calculations: a layer can't start until the layer after it has produced that message. ([§12](#the-return-trip) writes both multiplies out, if you want the algebra rather than the words.) Add the original forward pass and training comes to **3× inference, per token**:
-
-```text
-  per token        FLOPs                            why
-  -------------------------------------------------------
-  inference  2N = 16.1 G               one forward pass
-  training   6N = 48.2 G  forward, then backward at ~2x
-```
-
-Three times the arithmetic. That part is mild.
-
-**Memory** is where they separate. Inference needs the weights and nothing else structural. Training has to keep the optimizer's state beside them:
-
-```text
-  what                   cost   size  running total
-  ---------------------------------------------------
-  fp16 weights      2 B/param  16 GB          16 GB
-  fp32 master copy  4 B/param  32 GB          48 GB
-  fp32 gradients    4 B/param  32 GB          80 GB
-  Adam moment m     4 B/param  32 GB         112 GB
-  Adam moment v     4 B/param  32 GB         145 GB
-```
-
-Those last three rows are the compute story made concrete. The gradients need their own 30 GiB precisely because the backward pass computes corrections rather than applying them — they have to sit somewhere until the optimizer step runs. Adam then keeps two more running averages of past gradients, so each update is smoothed against recent history instead of following the raw gradient. Nothing here would exist if the backward pass simply changed the weights as it went.
-
-**About 2 bytes per parameter to serve, about 18 to train** — and that's before activations, which training must also keep because the backward pass needs them ([§12](#the-return-trip) shows which of the two products is responsible).
-
-So Llama-3-8B costs **16 GB to serve and about 145 GB to train: 3× the compute, 9× the memory.** That's the first thing to check when a run won't fit — it's almost never the arithmetic.
-
-#### What that means in actual GPUs
-
-Those are model-side numbers. Here's the silicon they have to land on — two common accelerators, at spec-sheet peaks:
+One **A100 80GB**, with its successor alongside for contrast:
 
 ```text
   GPU        memory  bandwidth  BF16 compute
@@ -481,21 +444,62 @@ Those are model-side numbers. Here's the silicon they have to land on — two co
   H100 80GB   80 GB  3.35 TB/s   990 TFLOP/s
 ```
 
-Three columns, and each answers a different question. **Memory** decides whether a job fits at all. **Bandwidth** decides how fast weights can be delivered to the arithmetic units. **Compute** decides how fast the arithmetic runs once they arrive. Take them in that order, because the first is pass/fail and the other two only matter once you've passed it.
+Three columns, three different questions. **Memory** decides whether a job fits at all. **Bandwidth** decides how fast weights reach the arithmetic units. **Compute** decides how fast the arithmetic runs once they arrive. Take them in that order — the first is pass/fail, and the other two only matter once you've passed it.
 
-**Does it fit?** Put the two model-side totals against the 80 GB column:
+One caveat before spending any of it: **80 GB is not 80 GB.** The CUDA context, cuBLAS workspaces and allocator fragmentation take a few gigabytes before any tensor of yours lands, so budget against **~77 GB usable**. Planning to the nominal number is how you meet fragmentation at 3 a.m.
+
+#### Serving: the weights are only the floor
+
+Weights are $N \times$ bytes-per-parameter — [the bytes rule](#an-aside-what-those-671m-numbers-weigh) from §5, applied to all 8.03 billion instead of one layer's 67.1M:
 
 ```text
-  Llama-3-8B weights, fp16           16.1 GB
-    fits on one 80 GB card?          yes, with ~64 GB to spare
-    that spare is worth              ~488k tokens of KV cache
-  training state (18 B/param)        145 GB
-    fits on one 80 GB card?          no — needs several, before activations
+  stored as  bytes/param  weights
+  ---------------------------------
+  fp32                 4  32.1 GB
+  bf16/fp16            2  16.1 GB
+  int8                 1   8.0 GB
+  int4               0.5   4.0 GB
 ```
 
-**Serving is comfortable** — 16.1 GB on an 80 GB card leaves ~64 GB free, worth roughly 488,000 tokens of KV cache, which is post 2's currency. **Training doesn't fit at all** — 145 GB against 80 GB, before a single activation. You need several GPUs and a sharding strategy for a model that serves happily on one. Same weights, different job.
+At bf16 that's **16.1 GB against 77 usable**, which is why "can one card serve an 8B model" has such an easy yes. But weights are the floor, not the bill.
 
-**How fast does it run?** That's the other two columns, and they disagree violently. At **batch 1** — a single stream, one token at a time — a decode step reads every weight exactly once, so you can time it two ways: by the arithmetic it does, or by the bytes it moves.
+#### The ceiling is the KV cache
+
+Generating text means keeping every key and value already computed, so the model doesn't rebuild the whole prefix for each new token. That cache grows with every token, and its size is pure architecture:
+
+$$
+2 \times L \times n_{kv} \times d_{head} \times \text{bytes per number}
+$$
+
+Two for K and V, $L = 32$ layers, $n_{kv} = 8$ key/value heads, $d_{head} = 128$, two bytes each in bf16:
+
+```text
+  KV cache per token (GQA, 8 kv)     128 KiB
+    had it been MHA (32 kv)          512 KiB — 4x worse
+  KV per full 8k sequence            1.00 GiB
+```
+
+**This is where GQA earns its keep** — and it's the receipt §5 owed you. Back there, GQA saved *nothing* on attention FLOPs, because its 8 key/value heads get broadcast back up to 32 before the matmul. This is what it does save instead: the cache is sized by $n_{kv}$, not $n_{heads}$, so 8 instead of 32 makes it **four times smaller**. Had Llama 3 used plain MHA, one full 8k sequence would cost 4 GiB of cache rather than 1.
+
+That **1 GiB per 8k sequence** is worth carrying. It converts spare memory directly into a concurrency number:
+
+```text
+  card, nominal / usable             80 GB / ~77 GB
+    minus weights, workspace         58 GB left for KV
+    which buys                       ~442k tokens of cache
+
+  context length  concurrent sequences
+  --------------------------------------
+  8k                               ~54
+  32k                              ~13
+  128k                              ~3
+```
+
+That last table is the real answer to "how many users can one card serve." At 8k context, around 54 — a genuine server. At 128k, three. **The binding constraint for serving is the KV cache at long context, not the weights**, and post 2 is entirely about living with that.
+
+#### How fast it generates
+
+Memory said yes. Now the other two columns, which disagree violently. At **batch 1** — a single stream, one token at a time — a decode step reads every weight exactly once, so you can time it two ways: by the arithmetic it does, or by the bytes it moves.
 
 ```text
   GPU        if compute-bound  if bandwidth-bound   gap
@@ -504,7 +508,7 @@ Three columns, and each answers a different question. **Memory** decides whether
   H100 80GB      61,644 tok/s           209 tok/s  296x
 ```
 
-Both columns are a single division. Take the H100 and an 8B model served in bf16 — 16.1 GB of weights to move, and $2N \approx 16$ GFLOPs of arithmetic to do:
+Both columns are a single division. Take the H100 and an 8B model in bf16 — 16.1 GB of weights to move, and $2N \approx 16$ GFLOPs of arithmetic to do:
 
 $$
 \text{bytes: } \frac{16.1\ \text{GB}}{3.35\ \text{TB/s}} \approx 4.8\ \text{ms} \;\longrightarrow\; 209\ \text{tok/s}
@@ -516,14 +520,108 @@ $$
 
 **Bandwidth wins by two orders of magnitude.** The chip multiplies for 16 microseconds, then waits roughly 4.8 milliseconds for the next weights to arrive — busy about 0.3% of the time. All those TFLOP/s are unreachable for this workload.
 
-And it's getting *worse*, not better: the H100 has 3.2× the compute of an A100 but only 1.6× the bandwidth, so the gap roughly doubles between generations. Buying a faster chip mostly buys compute you can't use.
+And it gets *worse*, not better: the H100 has 3.2× the compute of an A100 but only 1.6× the bandwidth, so the gap roughly doubles between generations. Buying a faster chip mostly buys compute you can't use.
 
-*(These are peak numbers; real kernels reach a fraction of them. Batching improves the picture a lot, and now it's clear why — a batch of 64 reads each weight once and spends it on 64 tokens, so the arithmetic done per byte moved rises with the batch size. But the ratio is what matters here, and it survives the discount.)*
+*(Peak numbers; real kernels reach a fraction of them. Batching improves the picture a lot, and now it's clear why — a batch of 64 reads each weight once and spends it on 64 tokens, so arithmetic done per byte moved rises with the batch size. That's what continuous batching in vLLM or TensorRT-LLM is buying. But the ratio is what matters here, and it survives the discount.)*
 
-It also sets up the two posts that follow, which are both about memory rather than math. Post 2 is about a cost that doesn't appear in any table here at all — generating text needs to *keep* every key and value it has computed, and that cache can outgrow the weights. Post 3 is about the fourth row above: the $seq \times seq$ score grid, and how to get attention's answer without ever writing it down.
+#### Training: the same model, eight times the memory
+
+A tempting piece of arithmetic: 16.1 GB of weights, 77 GB of card, therefore training fits. It does not, and the gap isn't close.
+
+Start with compute, which is the mild part. Training runs the model forward and then backward, and the backward pass costs about twice the forward one — because on the way back every layer has to answer *two* questions where on the way in it answered only one.
+
+Going in, a layer has one job: take its input, produce its output. Coming back, it is handed a message — *the output you produced was wrong; it should have been a little higher here, a little lower there* — and from that one message it works out two different things:
+
+- **how its own weights should change**, given that its output was wrong that way. This is the point of the whole exercise — though the backward pass only *computes* that correction. It gets stored, and a separate optimizer step applies it once the whole pass is done.
+- **what its input should have been**, for that output to have come out right. It can't act on this one — its input is whatever the previous layer handed over. But "what my input should have been" is the same statement as "what your output should have been" to the layer behind it, so this answer is the message that keeps the chain moving.
+
+Each of those is a matrix multiply the same size as the forward one, so the way back costs two forward passes' worth of arithmetic. It's also why the backward pass is a *chain* rather than 32 independent calculations: a layer can't start until the layer after it has produced that message. ([§13](#the-return-trip) writes both multiplies out, if you want the algebra rather than the words.) Add the original forward pass and training comes to **3× inference, per token**:
+
+```text
+  per token        FLOPs                            why
+  -------------------------------------------------------
+  inference  2N = 16.1 G               one forward pass
+  training   6N = 48.2 G  forward, then backward at ~2x
+```
+
+Three times the arithmetic. That part is mild. **Memory is where the two jobs separate**, because training has to keep the optimizer's state beside the weights:
+
+```text
+  what                   cost     size  running total
+  -----------------------------------------------------
+  bf16 weights      2 B/param  16.1 GB        16.1 GB
+  bf16 gradients    2 B/param  16.1 GB        32.1 GB
+  fp32 master copy  4 B/param  32.1 GB        64.2 GB
+  Adam moment m     4 B/param  32.1 GB        96.4 GB
+  Adam moment v     4 B/param  32.1 GB       128.5 GB
+```
+
+Those last four rows are the compute story made concrete. The gradients need 16.1 GB precisely because the backward pass computes corrections rather than applying them — they have to sit somewhere until the optimizer step runs. The fp32 master copy exists so millions of tiny updates don't vanish into bf16's seven fraction bits. Adam then keeps two running averages of past gradients, so each update is smoothed against recent history instead of following the raw gradient. None of it would exist if the backward pass simply changed weights as it went.
+
+**About 2 bytes per parameter to serve, about 16 to train.** So:
+
+```text
+  training state (16 B/param)        128 GB
+    against usable                   77 GB — over by 51 GB
+```
+
+**Over budget before a single activation is allocated.** That 8× gap between serving and training is the whole story, and it's why a model that serves happily on one card needs several to fine-tune.
+
+#### The two costs nobody budgets for
+
+The 128 GB above is the part people remember. Two more get underestimated, and either can be the thing that actually triggers the out-of-memory error.
+
+**Activations.** Inference discards each layer's intermediate values as it goes; training cannot, because $dW = X^\top dY$ needs the layer's input $X$ from the forward pass ([§13](#the-return-trip) shows exactly which product is responsible). Gradient checkpointing is the escape: store only each layer's input and recompute the rest during the backward pass, trading roughly 30% extra compute for a large memory saving.
+
+```text
+  activations, ckpt b=1 s=4096       1.1 GB
+```
+
+**The logits tensor**, which is the sneaky one. The vocabulary is 128,256 wide, and training scores *every position at once*, so one 4,096-token sequence materialises a $4096 \times 128{,}256$ tensor:
+
+```text
+  logits, fp32 at seq 4096           2.1 GB per sequence
+```
+
+Softmax and its gradient typically need two or three copies of that, so 4–6 GB for a single sequence — larger than several transformer blocks put together, from a layer that is conceptually just a lookup ([§13](#training-and-inference) opens it up). On models with big vocabularies this is often the real OOM trigger rather than the optimizer, which is why fused or chunked cross-entropy exists.
+
+#### The verdict
+
+| Task | One A100 80GB? | What binds |
+| --- | --- | --- |
+| bf16 inference | **yes**, easily | 16.1 GB of weights |
+| inference at 8k context | **yes** | ~1 GiB of KV cache per sequence |
+| int8 / int4 inference | **yes**, very easily | 8.0 / 4.0 GB of weights |
+| full fine-tune, plain AdamW | **no** | 128 GB of training state |
+| full fine-tune, with offload and 8-bit optimizer | *borderline* | fits via tricks, then PCIe-bound |
+| pretraining from scratch | **no**, practically | compute, not memory |
+
+The distinction worth carrying out of this section: **8 billion parameters does not mean an 8 GB model.** The same architecture is 4–32 GB to serve depending on precision, and comfortably over 100 GB to train, because training adds gradients, master weights, optimizer moments and activations on top of the weights themselves.
+
+#### Why pretraining is a different question entirely
+
+Everything above is a *memory* question, and memory questions have engineering answers — shard the optimizer state across GPUs and 128 GB becomes 16 GB on each of eight cards.
+
+Pretraining is a *compute* question, and it doesn't yield to the same trick. The table above says a training token costs $6N$ FLOPs. Multiply by however many tokens you intend to train on and you get the whole bill:
+
+$$
+C \approx 6ND
+$$
+
+That's the entire budget for a training run, and it is the $6N$ from this section with $D$ tokens pushed through it. Llama 3 was trained on more than 15 trillion:
+
+$$
+6 \times 8.03\text{B} \times 15\text{T} \approx 7.2 \times 10^{23} \text{ FLOPs}
+$$
+
+Meta reports roughly 1.3 million H100-hours for the 8B model, which is about **148 GPU-years on a single card** — and an A100 is materially slower than an H100. No amount of memory tricks touches that number.
+
+Which is the point worth ending on. You don't need thousands of GPUs because the model won't fit — sharding solves that with eight. **You need thousands because there are trillions of tokens to push through it**, and the only way to buy wall-clock time is to run them in parallel.
+
+Both posts that follow are about memory rather than math. Post 2 is about the cost this section just met — the KV cache that decides how many sequences a card can serve. Post 3 is about the score matrix from §5: the $seq \times seq$ grid, and how to get attention's answer without ever writing it down.
 
 
-### 6. Following the shapes {#following-the-shapes}
+### 7. Following the shapes {#following-the-shapes}
 
 Shapes are where most confusion about attention lives. Rather than write a table by hand — easy to get subtly wrong — the demo runs a real attention module on a 10-token prompt and prints what PyTorch reports. This is the code it runs:
 
@@ -650,7 +748,7 @@ Note the asymmetry: **$Q$ keeps full width; only $K$ and $V$ shrink.** That's de
 
 Read the rest of this post as classic MHA; the mechanism is identical either way.
 
-### 7. The rest of the block {#where-attention-sits-in-the-model}
+### 8. The rest of the block {#where-attention-sits-in-the-model}
 
 Back to the diagram from [§1](#what-a-language-model-does). Attention was one box in it. Here are the others — and the wrapping around all of them.
 
@@ -661,7 +759,7 @@ Start with the box this post has been about. Here's the data path inside it, wit
 ![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-light.png){: .light width="900" height="964" }
 ![Inside the multi-head attention module](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/attention-zoom-dark.png){: .dark width="900" height="964" }
 
-Two steps in it are worth naming. **One input, three projections** — $Q$, $K$ and $V$ are three learned *views of the same vector*, which is what makes self-attention "self." And **RoPE rotates $Q$ and $K$, never $V$** — position belongs in the *matching* step; $V$ is the content you retrieve once matching is done, so rotating it would corrupt the payload. [§13](#rope-absolute-rotation-relative-score) covers RoPE properly.
+Two steps in it are worth naming. **One input, three projections** — $Q$, $K$ and $V$ are three learned *views of the same vector*, which is what makes self-attention "self." And **RoPE rotates $Q$ and $K$, never $V$** — position belongs in the *matching* step; $V$ is the content you retrieve once matching is done, so rotating it would corrupt the payload. [§14](#rope-absolute-rotation-relative-score) covers RoPE properly.
 
 #### The other pieces, in plain English
 
@@ -689,7 +787,7 @@ If a sublayer learns nothing useful, the block degrades to the identity rather t
 
 That leaves one box in the diagram unexplained, and it's the biggest one.
 
-### 8. The FFN: where the model knows things {#the-ffn}
+### 9. The FFN: where the model knows things {#the-ffn}
 
 **FFN** stands for **feed-forward network**. It processes each token entirely on its own — that's what "position-wise" means; token 5 has no idea token 6 exists. Next to attention it looks like filler. It isn't, and it's worth three questions: what it is, why it's there, and why facts end up inside it.
 
@@ -850,7 +948,7 @@ Attention gets the name and the diagrams, but it's the **minority of the weights
 
 Which is the parameter-count version of the point above: **routing lives in attention, knowledge lives in the FFN.** If the FFN is the model's memory, it needs to be big. It's also why LoRA on attention alone underperforms (post 5), and why Mixture-of-Experts replaces the *FFN* (post 9).
 
-### 9. The implementation, in five lines {#the-implementation-in-five-lines}
+### 10. The implementation, in five lines {#the-implementation-in-five-lines}
 
 ```python
 def scaled_dot_product_attention(q, k, v, *, causal=False, scale=None):
@@ -880,7 +978,7 @@ Checking it against PyTorch's fused `F.scaled_dot_product_attention`:
 
 Agreement to `5e-07` in float32 — floating-point reassociation noise, not an algorithmic difference. Worth internalizing early, because it's the same fact that makes Flash Attention work: **a fast kernel is an optimization, not an approximation.** Post 3 returns to this.
 
-### 10. Why divide by sqrt(d_k)? {#why-divide-by-sqrt-dk}
+### 11. Why divide by sqrt(d_k)? {#why-divide-by-sqrt-dk}
 
 The argument is short. If $q$ and $k$ have independent components with mean 0 and variance 1, then
 
@@ -918,7 +1016,7 @@ Why does saturation hurt? Two reasons, and the second is what actually kills tra
 
 That second point reframes it. $1/\sqrt{d_k}$ is not about overflow — softmax handles large logits fine by subtracting the row max. It's there to **keep the softmax in a regime where it still has a gradient**, whatever width you make the heads.
 
-### 11. Causal masking {#causal-masking}
+### 12. Causal masking {#causal-masking}
 
 [§3](#the-formula-symbol-by-symbol) introduced the mask $M$. Here is what it does to the weights:
 
@@ -940,7 +1038,7 @@ Note row `q0`: weight exactly 1.000 on itself. The first token has nothing else 
 This one matrix is why the same architecture serves both BERT (unmasked, good for understanding) and GPT (masked, good for generation).
 
 
-### 12. How this becomes learning, and becomes writing {#training-and-inference}
+### 13. How this becomes learning, and becomes writing {#training-and-inference}
 
 Everything so far has described what happens to **one token's vector**. That leaves the question this post opened with only half answered: how does a pile of per-token machinery learn anything, or write a sentence?
 
@@ -1058,11 +1156,11 @@ One more consequence falls out of $dW = X^\top dY$: it needs $X$, the layer's in
 
 Those bottom boxes have appeared in three diagrams now without being opened, and they're where a vector finally turns back into a word.
 
-**The final norm** is the same RMSNorm from [§7](#where-attention-sits-in-the-model), applied once after the last block. Thirty-two blocks have each added their corrections to the residual stream, and nothing has rescaled it since; this puts the vector back into a predictable range before the last step reads it.
+**The final norm** is the same RMSNorm from [§8](#where-attention-sits-in-the-model), applied once after the last block. Thirty-two blocks have each added their corrections to the residual stream, and nothing has rescaled it since; this puts the vector back into a predictable range before the last step reads it.
 
 **The LM head** is one matrix, and conceptually the simplest thing in the model: it takes a token's 4,096 numbers and produces **one score per word in the vocabulary** — all 128,256 of them.
 
-That number should look familiar. Back in [§7](#where-attention-sits-in-the-model) the model turned a token *into* a vector by looking up one of 128,256 rows. The LM head is that same table read the other way: instead of fetching one row by its number, it compares your vector against **every** row and reports how well each one matches.
+That number should look familiar. Back in [§8](#where-attention-sits-in-the-model) the model turned a token *into* a vector by looking up one of 128,256 rows. The LM head is that same table read the other way: instead of fetching one row by its number, it compares your vector against **every** row and reports how well each one matches.
 
 ![The embedding table and the LM head are one table read in two directions](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/word-table-light.png){: .light width="880" height="486" }
 ![The embedding table and the LM head are one table read in two directions](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/word-table-dark.png){: .dark width="880" height="486" }
@@ -1104,7 +1202,7 @@ Two more things follow, and they're the seeds of the next two posts:
 - **Nothing computes "just the last position".** The machinery is inherently parallel across the sequence; you can't ask it for one prediction. So generating a 500-token reply means 500 passes, each slightly longer than the last — and each recomputing what the previous one already worked out. That waste is what a KV cache exists to remove.
 - **Training and generating are the same forward pass**, which is why every cost in [§5](#what-attention-costs) applies to both. What differs is that training adds a backward pass, and that generating repeats the forward one over and over for a single answer.
 
-### 13. RoPE: absolute rotation, relative score {#rope-absolute-rotation-relative-score}
+### 14. RoPE: absolute rotation, relative score {#rope-absolute-rotation-relative-score}
 
 Back to the gap from [§3](#the-formula-symbol-by-symbol): attention has no idea what order the tokens came in. Something must inject position.
 
@@ -1171,7 +1269,7 @@ Two things that number hides. Models routinely degrade well before their stated 
 
 One consequence that returns in post 12: because the rotation happens *after* the $Q$/$K$ projections, RoPE doesn't commute with tricks that absorb those projections into neighbouring matrices — exactly the complication DeepSeek's MLA has to work around.
 
-### 14. A silent MPS bug that deleted RoPE {#a-silent-mps-bug-that-deleted-rope}
+### 15. A silent MPS bug that deleted RoPE {#a-silent-mps-bug-that-deleted-rope}
 
 While building this demo, the RoPE section printed a score that was *identical for every offset*. Not wrong-looking — suspiciously perfect.
 
