@@ -77,7 +77,7 @@ That computation is a **transformer**: a stack of $L$ identical **blocks** — 3
 1. **Attention** — each token looks at the other tokens and pulls in whatever it needs. This is the *only* step where tokens see each other.
 2. **A feed-forward network (FFN)** — each token, now holding some context, gets transformed on its own. No looking around.
 
-Gather, then think. Thirty-two times over. At the end, one more layer turns the final token's numbers into a probability for every word in the vocabulary, and you pick one.
+Gather, then think. Thirty-two times over. At the end, one more layer turns a token's numbers into a probability for every word in the vocabulary, and you pick one — [§12](#training-and-inference) opens that layer up.
 
 **This post is about step 1**, where most of the interesting design lives. ([§12](#training-and-inference) comes back to the loop itself — how a stack of per-token machinery ends up learning from a sequence, and writing one.) [§8](#the-ffn) comes back for the FFN, and [§7](#where-attention-sits-in-the-model) for the norms and residuals, once the vocabulary is in place.
 
@@ -924,6 +924,25 @@ The difference is entirely in what happens at the bottom.
 **Training** compares all those scores against the real next tokens and boils the result down to one number: how wrong the model was. Then comes the part that has no counterpart on the right — **the return trip.** That error is walked back down through every layer, working out how each individual weight contributed to it, and every weight is nudged. That backward journey is where the extra cost from [§5](#what-attention-costs) comes from: roughly twice the forward pass, which is what turns $2N$ into $6N$.
 
 **Generating** never goes back. It takes the bottom row, throws away everything except the last position's scores, picks a word from them, sticks it on the end of the input, and runs the entire stack again — 32 blocks, from the top, for one more token. That loop is why a 500-token answer means 500 trips through the whole model.
+
+#### The last two boxes: the final norm and the LM head
+
+Those bottom boxes have appeared in three diagrams now without being opened, and they're where a vector finally turns back into a word.
+
+**The final norm** is the same RMSNorm from [§7](#where-attention-sits-in-the-model), applied once after the last block. Thirty-two blocks have each added their corrections to the residual stream, and nothing has rescaled it since; this puts the vector back into a predictable range before the last step reads it.
+
+**The LM head** is one matrix, and conceptually the simplest thing in the model: it takes a token's 4,096 numbers and produces **one score per word in the vocabulary**.
+
+![From a vector to an actual next word](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/lm-head-light.png){: .light width="880" height="723" }
+![From a vector to an actual next word](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/lm-head-dark.png){: .dark width="880" height="723" }
+
+Those raw scores are called **logits** — they're unbounded and don't mean anything on their own; only their differences matter. Softmax turns them into shares of 100%, and then a word is drawn from that distribution. Always taking the highest-scoring word makes the model repetitive, so real sampling deliberately keeps some of the randomness — which is why the same prompt gives different answers twice.
+
+Two things about this step surprise people.
+
+**It's a huge matrix.** $4096 \times 128{,}256$ is **525M parameters** — 6.5% of an 8B model in a single layer. The embedding table at the top is the same shape, so those two lookup tables together are 13% of the whole model. (Some models tie them, using one set of weights for both, which saves that 525M outright.)
+
+**Its output is enormous during training.** One token's logits are 128,256 numbers — half a megabyte. But training runs every position at once, so a single 4,096-token sequence produces **about 2 GB of logits**, more than the weights of the block that produced them. It's a real constraint, and why loss computation is often chunked rather than done in one go.
 
 #### So what actually runs in parallel?
 
