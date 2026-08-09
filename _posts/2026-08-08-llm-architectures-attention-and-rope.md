@@ -278,19 +278,24 @@ $$
 \text{bytes} \;=\; (\text{how many numbers}) \times (\text{bytes per number})
 $$
 
-The multiplier is the **precision** you store them in. Run attention's four projections through it — the count first, from the four $4096 \times 4096$ matrices above:
+The multiplier is the **precision** you store them in, and the name gives it away: **fp32** is *32-bit **f**loating **p**oint* — 32 bits per number, which is 4 bytes. Every format is named the same way, so the multiplier is only ever the bit count divided by 8.
+
+Run attention's four projections through the rule — the count first, from the four $4096 \times 4096$ matrices above:
 
 $$
 4 \times 4096^2 = 67{,}108{,}864 \text{ numbers}
 $$
 
-| Stored as | Bytes per number | Total bytes | Weighs |
-| --- | --- | --- | --- |
-| fp32 | 4 | 268,435,456 | **256 MiB** |
-| bf16 / fp16 | 2 | 134,217,728 | **128 MiB** |
-| fp8 | 1 | 67,108,864 | 64 MiB |
+| Stored as | Bits: sign / exponent / fraction | Bytes each | Total bytes | Weighs |
+| --- | --- | --- | --- | --- |
+| fp32 | 32: 1 / 8 / 23 | 4 | 268,435,456 | **256 MiB** |
+| bf16 | 16: 1 / 8 / 7 | 2 | 134,217,728 | **128 MiB** |
+| fp16 | 16: 1 / 5 / 10 | 2 | 134,217,728 | **128 MiB** |
+| fp8 | 8: 1 / 4 / 3 | 1 | 67,108,864 | 64 MiB |
 
 Same architecture, down to a quarter of the memory, decided long after the model was designed. That's why the memory rows in the table are written as counts: the count is fixed by the model, the multiplier is picked when you deploy it.
+
+**What those three groups of bits do.** Floating point is binary scientific notation — a sign, an exponent and a fraction — which is how one fixed budget of bits can hold both enormous and tiny values. The **exponent** bits buy *range*: how large or small a number can get before it overflows to infinity or collapses to zero. The **fraction** bits buy *precision*: how many significant digits survive. That split is why training settled on bf16 rather than fp16 despite both being 16 bits — bf16 keeps all 8 of fp32's exponent bits and gives up fraction instead, and gradients span enormous magnitudes, so a value that underflows to zero stops training that weight altogether, while a slightly imprecise one does little harm. (fp8 comes in two flavours for the same reason: the 1/4/3 split above, and a 1/5/2 variant that trades one more fraction bit for range.) The training breakdown further down uses exactly that trade: fp16 weights for speed, alongside an fp32 master copy so millions of tiny updates don't vanish into rounding.
 
 Those totals land on round numbers because every quantity here is a power of two. $4096 = 2^{12}$, so one matrix is $2^{24}$ numbers and four of them are $2^{26}$; at 4 bytes each that's $2^{28}$ bytes, and since a MiB is $2^{20}$ bytes, the answer is exactly $2^8 = 256$ MiB. Worth watching the units, though — a MiB is $1024^2$ bytes while a MB is $10^6$, so those same weights are an unlovely 268.4 MB in the decimal units GPU spec sheets quote. This post stays in MiB until [the hardware section](#what-this-costs-on-real-hardware), where the comparison is against real cards.
 
