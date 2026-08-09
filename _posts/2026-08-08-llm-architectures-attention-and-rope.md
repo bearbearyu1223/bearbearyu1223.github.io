@@ -430,7 +430,7 @@ Going in, a layer has one job: take its input, produce its output. Coming back, 
 - **how its own weights should change**, given that its output was wrong that way. This is the point of the whole exercise — though the backward pass only *computes* that correction. It gets stored, and a separate optimizer step applies it once the whole pass is done.
 - **what its input should have been**, for that output to have come out right. It can't act on this one — its input is whatever the previous layer handed over. But "what my input should have been" is the same statement as "what your output should have been" to the layer behind it, so this answer is the message that keeps the chain moving.
 
-Each of those is a matrix multiply the same size as the forward one, so the way back costs two forward passes' worth of arithmetic. It's also why the backward pass is a *chain* rather than 32 independent calculations: a layer can't start until the layer after it has produced that message. Add the original forward pass and training comes to **3× inference, per token**:
+Each of those is a matrix multiply the same size as the forward one, so the way back costs two forward passes' worth of arithmetic. It's also why the backward pass is a *chain* rather than 32 independent calculations: a layer can't start until the layer after it has produced that message. ([§12](#the-return-trip) writes both multiplies out, if you want the algebra rather than the words.) Add the original forward pass and training comes to **3× inference, per token**:
 
 ```text
   per token        FLOPs                            why
@@ -990,6 +990,48 @@ Both halves of that sentence are load-bearing. The **comparison** is possible be
 It's worth being clear about what training does *not* do, since it's the natural guess: it never picks predicted tokens and compares them to the real ones. Picking means taking the highest score, and that operation has no useful derivative — nudge a weight slightly and the winner doesn't change, so the gradient is zero almost everywhere and nothing could learn. Instead the model keeps the full distribution and is scored on a softer question: *how much probability did you put on the token that actually came next?* That answer moves smoothly, so it still gives a direction to travel even when the top guess is wrong. Then comes the part that has no counterpart on the right — **the return trip.** That error is walked back down through every layer, working out how each individual weight contributed to it, and every weight is nudged. That backward journey is where the extra cost from [§5](#what-attention-costs) comes from: roughly twice the forward pass, which is what turns $2N$ into $6N$.
 
 **Generating** never goes back. It takes the bottom row, throws away everything except the last position's scores, picks a word from them, sticks it on the end of the input, and runs the entire stack again — 32 blocks, from the top, for one more token. That loop is why a 500-token answer means 500 trips through the whole model.
+
+#### The return trip, in two matrix multiplies {#the-return-trip}
+
+[§5](#what-attention-costs) priced that backward journey at roughly twice the forward pass. Here's where the factor of two comes from, on a single linear layer — which is what each of the four projections is.
+
+Forward, the layer computes
+
+$$
+Y = XW \qquad (n, d_{in}) \times (d_{in}, d_{out}) \;\to\; (n, d_{out})
+$$
+
+Coming back, it is handed exactly one thing: $dY$, the gradient of the loss with respect to its own output, shape $(n, d_{out})$. From that single tensor it forms two products:
+
+$$
+dW = X^\top \, dY \qquad (d_{in}, n) \times (n, d_{out}) \;\to\; (d_{in}, d_{out})
+$$
+
+$$
+dX = dY \, W^\top \qquad (n, d_{out}) \times (d_{out}, d_{in}) \;\to\; (n, d_{in})
+$$
+
+Check the shapes that fall out. $dW$ comes out **exactly the shape of $W$** — one number per weight, which is what the optimizer later consumes. $dX$ comes out **exactly the shape of $X$** — one number per input element.
+
+**That second one is the message.** A layer's input is the previous layer's output, $X^{(\ell)} = Y^{(\ell-1)}$, so differentiating the loss with respect to that one tensor produces a single object wearing two names:
+
+$$
+dX^{(\ell)} \;=\; dY^{(\ell-1)}
+$$
+
+Not an analogy — literally the same tensor. Layer $\ell$ computes $dX$, and that *is* the $dY$ that layer $\ell-1$ needs before it can form its own two products. The chain runs on that identity, and it's why nothing can be computed out of order.
+
+**Now count.** All three multiplies contract the same three dimensions, differing only in which axis is summed away, so the $2abc$ rule from [§5](#an-aside-what-a-flop-is-and-how-to-count-one) prices them identically:
+
+| | Operation | FLOPs |
+| --- | --- | --- |
+| forward | $XW$ | $2 \, n \, d_{in} \, d_{out}$ |
+| backward | $X^\top dY$ | $2 \, n \, d_{in} \, d_{out}$ |
+| backward | $dY W^\top$ | $2 \, n \, d_{in} \, d_{out}$ |
+
+One forward, two backward — training costs $3\times$ inference, which is the $2N \to 6N$ from §5, derived rather than asserted.
+
+One more consequence falls out of $dW = X^\top dY$: it needs $X$, the layer's input *from the forward pass*. So every layer's input has to be held in memory from the moment it's computed until the backward pass comes back for it. That's the activation memory §5 flags and doesn't count. Note that $dX = dY W^\top$ needs only $W$ — it's the weight gradient alone that pins those activations down.
 
 #### The last two boxes: the final norm and the LM head
 
