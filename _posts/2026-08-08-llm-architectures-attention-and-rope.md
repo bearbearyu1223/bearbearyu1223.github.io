@@ -89,7 +89,7 @@ Numbers throughout this post come from one real model, **Llama-3-8B**, so they'r
 | $n_{vocab}$ | 128256 | how many distinct tokens the model knows (§7) |
 | $n_{heads}$ | **32** | how many attention heads (§4) |
 | $d_{head}$ | **128** | width of one head's slice |
-| $n_{kv\_heads}$ | 8 | key/value heads — fewer than query heads (§6) |
+| $n_{kv}$ | 8 | key/value heads — fewer than query heads (§6) |
 | $d_{ff}$ | 14336 | width of the FFN's middle layer (§8) |
 | $L$ | 32 | how many blocks are stacked |
 
