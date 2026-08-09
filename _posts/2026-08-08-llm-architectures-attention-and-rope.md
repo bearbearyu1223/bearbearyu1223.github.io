@@ -86,6 +86,7 @@ Numbers throughout this post come from one real model, **Llama-3-8B**, so they'r
 | | Llama-3-8B | What it is |
 | --- | --- | --- |
 | $d_{model}$ | **4096** | how many numbers describe one token |
+| $V$ | 128256 | how many distinct tokens the model knows (§7) |
 | $n_{heads}$ | **32** | how many attention heads (§4) |
 | $d_{head}$ | **128** | width of one head's slice |
 | $n_{kv\_heads}$ | 8 | key/value heads — fewer than query heads (§6) |
@@ -585,7 +586,7 @@ Two steps in it are worth naming. **One input, three projections** — $Q$, $K$ 
 
 #### The other pieces, in plain English
 
-**Token embeddings** — a lookup table. Every token in the vocabulary owns a list of 4,096 numbers, and that list *is* the model's representation of it. At the start it encodes only "which token is this." Each block edits it toward "which token is this, *in this context*." The word *bank* enters generic and leaves nudged toward *riverbank* or *savings account*.
+**Token embeddings** — a lookup table with one row per token the model knows. Llama-3-8B knows **128,256** of them, and each owns a list of 4,096 numbers, so the table is $128{,}256 \times 4{,}096$ — **525M parameters** before a single block runs. That list *is* the model's representation of the token. At the start it encodes only "which token is this." Each block edits it toward "which token is this, *in this context*." The word *bank* enters generic and leaves nudged toward *riverbank* or *savings account*.
 
 **RMSNorm** — as a vector passes through dozens of layers, its numbers drift, growing until they overflow or shrinking until they vanish. Normalization rescales the whole vector back to a standard size, like setting every track on a mixing desk to a consistent level. Relative proportions survive; only the overall magnitude is standardized.
 
@@ -931,7 +932,7 @@ Those bottom boxes have appeared in three diagrams now without being opened, and
 
 **The final norm** is the same RMSNorm from [§7](#where-attention-sits-in-the-model), applied once after the last block. Thirty-two blocks have each added their corrections to the residual stream, and nothing has rescaled it since; this puts the vector back into a predictable range before the last step reads it.
 
-**The LM head** is one matrix, and conceptually the simplest thing in the model: it takes a token's 4,096 numbers and produces **one score per word in the vocabulary**.
+**The LM head** is one matrix, and conceptually the simplest thing in the model: it takes a token's 4,096 numbers and produces **one score per word in the vocabulary** — all 128,256 of them, the same vocabulary the embedding table indexes at the other end.
 
 ![From a vector to an actual next word](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/lm-head-light.png){: .light width="880" height="723" }
 ![From a vector to an actual next word](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/lm-head-dark.png){: .dark width="880" height="723" }
@@ -940,7 +941,7 @@ Those raw scores are called **logits** — they're unbounded and don't mean anyt
 
 Two things about this step surprise people.
 
-**It's a huge matrix.** $4096 \times 128{,}256$ is **525M parameters** — 6.5% of an 8B model in a single layer. The embedding table at the top is the same shape, so those two lookup tables together are 13% of the whole model. (Some models tie them, using one set of weights for both, which saves that 525M outright.)
+**It's a huge matrix.** $d_{model} \times V$ is $4096 \times 128{,}256$ — **525M parameters**, 6.5% of an 8B model in a single layer. The embedding table from [§7](#where-attention-sits-in-the-model) has exactly the same shape, just used in the opposite direction, so those two together are 13% of the whole model. (Some models *tie* them, using one set of weights for both, which saves that 525M outright.)
 
 **Its output is enormous during training.** One token's logits are 128,256 numbers — half a megabyte. But training runs every position at once, so a single 4,096-token sequence produces **about 2 GB of logits**, more than the weights of the block that produced them. It's a real constraint, and why loss computation is often chunked rather than done in one go.
 
@@ -1075,6 +1076,7 @@ Both are drafted and will go up shortly.
 | $d_{head}$, $d_k$ | width of one head's slice | 128 |
 | $d_{ff}$ | width of the FFN's middle layer | 14336 |
 | $L$ | blocks stacked | 32 |
+| $V$ | vocabulary size — how many distinct tokens exist | 128256 |
 | $x$ | the input, one vector per token | $(n, 4096)$ |
 | $W_q, W_k, W_v$ | projections producing $Q$, $K$, $V$ | $(4096, 4096)$ |
 | $Q, K, V$ | queries, keys, values **before** the head split | $(n, 4096)$ |
