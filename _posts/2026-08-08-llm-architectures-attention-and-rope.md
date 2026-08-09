@@ -93,7 +93,7 @@ Numbers throughout this post come from one real model, **Llama-3-8B**, so they'r
 | $d_{ff}$ | 14336 | width of the FFN's middle layer (§8) |
 | $L$ | 32 | how many blocks are stacked |
 
-These are one model's choices, not universal constants — GPT-2 XL used $d_{model} = 1600$ with 25 heads of 64. One relationship *is* universal, and it does a lot of work later:
+These are one model's choices, not universal constants: GPT-2 XL had $d_{model} = 1600$, split across 25 heads of 64 each. One relationship *is* universal, though — it holds for both models, and it does a lot of work later:
 
 $$
 d_{model} = n_{heads} \times d_{head} \qquad 4096 = 32 \times 128
