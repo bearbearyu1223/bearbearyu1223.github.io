@@ -608,7 +608,7 @@ $$
 
 If a sublayer learns nothing useful, the block degrades to the identity rather than to noise. That unbroken path is also the road the gradient travels back down undiminished, which is what lets you stack 80 of these.
 
-**"Pre-norm"** describes where the norm sits relative to that bypass. The 2017 original normalized *after* adding the residual, putting a norm on the trunk itself. Modern decoders moved it *inside* the branch, so the residual highway stays unnormalized end to end — which is why deep models train stably without the learning-rate warmup gymnastics the original recipe needed.
+**"Pre-norm"** describes where the norm sits relative to that bypass. The 2017 original normalized *after* adding the residual, putting a norm on the trunk itself, so every layer's output got rescaled on the way through. Modern decoders moved it to the *bypassed* side: in the diagram, the norm sits between the point where the arrow branches off and the sublayer it feeds — so the skip route goes around the norm as well as around the sublayer. That leaves the residual path unnormalized end to end, which is why deep models train stably without the learning-rate warmup gymnastics the original recipe needed.
 
 That leaves one box in the diagram unexplained, and it's the biggest one.
 
