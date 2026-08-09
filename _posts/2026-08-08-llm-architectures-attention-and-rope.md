@@ -403,7 +403,13 @@ Worth stating while we're here, since it's a natural assumption: **grouped-query
 
 **The quadratic term is the smallest item here.** At a 1,024-token sequence, attention's famous $n^2$ cost is 6% of the layer; the four projections are 89%. The $n^2$ term only takes over once $seq$ grows past $d_{model}$ — below that, a transformer is mostly big dense matrix multiplies, and "attention is quadratic" describes the *asymptote*, not the regime most models run in. Post 3 is about what happens when you do cross that line.
 
-The rule of thumb checks out too:
+**The $2N$ rule of thumb checks out here too.** It came out of [the FLOP aside](#an-aside-what-a-flop-is-and-how-to-count-one): every weight gets used in exactly one multiply-add per token, so a forward pass should cost about $2N$ FLOPs per token, where $N$ is the parameter count. Attention's four projections hold $N = 67.1$M parameters, and this table pushes 1,024 tokens through them, so the rule predicts
+
+$$
+2 \times 67{,}108{,}864 \times 1024 = 137.4 \text{ G FLOPs}
+$$
+
+which is the projection row of the table above, to the digit. The demo checks that equality rather than asking you to take it on trust — the last line is the comparison, not a label:
 
 ```text
   projection params N                67.1M
@@ -411,7 +417,7 @@ The rule of thumb checks out too:
   equals the measured projection cost yes
 ```
 
-$2 \times 67.1\text{M} \times 1024$ lands exactly on the projection cost — because every weight is used in exactly one multiply-add per token. (Everything above is head-count independent for the same reason as before.)
+(Everything above is head-count independent for the same reason as before.)
 
 #### What this costs on real hardware
 
