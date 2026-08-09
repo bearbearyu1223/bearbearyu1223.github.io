@@ -294,7 +294,7 @@ Same architecture, down to a quarter of the memory, decided long after the model
 
 Those totals land on round numbers because every quantity here is a power of two. $4096 = 2^{12}$, so one matrix is $2^{24}$ numbers and four of them are $2^{26}$; at 4 bytes each that's $2^{28}$ bytes, and since a MiB is $2^{20}$ bytes, the answer is exactly $2^8 = 256$ MiB. Worth watching the units, though — a MiB is $1024^2$ bytes while a MB is $10^6$, so those same weights are an unlovely 268.4 MB in the decimal units GPU spec sheets quote. This post stays in MiB until [the hardware section](#what-this-costs-on-real-hardware), where the comparison is against real cards.
 
-One warning the capacity number hides. Memory costs you twice — how many bytes you must *hold*, and how fast you can *move* them, measured in GB/s rather than GB. They're separate budgets, and [the hardware section below](#what-this-costs-on-real-hardware) shows a decode step where the second one, not the first, sets the speed.
+One warning the capacity number hides. Memory bills you on two separate meters: **how many bytes you have to hold**, in GB, and **how fast you can move them**, in GB/s. The weights sit in the GPU's memory while the arithmetic happens in its compute units, so every number has to make that trip — capacity decides whether the model runs at all, bandwidth decides how fast it runs. Two budgets, two ways to fail: miss the first and you get an out-of-memory error, miss the second and it runs correctly but slowly, with all that spare capacity doing nothing to help. [The hardware section below](#what-this-costs-on-real-hardware) works through a decode step where the second meter, not the first, sets the token rate.
 
 #### An aside: what a FLOP is, and how to count one
 
@@ -463,7 +463,17 @@ Then the number that decides how fast you can generate. A decode step reads ever
   H100 80GB      61,644 tok/s           209 tok/s  296x
 ```
 
-**Bandwidth wins by two orders of magnitude.** The chip finishes the multiplying and then sits waiting for the next weights to arrive. All those TFLOP/s are unreachable for this workload.
+Both columns are a single division. Take the H100 and an 8B model served in bf16 — 16.1 GB of weights to move, and $2N \approx 16$ GFLOPs of arithmetic to do:
+
+$$
+\text{bytes: } \frac{16.1\ \text{GB}}{3.35\ \text{TB/s}} \approx 4.8\ \text{ms} \;\longrightarrow\; 209\ \text{tok/s}
+$$
+
+$$
+\text{math: } \frac{16\ \text{GFLOP}}{990\ \text{TFLOP/s}} \approx 0.016\ \text{ms} \;\longrightarrow\; 61{,}644\ \text{tok/s}
+$$
+
+**Bandwidth wins by two orders of magnitude.** The chip multiplies for 16 microseconds, then waits roughly 4.8 milliseconds for the next weights to arrive — busy about 0.3% of the time. All those TFLOP/s are unreachable for this workload.
 
 And it's getting *worse*, not better: the H100 has 3.2× the compute of an A100 but only 1.6× the bandwidth, so the gap roughly doubles between generations. Buying a faster chip mostly buys compute you can't use.
 
