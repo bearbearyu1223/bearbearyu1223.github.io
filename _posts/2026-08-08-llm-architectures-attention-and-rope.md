@@ -28,7 +28,7 @@ If you read nothing else, these are the things this post establishes — each on
 - **Attention can average, but it cannot conclude.** Blending two facts never produces a third. That's why every block also has a feed-forward network — the only part that transforms a token on its own, shaped like a lookup table, and where a model's facts actually live.
 - **The $\sqrt{d_k}$ is not about overflow.** It keeps the softmax in a range where a gradient still flows back, so how wide you make the heads stays a free choice instead of silently breaking training.
 - **RoPE gets relative position out of absolute rotation.** Spin each token's query and key by an angle set by its position, and the score between any two tokens ends up depending only on the gap between them — with no learned parameters at all.
-- **Training and serving are different jobs.** Same model, 3× the arithmetic and 8× the memory to train it — 16 GB to serve, 128 GB before a single activation. And what limits serving isn't the weights at all, it's the KV cache: about 1 GiB per 8k sequence, which grouped-query attention already made four times smaller than it would otherwise be.
+- **Training and serving are different jobs.** Same model, 3× the arithmetic and 8× the memory to train: 16 GB to serve, 128 GB before a single activation. And what limits serving turns out to be the KV cache rather than the weights — about 1 GiB per 8k sequence, four times smaller than it would be without grouped-query attention.
 
 Every one of those has a **receipt** behind it — a small program that prints the number, so you can check it rather than take my word. The code lives in a companion repo and runs unchanged on Apple Silicon or a Linux + NVIDIA box:
 
@@ -789,7 +789,7 @@ That leaves one box in the diagram unexplained, and it's the biggest one.
 
 ### 9. The FFN: where the model knows things {#the-ffn}
 
-**FFN** stands for **feed-forward network**. It processes each token entirely on its own — that's what "position-wise" means; token 5 has no idea token 6 exists. Next to attention it looks like filler. It isn't, and it's worth three questions: what it is, why it's there, and why facts end up inside it.
+**FFN** stands for **feed-forward network**. It processes each token entirely on its own — that's what "position-wise" means; token 5 has no idea token 6 exists. Next to attention it looks like filler. It isn't, and three questions get at why: what it's made of, why it's there at all, and why the model's facts end up living inside it.
 
 #### What it's made of
 
@@ -817,7 +817,7 @@ $$
 
 Two up-projections run in parallel. One produces content; the other is squashed by a smooth S-curve (SiLU) into a set of dimmers, and the two are multiplied element by element. The network learns, per feature and per input, how much signal to let through — a dimmer it controls rather than a hard on/off switch. The third matrix is paid for by shrinking the expansion from $4d$ to about $\tfrac{8}{3}d$. That's how $d_{ff}$ ends up at 14,336 rather than a rounder 16,384.
 
-Worth knowing for its honesty: the paper introducing SwiGLU tested a family of gated variants, found they worked better, offered no theory, and closed by attributing their success "to divine benevolence." Much of a modern transformer is there because it measured better, not because someone derived it.
+The paper introducing SwiGLU is refreshingly candid about this. It tested a family of gated variants, found they worked better, offered no theory, and closed by attributing their success "to divine benevolence." Much of a modern transformer is there because it measured better, not because someone derived it.
 
 **Why more than one matrix at all?** Because two stacked matrices with nothing between them *are* one matrix:
 
@@ -831,11 +831,11 @@ Multiply the two matrices together *first*, then apply the product. If that give
   shape of that single matrix        (64, 64)
 ```
 
-Identical. Without a nonlinearity you could pre-multiply $W_{\text{up}}$ and $W_{\text{down}}$ into a single $4096 \times 4096$ matrix and all that widening would buy exactly nothing. **The nonlinearity is the only thing stopping them from collapsing into one** — a good hint that it's carrying the weight here.
+Identical. Without a nonlinearity you could pre-multiply $W_{\text{up}}$ and $W_{\text{down}}$ into a single $4096 \times 4096$ matrix and all that widening would buy exactly nothing. **The nonlinearity is the only thing stopping them from collapsing into one**, which tells you where the work is actually being done.
 
 #### Why an FFN is needed at all
 
-**Because attention can only average.** Look at what a softmax guarantees: the weights are non-negative and sum to 1. So every output is a *blend* of the value rows — and a blend of things can never be anything but a mixture of those things.
+**Because attention can only average.** A softmax guarantees two things: the weights are never negative, and they sum to 1. Every output is therefore a *blend* of the value rows, and a blend of things can never be anything but a mixture of those things.
 
 ```python
 # single head here, so d_k == d_model
@@ -854,11 +854,11 @@ torch.allclose(w @ (2 * v), 2 * attn)   # exactly linear in V
   attn(2V) == 2 x attn(V)            yes
 ```
 
-Two consequences. The output can never leave the range of the values it was handed. And holding the weights fixed, attention is exactly **linear** in $V$ — that last row is the test, and we'll come back to it in a moment.
+So the output can never leave the range of the values it was handed. And with the weights held fixed, attention is **linear** in $V$ — that last row is the test, and it comes back in a moment.
 
-That's a real limitation. Attention can bring "this is a plural noun" and "this sentence is about France" into the same vector, but it cannot compute anything *from* them. Averaging two facts doesn't produce a conclusion. "If A and B are both present, then C" is not something a weighted average can express — no matter how many attention layers you stack.
+The limitation is a real one. Attention can bring "this is a plural noun" and "this sentence is about France" into the same vector, but it cannot compute anything *from* them. Averaging two facts doesn't produce a conclusion. "If A and B are both present, then C" is not something a weighted average can express — no matter how many attention layers you stack.
 
-The FFN is the only place in the block where a token's own features get transformed nonlinearly. Here's a test that shows the difference — the simplest possible one:
+The FFN is the only place in the block where a token's own features get transformed nonlinearly. The simplest test of the difference:
 
 > **The doubling test.** A linear function must obey $f(2x) = 2f(x)$: feed it twice the input and you get exactly twice the output. That's what "linear" means.
 
@@ -881,7 +881,7 @@ ffn(2 * x)   # what the function actually returns for a doubled input
 
 The first two columns are the two things being compared, each summarised by its vector length: what the function *actually* returns for a doubled input, versus what doubling its output would have given. **Attention matches exactly. The FFN doesn't** — so it is not a linear function.
 
-The `off by` column needs one word of explanation, because you can't get it from the two columns beside it. It's the length of the *difference* between those two output vectors, relative to the linear prediction — $\lVert f(2x) - 2f(x) \rVert / \lVert 2f(x) \rVert$. That's larger than the 9% gap between the two lengths, because the two outputs don't merely differ in size: they point in different directions. A linear function couldn't do that either.
+The `off by` column isn't something you can derive from the two beside it. It's the length of the *difference* between those two output vectors, relative to the linear prediction — $\lVert f(2x) - 2f(x) \rVert / \lVert 2f(x) \rVert$. That's larger than the 9% gap between the two lengths, because the two outputs don't merely differ in size: they point in different directions. A linear function couldn't do that either.
 
 Easier to hold onto with a single number from the output:
 
@@ -891,13 +891,13 @@ Easier to hold onto with a single number from the output:
     ffn(2x) actually gives           -0.3333
 ```
 
-Double the input and a linear function would have moved that number to $-0.2394$. The FFN returns $-0.3333$ instead. It responds to *how much* signal arrives, not just proportionally — which is exactly the freedom attention doesn't have.
+Double the input and a linear function would have moved that number to $-0.2394$. The FFN returns $-0.3333$ instead. It responds to *how much* signal arrives, not merely in proportion to it. That's the freedom attention doesn't have.
 
-And that's the entire point. **Attention decides what to look at; the FFN decides what it means.** A meeting where everyone shares information, then the work you actually do with what you heard.
+**Attention decides what to look at; the FFN decides what it means.** A meeting where everyone shares information, then the work you actually do with what you heard.
 
 #### Why knowledge ends up there
 
-The second surprise is that the FFN's *shape* is a lookup table. Write it out one slot at a time:
+The FFN's *shape* is a lookup table. Write it out one slot at a time:
 
 $$
 \text{FFN}(x) = \sum_{i=1}^{d_{ff}} \underbrace{a_i(x)}_{\text{did slot } i \text{ match?}} \cdot \underbrace{W_{\text{down}}[i]}_{\text{what slot } i \text{ says}}
@@ -913,7 +913,7 @@ where $a_i(x)$ is the activation of the $i$-th middle neuron. Each of the 14,336
 
 Match against stored patterns, then add up the content of whatever matched, weighted by match strength. That's the same soft-lookup shape as attention itself — except attention looks up *other tokens*, while the FFN looks up *stored weights*.
 
-The claim is that the ordinary matmul and the slot-by-slot sum are the same thing. Same check as before — take one token's output and compute it both ways:
+The ordinary matmul and the slot-by-slot sum should be the same thing. Same check as before: take one token's output and compute it both ways.
 
 ```python
 acts = F.silu(x @ w_up)                          # one score per slot
@@ -930,7 +930,7 @@ by_hand = sum(acts[row, i] * w_down[i] for i in range(d_ff))   # slot by slot
 
 So "the model knows Paris is in France" has a concrete home: some slot whose up-projection fires on *the Eiffel Tower is in*, whose down-projection nudges the output toward *Paris*. Llama-3-8B has 14,336 slots per layer across 32 layers — **458,752 of them**. This isn't only a metaphor: the ROME and MEMIT lines of work locate specific factual associations in specific FFN weights and *edit* them, changing what a model believes by writing to a handful of numbers.
 
-Two caveats so the picture isn't too tidy. Slots aren't cleanly one-fact-each — facts spread across many, and a slot participates in many facts. And with the random weights measured above, most slots respond to anything; trained FFNs are far sparser.
+The real picture is less tidy than that, in two ways. Slots aren't cleanly one-fact-each — facts spread across many, and a slot participates in many facts. And with the random weights measured above, most slots respond to anything; trained FFNs are far sparser.
 
 #### Who gets the parameters?
 
@@ -946,7 +946,7 @@ Counting attention against FFN in a single block, across three real models:
 
 Attention gets the name and the diagrams, but it's the **minority of the weights**. The classic two-thirds figure comes from the original shapes — attention $4d^2$, FFN $2 \cdot d \cdot 4d = 8d^2$. Modern decoders push further from both ends: GQA shrinks $K$/$V$ while SwiGLU adds a third FFN matrix.
 
-Which is the parameter-count version of the point above: **routing lives in attention, knowledge lives in the FFN.** If the FFN is the model's memory, it needs to be big. It's also why LoRA on attention alone underperforms (post 5), and why Mixture-of-Experts replaces the *FFN* (post 9).
+That's the parameter-count version of the same point: **routing lives in attention, knowledge lives in the FFN.** If the FFN is the model's memory, it needs to be big. It's also why LoRA on attention alone underperforms (post 5), and why Mixture-of-Experts replaces the *FFN* (post 9).
 
 ### 10. The implementation, in five lines {#the-implementation-in-five-lines}
 
@@ -1005,16 +1005,16 @@ So let's measure it. Sample random queries and keys at several $d_k$, and report
 ![Softmax saturation without the sqrt(d_k) scale](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/softmax-saturation-light.png){: .light width="1000" height="696" }
 ![Softmax saturation without the sqrt(d_k) scale](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/softmax-saturation-dark.png){: .dark width="1000" height="696" }
 
-Read the `logit std` column first: `1.96, 3.95, 7.94, 15.92, 32.45` — exactly $\sqrt{4}, \sqrt{16}, \sqrt{64}, \sqrt{256}, \sqrt{1024}$. The theory isn't approximately right, it's exactly right.
+Read the `logit std` column first: `1.96, 3.95, 7.94, 15.92, 32.45` — exactly $\sqrt{4}, \sqrt{16}, \sqrt{64}, \sqrt{256}, \sqrt{1024}$. The theory holds to the digit.
 
-Then the consequence. Unscaled, entropy collapses from 1.30 nats to **0.067**; at $d_k = 1024$ the average largest weight is 0.97, so attention has stopped averaging and become a hard `argmax`. Scaled, entropy holds at **~1.74 across a 256× range of $d_k$**. That flat blue line is the entire justification for the constant.
+Then the consequence. Unscaled, entropy collapses from 1.30 nats to **0.067**; at $d_k = 1024$ the average largest weight is 0.97, so attention has stopped averaging and become a hard `argmax`. Scaled, entropy holds at **~1.74 across a 256× range of $d_k$**. That flat blue line is the whole case for the constant.
 
-Why does saturation hurt? Two reasons, and the second is what actually kills training:
+Why does saturation hurt? Two reasons, and the second is the one that kills training:
 
 1. **It stops being attention.** A near-one-hot distribution ignores all but one token.
 2. **The gradient vanishes.** The softmax Jacobian is $\operatorname{diag}(p) - pp^\top$. As $p \to$ one-hot, every entry goes to zero. No gradient reaches $Q$ and $K$, and the model can't learn to attend differently.
 
-That second point reframes it. $1/\sqrt{d_k}$ is not about overflow — softmax handles large logits fine by subtracting the row max. It's there to **keep the softmax in a regime where it still has a gradient**, whatever width you make the heads.
+That second point is the real argument. $1/\sqrt{d_k}$ is not about overflow — softmax handles large logits fine by subtracting the row max. It's there to **keep the softmax in a regime where it still has a gradient**, whatever width you make the heads.
 
 ### 12. Causal masking {#causal-masking}
 
@@ -1259,15 +1259,15 @@ Two panels, same y-axis. Left: slide both vectors along 128 positions, holding t
 
 #### Where a context window actually comes from
 
-Which answers the question [§5](#what-attention-costs) left open: what makes a model "128k"?
+That also settles the question [§5](#what-attention-costs) left open: what makes a model "128k"?
 
 **Not the architecture.** Every weight matrix in this post is sized by $d_{model}$, $d_{ff}$ or the vocabulary — not one of them mentions sequence length, so the same weights run on ten tokens or ten million. Older models did have a hard wall, because they *learned* position: a table with one row per slot, and no row 513 if you trained 512 of them. RoPE has no such wall. The rotation for position 500,000 is a formula, and it computes perfectly well.
 
-What's left is experience. The model has only ever seen rotations from the range it trained on, and past that edge the angles are unfamiliar and quality falls away. So the advertised window is **a claim about where quality was checked**, not a limit sitting in the weights — which is also why it tends to be bought in two stages. Training cost grows with $seq$, so a model does the overwhelming bulk of its training short and cheap, then extends in a brief final phase that rescales the frequency vector until rotations learned at the short length still mean something at the long one. Llama 3 pretrained at 8k; Llama 3.1 stretched the same architecture to 128k.
+What's left is experience. The model has only ever seen rotations from the range it trained on, and past that edge the angles are unfamiliar and quality falls away. So the advertised window is **a claim about where quality was checked**, not a limit sitting in the weights. That's also why it tends to be bought in two stages. Training cost grows with $seq$, so a model does the overwhelming bulk of its training short and cheap, then extends in a brief final phase that rescales the frequency vector until rotations learned at the short length still mean something at the long one. Llama 3 pretrained at 8k; Llama 3.1 stretched the same architecture to 128k.
 
-The number hides two things. Models routinely degrade well before their stated limit — "128k" means "doesn't fall apart," not "equally sharp throughout." And inference servers enforce the ceiling for an unrelated reason: the KV cache grows with every token, so serving needs a fixed memory budget per request. That one is post 2.
+The number is optimistic in two ways. Models routinely degrade well before their stated limit — "128k" means "doesn't fall apart," not "equally sharp throughout." And inference servers enforce the ceiling for an unrelated reason: the KV cache grows with every token, so serving needs a fixed memory budget per request. That one is post 2.
 
-One consequence that returns in post 12: because the rotation happens *after* the $Q$/$K$ projections, RoPE doesn't commute with tricks that absorb those projections into neighbouring matrices — exactly the complication DeepSeek's MLA has to work around.
+One consequence that returns in post 12: because the rotation happens *after* the $Q$/$K$ projections, RoPE doesn't commute with tricks that absorb those projections into neighbouring matrices. That's the complication DeepSeek's MLA has to work around.
 
 ### 15. A silent MPS bug that deleted RoPE {#a-silent-mps-bug-that-deleted-rope}
 
@@ -1289,7 +1289,7 @@ p.cpu().to(torch.float64)     # tensor([105.])          <- correct
 
 `5.19e-322` is a denormal indistinguishable from zero. Every angle became 0, so `cos = 1`, `sin = 0`, and `x * 1 + rotate_half(x) * 0` returned `x` unchanged. **RoPE had silently degraded into the identity function** — no exception, no warning, just a model with no positional information that would have trained to a mediocre loss and left me blaming hyperparameters.
 
-The fix is to separate the device move from the dtype cast. The lesson generalizes: when a numerical result looks *too* clean, verify it on a second device. `LLMR_DEVICE=cpu uv run demo01` takes two seconds and would have caught this immediately.
+The fix is to separate the device move from the dtype cast. The general lesson: when a numerical result looks *too* clean, check it on a second device. `LLMR_DEVICE=cpu uv run demo01` takes two seconds and would have caught this immediately.
 
 ### Sidebar: the probe {#sidebar-the-probe}
 
