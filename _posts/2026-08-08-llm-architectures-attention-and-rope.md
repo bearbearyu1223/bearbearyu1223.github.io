@@ -79,7 +79,7 @@ That computation is a **transformer**: a stack of $L$ identical **blocks** — 3
 
 Gather, then think. Thirty-two times over. At the end, one more layer turns a token's numbers into a probability for every word in the vocabulary, and you pick one — [§12](#training-and-inference) opens that layer up.
 
-**This post is about step 1**, where most of the interesting design lives. ([§12](#training-and-inference) comes back to the loop itself — how a stack of per-token machinery ends up learning from a sequence, and writing one.) [§8](#the-ffn) comes back for the FFN, and [§7](#where-attention-sits-in-the-model) for the norms and residuals, once the vocabulary is in place.
+**This post takes the whole block apart**, in the order the vocabulary allows. Step 1 comes first and gets the most space — attention is where most of the design decisions are, and the rest is easier to describe once it's in hand. Then [§7](#where-attention-sits-in-the-model) returns for the norms, those side arrows, and the "pre-norm" arrangement they add up to; [§8](#the-ffn) for the FFN, which holds more of a model's parameters than attention does; and [§12](#training-and-inference) for the loop itself — how a stack of per-token machinery ends up learning from a sequence, and writing one.
 
 Numbers throughout this post come from one real model, **Llama-3-8B**, so they're a checkable config rather than placeholders:
 
