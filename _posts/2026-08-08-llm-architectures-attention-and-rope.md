@@ -297,9 +297,9 @@ Same architecture, down to a quarter of the memory, decided long after the model
 
 **What those three groups of bits do.** Floating point is binary scientific notation — a sign, an exponent and a fraction — which is how one fixed budget of bits can hold both enormous and tiny values. The **exponent** bits buy *range*: how large or small a number can get before it overflows to infinity or collapses to zero. The **fraction** bits buy *precision*: how many significant digits survive. That split is why training settled on bf16 rather than fp16 despite both being 16 bits — bf16 keeps all 8 of fp32's exponent bits and gives up fraction instead, and gradients span enormous magnitudes, so a value that underflows to zero stops training that weight altogether, while a slightly imprecise one does little harm. (fp8 comes in two flavours for the same reason: the 1/4/3 split above, and a 1/5/2 variant that trades one more fraction bit for range.) The training breakdown further down uses exactly that trade: fp16 weights for speed, alongside an fp32 master copy so millions of tiny updates don't vanish into rounding.
 
-Those totals land on round numbers because every quantity here is a power of two. $4096 = 2^{12}$, so one matrix is $2^{24}$ numbers and four of them are $2^{26}$; at 4 bytes each that's $2^{28}$ bytes, and since a MiB is $2^{20}$ bytes, the answer is exactly $2^8 = 256$ MiB. Worth watching the units, though — a MiB is $1024^2$ bytes while a MB is $10^6$, so those same weights are an unlovely 268.4 MB in the decimal units GPU spec sheets quote. This post stays in MiB until [the hardware section](#what-this-costs-on-real-hardware), where the comparison is against real cards.
+Those totals land on round numbers because every quantity here is a power of two. $4096 = 2^{12}$, so one matrix is $2^{24}$ numbers and four of them are $2^{26}$; at 4 bytes each that's $2^{28}$ bytes, and since a MiB is $2^{20}$ bytes, the answer is exactly $2^8 = 256$ MiB. Worth watching the units, though — a MiB is $1024^2$ bytes while a MB is $10^6$, so those same weights are an unlovely 268.4 MB in the decimal units GPU spec sheets quote. This post stays in MiB until [the hardware section](#what-that-means-in-actual-gpus), where the comparison is against real cards.
 
-One warning the capacity number hides. Memory bills you on two separate meters: **how many bytes you have to hold**, in GB, and **how fast you can move them**, in GB/s. The weights sit in the GPU's memory while the arithmetic happens in its compute units, so every number has to make that trip — capacity decides whether the model runs at all, bandwidth decides how fast it runs. Two budgets, two ways to fail: miss the first and you get an out-of-memory error, miss the second and it runs correctly but slowly, with all that spare capacity doing nothing to help. [The hardware section below](#what-this-costs-on-real-hardware) works through a decode step where the second meter, not the first, sets the token rate.
+One warning the capacity number hides. Memory bills you on two separate meters: **how many bytes you have to hold**, in GB, and **how fast you can move them**, in GB/s. The weights sit in the GPU's memory while the arithmetic happens in its compute units, so every number has to make that trip — capacity decides whether the model runs at all, bandwidth decides how fast it runs. Two budgets, two ways to fail: miss the first and you get an out-of-memory error, miss the second and it runs correctly but slowly, with all that spare capacity doing nothing to help. [The hardware section below](#what-that-means-in-actual-gpus) works through a decode step where the second meter, not the first, sets the token rate.
 
 #### An aside: what a FLOP is, and how to count one
 
@@ -419,11 +419,22 @@ which is the projection row of the table above, to the digit. The demo checks th
 
 (Everything above is head-count independent for the same reason as before.)
 
-#### What this costs on real hardware
+#### Pricing a whole model: Llama-3-8B
 
-Everything so far is per layer. Scaled to a whole model, the interesting thing is that **training and inference are not the same job** — and they differ far more in memory than in arithmetic.
+Everything so far has been one layer. Scaled up to the whole model, the interesting thing is that **training and inference are not the same job** — and they diverge far more in memory than in arithmetic.
 
-**Compute.** Training runs the model forward, then backward — and the backward pass costs about twice the forward one. The reason is that on the way back, every layer has to answer *two* questions, where on the way in it answered only one.
+One number carries the rest of this section, and it has just changed meaning:
+
+```text
+  N, whole-model parameters          8.03B
+  (not the 67.1M above — that was one layer's four projections)
+```
+
+Worth pinning down, because every figure below is $N$ times some small constant. [The FLOP aside](#an-aside-what-a-flop-is-and-how-to-count-one) used $N$ for a single layer's four projections; from here on it means the whole model — all 32 blocks, plus the embedding table and the LM head.
+
+**Serving** is the cheap case. One forward pass, so the $2N$ rule applies directly: $2 \times 8.03\text{B} = 16.1$ GFLOPs of arithmetic per token, and the only structural memory is the weights themselves.
+
+**Training** runs that same forward pass and then a backward one costing about twice as much, because on the way back every layer has to answer *two* questions where on the way in it answered only one.
 
 Going in, a layer has one job: take its input, produce its output. Coming back, it is handed a message — *the output you produced was wrong; it should have been a little higher here, a little lower there* — and from that one message it works out two different things:
 
@@ -444,24 +455,24 @@ Three times the arithmetic. That part is mild.
 **Memory** is where they separate. Inference needs the weights and nothing else structural. Training has to keep the optimizer's state beside them:
 
 ```text
-  what                   cost    size  running total
-  ----------------------------------------------------
-  fp16 weights      2 B/param  15 GiB         15 GiB
-  fp32 master copy  4 B/param  30 GiB         45 GiB
-  fp32 gradients    4 B/param  30 GiB         75 GiB
-  Adam moment m     4 B/param  30 GiB        105 GiB
-  Adam moment v     4 B/param  30 GiB        135 GiB
+  what                   cost   size  running total
+  ---------------------------------------------------
+  fp16 weights      2 B/param  16 GB          16 GB
+  fp32 master copy  4 B/param  32 GB          48 GB
+  fp32 gradients    4 B/param  32 GB          80 GB
+  Adam moment m     4 B/param  32 GB         112 GB
+  Adam moment v     4 B/param  32 GB         145 GB
 ```
 
 Those last three rows are the compute story made concrete. The gradients need their own 30 GiB precisely because the backward pass computes corrections rather than applying them — they have to sit somewhere until the optimizer step runs. Adam then keeps two more running averages of past gradients, so each update is smoothed against recent history instead of following the raw gradient. Nothing here would exist if the backward pass simply changed the weights as it went.
 
-**About 2 bytes per parameter to serve, about 18 to train** — and that's before activations, which training must also keep because the backward pass needs them.
+**About 2 bytes per parameter to serve, about 18 to train** — and that's before activations, which training must also keep because the backward pass needs them ([§12](#the-return-trip) shows which of the two products is responsible).
 
-So an 8B model is 15 GiB to serve and roughly 135 GiB to train: **3× the compute, 9× the memory.** That's the first thing to check when a run won't fit — it's almost never the arithmetic.
+So Llama-3-8B costs **16 GB to serve and about 145 GB to train: 3× the compute, 9× the memory.** That's the first thing to check when a run won't fit — it's almost never the arithmetic.
 
 #### What that means in actual GPUs
 
-Gigabytes are easier to judge against hardware you can rent. Two common accelerators, at spec-sheet peaks:
+Those are model-side numbers. Here's the silicon they have to land on — two common accelerators, at spec-sheet peaks:
 
 ```text
   GPU        memory  bandwidth  BF16 compute
@@ -470,11 +481,21 @@ Gigabytes are easier to judge against hardware you can rent. Two common accelera
   H100 80GB   80 GB  3.35 TB/s   990 TFLOP/s
 ```
 
-**Serving** an 8B model is comfortable. The weights are 16.1 GB — the same 15 GiB from the table above, in the units GPU spec sheets use — so one card holds them with ~64 GB to spare — worth roughly **488,000 tokens of KV cache**, which is post 2's currency.
+Three columns, and each answers a different question. **Memory** decides whether a job fits at all. **Bandwidth** decides how fast weights can be delivered to the arithmetic units. **Compute** decides how fast the arithmetic runs once they arrive. Take them in that order, because the first is pass/fail and the other two only matter once you've passed it.
 
-**Training** the same model doesn't fit at all: that 135 GiB of optimizer state is ~145 GB against an 80 GB card, before any activations. You need several GPUs and a sharding strategy for a model that serves happily on one. Same weights, different job.
+**Does it fit?** Put the two model-side totals against the 80 GB column:
 
-Then the number that decides how fast you can generate. At **batch 1** — a single stream, one token at a time — a decode step reads every weight exactly once, so you can time it two ways: by the arithmetic it does, or by the bytes it moves:
+```text
+  Llama-3-8B weights, fp16           16.1 GB
+    fits on one 80 GB card?          yes, with ~64 GB to spare
+    that spare is worth              ~488k tokens of KV cache
+  training state (18 B/param)        145 GB
+    fits on one 80 GB card?          no — needs several, before activations
+```
+
+**Serving is comfortable** — 16.1 GB on an 80 GB card leaves ~64 GB free, worth roughly 488,000 tokens of KV cache, which is post 2's currency. **Training doesn't fit at all** — 145 GB against 80 GB, before a single activation. You need several GPUs and a sharding strategy for a model that serves happily on one. Same weights, different job.
+
+**How fast does it run?** That's the other two columns, and they disagree violently. At **batch 1** — a single stream, one token at a time — a decode step reads every weight exactly once, so you can time it two ways: by the arithmetic it does, or by the bytes it moves.
 
 ```text
   GPU        if compute-bound  if bandwidth-bound   gap
