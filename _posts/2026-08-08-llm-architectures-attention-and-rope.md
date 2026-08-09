@@ -58,8 +58,8 @@ Skip to [the short version](#the-short-version) for the findings without the der
 12. [How this becomes learning, and becomes writing](#training-and-inference)
 13. [RoPE: absolute rotation, relative score](#rope-absolute-rotation-relative-score)
 14. [A silent MPS bug that deleted RoPE](#a-silent-mps-bug-that-deleted-rope)
-14. [Sidebar: the probe](#sidebar-the-probe)
-15. [Appendix: all notation](#appendix-all-notation)
+
+Plus a closing [sidebar: the probe](#sidebar-the-probe) and an [appendix of all notation](#appendix-all-notation).
 
 ---
 
@@ -86,7 +86,7 @@ Numbers throughout this post come from one real model, **Llama-3-8B**, so they'r
 | | Llama-3-8B | What it is |
 | --- | --- | --- |
 | $d_{model}$ | **4096** | how many numbers describe one token |
-| $V$ | 128256 | how many distinct tokens the model knows (§7) |
+| $n_{vocab}$ | 128256 | how many distinct tokens the model knows (§7) |
 | $n_{heads}$ | **32** | how many attention heads (§4) |
 | $d_{head}$ | **128** | width of one head's slice |
 | $n_{kv\_heads}$ | 8 | key/value heads — fewer than query heads (§6) |
@@ -366,7 +366,7 @@ That table counted only $QK^\top$. Applying the same rule to every matmul in one
 
 Note the `32 ×` on the attention rows: those are **thirty-two small matmuls, one per head**, summed — not one big one. It happens not to change the total, because $32 \times 128 = 4096$ makes the arithmetic identical either way, but it is what actually runs.
 
-Worth stating while we're here, since it's a natural assumption: **GQA doesn't shrink these.** Its 8 key/value heads are broadcast back up to 32 right before the matmul, so every query head still scores against a full-width key. GQA saves cache and parameters, not attention FLOPs.
+Worth stating while we're here, since it's a natural assumption: **grouped-query attention — GQA, the arrangement Llama-3-8B actually uses — doesn't shrink these.** Its 8 key/value heads are broadcast back up to 32 right before the matmul, so every query head still scores against a full-width key. GQA saves cache and parameters, not attention FLOPs.
 
 **The quadratic term is the smallest item here.** At a 1,024-token sequence, attention's famous $n^2$ cost is 6% of the layer; the four projections are 89%. The $n^2$ term only takes over once $seq$ grows past $d_{model}$ — below that, a transformer is mostly big dense matrix multiplies, and "attention is quadratic" describes the *asymptote*, not the regime most models run in. Post 3 is about what happens when you do cross that line.
 
@@ -422,9 +422,9 @@ Gigabytes are easier to judge against hardware you can rent. Two common accelera
   H100 80GB   80 GB  3.35 TB/s   990 TFLOP/s
 ```
 
-**Serving** an 8B model is comfortable. The weights are 16.1 GB, so one card holds them with ~64 GB to spare — worth roughly **488,000 tokens of KV cache**, which is post 2's currency.
+**Serving** an 8B model is comfortable. The weights are 16.1 GB — the same 15 GiB from the table above, in the units GPU spec sheets use — so one card holds them with ~64 GB to spare — worth roughly **488,000 tokens of KV cache**, which is post 2's currency.
 
-**Training** the same model doesn't fit at all: ~145 GB of optimizer state against an 80 GB card, before any activations. You need several GPUs and a sharding strategy for a model that serves happily on one. Same weights, different job.
+**Training** the same model doesn't fit at all: that 135 GiB of optimizer state is ~145 GB against an 80 GB card, before any activations. You need several GPUs and a sharding strategy for a model that serves happily on one. Same weights, different job.
 
 Then the number that decides how fast you can generate. A decode step reads every weight exactly once, so you can time it two ways — by the arithmetic it does, or by the bytes it moves:
 
@@ -550,11 +550,11 @@ Both should be the same 128 numbers. Their first four:
   largest disagreement, all 128      1.788e-07
 ```
 
-Agreement to `1.8e-07` across all 128 — float noise, not a real difference. **The matmul *is* the weighted sum**, written as one operation instead of a loop. Which is the point: `weights @ V` looks like opaque linear algebra, and it's doing exactly the "take 70% of this token, 20% of that one" averaging from §1.
+Agreement to `1.8e-07` across all 128 — float noise, not a real difference. **The matmul *is* the weighted sum**, written as one operation instead of a loop. Which is the point: `weights @ V` looks like opaque linear algebra, and it's doing exactly the "take 70% of this token, 20% of that one" averaging from [§2](#what-attention-is-for).
 
 #### What changes with grouped-query attention
 
-Here's the simplification promised in §3. Everything above is **classic multi-head attention**, where every query head gets its own key and value head. Llama-3-8B instead uses **grouped-query attention**: 32 query heads sharing only 8 key/value heads, so its $K$ and $V$ projections are a quarter as wide:
+Here's the simplification promised in [§1](#what-a-language-model-does). Everything above is **classic multi-head attention**, where every query head gets its own key and value head. Llama-3-8B instead uses **grouped-query attention**: 32 query heads sharing only 8 key/value heads, so its $K$ and $V$ projections are a quarter as wide:
 
 ```text
   tensor                  MHA (32 kv heads)  Llama-3-8B (8 kv heads)
@@ -661,6 +661,7 @@ Identical. Without a nonlinearity you could pre-multiply $W_{\text{up}}$ and $W_
 **Because attention can only average.** Look at what a softmax guarantees: the weights are non-negative and sum to 1. So every output is a *blend* of the value rows — and a blend of things can never be anything but a mixture of those things.
 
 ```python
+# single head here, so d_k == d_model
 w = torch.softmax(q @ k.T / math.sqrt(d_model), dim=-1)
 attn = w @ v
 
@@ -701,7 +702,9 @@ ffn(2 * x)   # what the function actually returns for a doubled input
   FFN                        14.641    13.375   21.0%       no
 ```
 
-The first two columns are the two things being compared, measured by vector length: what the function *actually* returns when you double its input, versus what doubling its output would have given. **Attention matches exactly. The FFN is 21% off** — so it is not a linear function.
+The first two columns are the two things being compared, each summarised by its vector length: what the function *actually* returns for a doubled input, versus what doubling its output would have given. **Attention matches exactly. The FFN doesn't** — so it is not a linear function.
+
+The `off by` column needs one word of explanation, because you can't get it from the two columns beside it. It's the length of the *difference* between those two output vectors, relative to the linear prediction — $\lVert f(2x) - 2f(x) \rVert / \lVert 2f(x) \rVert$. That's larger than the 9% gap between the two lengths, because the two outputs don't merely differ in size: they point in different directions. A linear function couldn't do that either.
 
 Easier to hold onto with a single number from the output:
 
@@ -922,7 +925,11 @@ Read down the middle of either column and it's the same path, box for box: token
 
 The difference is entirely in what happens at the bottom.
 
-**Training** compares all those scores against the real next tokens and boils the result down to one number: how wrong the model was. Then comes the part that has no counterpart on the right — **the return trip.** That error is walked back down through every layer, working out how each individual weight contributed to it, and every weight is nudged. That backward journey is where the extra cost from [§5](#what-attention-costs) comes from: roughly twice the forward pass, which is what turns $2N$ into $6N$.
+**Training** compares all those scores against the real next tokens and boils the result down to one number: how wrong the model was.
+
+Both halves of that sentence are load-bearing. The **comparison** is possible because the right answer is free — it's the next token in the document, so a 4,000-token passage arrives with 4,000 labels already attached. The **one number** is required because a gradient answers "how does *this single quantity* change if I nudge this weight," and a forward pass leaves you holding one score per word per position. Those get averaged into a single loss precisely so there is something to push down.
+
+It's worth being clear about what training does *not* do, since it's the natural guess: it never picks predicted tokens and compares them to the real ones. Picking means taking the highest score, and that operation has no useful derivative — nudge a weight slightly and the winner doesn't change, so the gradient is zero almost everywhere and nothing could learn. Instead the model keeps the full distribution and is scored on a softer question: *how much probability did you put on the token that actually came next?* That answer moves smoothly, so it still gives a direction to travel even when the top guess is wrong. Then comes the part that has no counterpart on the right — **the return trip.** That error is walked back down through every layer, working out how each individual weight contributed to it, and every weight is nudged. That backward journey is where the extra cost from [§5](#what-attention-costs) comes from: roughly twice the forward pass, which is what turns $2N$ into $6N$.
 
 **Generating** never goes back. It takes the bottom row, throws away everything except the last position's scores, picks a word from them, sticks it on the end of the input, and runs the entire stack again — 32 blocks, from the top, for one more token. That loop is why a 500-token answer means 500 trips through the whole model.
 
@@ -948,7 +955,7 @@ Those raw scores are called **logits** — they're unbounded and don't mean anyt
 
 Two things about this step surprise people.
 
-**It's a huge matrix.** It needs one row of 4,096 weights for each of the 128,256 words it scores, so its size is $V \times d_{model} = 128{,}256 \times 4{,}096$ — **525M parameters**, 6.5% of an 8B model in a single layer. The embedding table is exactly the same size, for exactly the same reason, which puts 13% of the model in these two lookup tables and only 87% in the blocks. Since they hold the same kind of thing, some models *tie* them — one set of weights used in both directions, saving the 525M outright.
+**It's a huge matrix.** It needs one row of 4,096 weights for each of the 128,256 words it scores, so its size is $n_{vocab} \times d_{model} = 128{,}256 \times 4{,}096$ — **525M parameters**, 6.5% of an 8B model in a single layer. The embedding table is exactly the same size, for exactly the same reason, which puts 13% of the model in these two lookup tables and only 87% in the blocks. Since they hold the same kind of thing, some models *tie* them — one set of weights used in both directions, saving the 525M outright.
 
 **Its output is enormous during training.** One token's logits are 128,256 numbers — half a megabyte. But training runs every position at once, so a single 4,096-token sequence produces **about 2 GB of logits**, more than the weights of the block that produced them. It's a real constraint, and why loss computation is often chunked rather than done in one go.
 
@@ -978,7 +985,7 @@ Two more things follow, and they're the seeds of the next two posts:
 
 ### 13. RoPE: absolute rotation, relative score {#rope-absolute-rotation-relative-score}
 
-Back to the gap from §2: attention has no idea what order the tokens came in. Something must inject position.
+Back to the gap from [§3](#the-formula-symbol-by-symbol): attention has no idea what order the tokens came in. Something must inject position.
 
 The original transformer added a position vector to each embedding. That encodes *absolute* position, but language mostly cares about *relative* — "the adjective two tokens back" is a useful pattern at position 5 and at position 5000.
 
@@ -1083,7 +1090,7 @@ Both are drafted and will go up shortly.
 | $d_{head}$, $d_k$ | width of one head's slice | 128 |
 | $d_{ff}$ | width of the FFN's middle layer | 14336 |
 | $L$ | blocks stacked | 32 |
-| $V$ | vocabulary size — how many distinct tokens exist | 128256 |
+| $n_{vocab}$ | vocabulary size — how many distinct tokens exist | 128256 |
 | $x$ | the input, one vector per token | $(n, 4096)$ |
 | $W_q, W_k, W_v$ | projections producing $Q$, $K$, $V$ | $(4096, 4096)$ |
 | $Q, K, V$ | queries, keys, values **before** the head split | $(n, 4096)$ |
