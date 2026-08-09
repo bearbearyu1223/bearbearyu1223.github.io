@@ -237,7 +237,7 @@ The natural worry is that 32 heads means 32× the work. It doesn't — but "head
 Two things do, and it's worth being exact about both:
 
 - **$d_{model}$ — how wide a token's vector is.** The 4,096 numbers the embedding table hands over, carried unchanged through every block. Wider model, wider everything.
-- **$seq$ — how many tokens you are running through right now.** Not the model's advertised context *window*, which is only a ceiling. A 128k-window model fed a 300-token prompt costs what 300 tokens cost.
+- **$seq$ — how many tokens you are running through right now.** Not the model's advertised context *window*, which is only a ceiling. Feed a 128k-window model a 300-token prompt and every formula below uses $seq = 300$, not 128,000 — headroom you don't use costs nothing.
 
 Here is where every cost in an attention layer comes from:
 
