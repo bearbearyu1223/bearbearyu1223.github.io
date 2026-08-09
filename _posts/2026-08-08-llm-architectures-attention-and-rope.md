@@ -228,7 +228,7 @@ That also gives the number a concrete reading — undo the logarithm, and $e^{\t
 
 One caveat I want to be exact about: **these are random weights.** The heads differ because they were initialized differently, which shows they aren't redundant copies — it is *not* specialization. In trained models specialization is real and catalogued: "previous-token heads" that look one step back, "induction heads" that spot a repeated pattern and predict its continuation. You can't see that in a figure like this.
 
-There is a trade-off in *how many* heads to use: more heads means more distinct patterns, but each one gets narrower — 64 heads leaves each only 64 dimensions to describe a query with. Models land at 32–64 because both extremes are bad.
+So why not 512 heads? Because $n_{heads} \times d_{head}$ is fixed at $d_{model}$ — every head you add narrows all of them. At 32 heads each gets 128 numbers to describe a query; at 64 heads, 64 numbers; at 512, just 8, which is too few to express much of anything. A single head of 4,096 has the opposite problem: all the room in the world, and only one opinion. Models land at 32–64, where there are enough heads to disagree and enough width for each to have something to say.
 
 ### 5. What attention costs {#what-attention-costs}
 
