@@ -248,7 +248,7 @@ Here is where every cost in an attention layer comes from:
 | computing the scores | **compute** | $2 \cdot seq^2 \cdot d_{model}$ | **tokens squared** × width | no |
 | holding the scores | **memory** | $n_{heads} \cdot seq^2$ | tokens squared × head count | **yes** |
 
-Two costs of each kind, and it's worth keeping them apart — **compute** is work the chip has to do, **memory** is bytes it has to hold, and on real hardware they run out at different times. Three of the four don't mention $n_{heads}$ at all, which is what makes the head count a free architectural choice; the fourth is a genuine exception.
+Two costs of each kind, and it's worth keeping them apart — **compute** is work the chip has to do, **memory** is bytes it has to hold, and on real hardware they run out at different times. Each kind has its own unit, and both get defined below before anything is counted with them: compute in **FLOPs**, memory in **bytes**. Note that the memory formulas count *numbers*, not bytes — converting between the two is the first aside. Three of the four don't mention $n_{heads}$ at all, which is what makes the head count a free architectural choice; the fourth is a genuine exception.
 
 **Parameters.** Start with a question: how wide does $W_q$'s output need to be?
 
@@ -269,6 +269,18 @@ Now change the head count and watch what happens. With 64 heads, each slice is o
 ```
 
 $4096^2 = 16.8\text{M}$ per matrix, four matrices, $67.1$M per block — for **any** head count. Nothing in that arithmetic mentions $n_{heads}$. Note also that every matrix has 4,096 rows — the shape-level version of the point from §4, that each head reads the whole vector.
+
+#### An aside: what those 67.1M numbers weigh
+
+That figure counts *numbers*, not bytes — and the distance between the two is a deployment choice rather than an architectural one. One rule converts:
+
+$$
+\text{bytes} \;=\; (\text{how many numbers}) \times (\text{bytes per number})
+$$
+
+The multiplier is the **precision** you store them in: **4 bytes** for fp32, **2** for the bf16 or fp16 most serving runs in, **1** for fp8. So attention's 67.1M parameters weigh 256 MiB stored in fp32 and 128 MiB in bf16 — same architecture, half the memory, decided long after the model was designed. That's why the memory rows in the table are written as counts: the count is fixed by the model, the multiplier is picked when you deploy it.
+
+One warning the capacity number hides. Memory costs you twice — how many bytes you must *hold*, and how fast you can *move* them, measured in GB/s rather than GB. They're separate budgets, and [the hardware section below](#what-this-costs-on-real-hardware) shows a decode step where the second one, not the first, sets the speed.
 
 #### An aside: what a FLOP is, and how to count one
 
