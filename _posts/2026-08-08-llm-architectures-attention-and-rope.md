@@ -586,7 +586,7 @@ Two steps in it are worth naming. **One input, three projections** — $Q$, $K$ 
 
 #### The other pieces, in plain English
 
-**Token embeddings** — a lookup table with one row per token the model knows. Llama-3-8B knows **128,256** of them, and each owns a list of 4,096 numbers, so the table is $128{,}256 \times 4{,}096$ — **525M parameters** before a single block runs. That list *is* the model's representation of the token. At the start it encodes only "which token is this." Each block edits it toward "which token is this, *in this context*." The word *bank* enters generic and leaves nudged toward *riverbank* or *savings account*.
+**Token embeddings** — a lookup table with one row per token the model knows. Llama-3-8B knows **128,256** of them, and each row is 4,096 numbers long. That row *is* the model's representation of the token — nothing else about a word enters the network. At the start it encodes only "which token is this." Each block edits it toward "which token is this, *in this context*." The word *bank* enters generic and leaves nudged toward *riverbank* or *savings account*.
 
 **RMSNorm** — as a vector passes through dozens of layers, its numbers drift, growing until they overflow or shrinking until they vanish. Normalization rescales the whole vector back to a standard size, like setting every track on a mixing desk to a consistent level. Relative proportions survive; only the overall magnitude is standardized.
 
@@ -932,7 +932,14 @@ Those bottom boxes have appeared in three diagrams now without being opened, and
 
 **The final norm** is the same RMSNorm from [§7](#where-attention-sits-in-the-model), applied once after the last block. Thirty-two blocks have each added their corrections to the residual stream, and nothing has rescaled it since; this puts the vector back into a predictable range before the last step reads it.
 
-**The LM head** is one matrix, and conceptually the simplest thing in the model: it takes a token's 4,096 numbers and produces **one score per word in the vocabulary** — all 128,256 of them, the same vocabulary the embedding table indexes at the other end.
+**The LM head** is one matrix, and conceptually the simplest thing in the model: it takes a token's 4,096 numbers and produces **one score per word in the vocabulary** — all 128,256 of them.
+
+That number should look familiar. Back in [§7](#where-attention-sits-in-the-model) the model turned a token *into* a vector by looking up one of 128,256 rows. The LM head is that same table read the other way: instead of fetching one row by its number, it compares your vector against **every** row and reports how well each one matches.
+
+![The embedding table and the LM head are one table read in two directions](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/word-table-light.png){: .light width="880" height="486" }
+![The embedding table and the LM head are one table read in two directions](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/word-table-dark.png){: .dark width="880" height="486" }
+
+Read left to right, that is the whole model in one line: a word becomes a row, thirty-two blocks edit that row's numbers using the other words present, and then you ask which row the edited numbers now look most like. Predicting a word is a *similarity search over the vocabulary*.
 
 ![From a vector to an actual next word](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/lm-head-light.png){: .light width="880" height="723" }
 ![From a vector to an actual next word](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/lm-head-dark.png){: .dark width="880" height="723" }
@@ -941,7 +948,7 @@ Those raw scores are called **logits** — they're unbounded and don't mean anyt
 
 Two things about this step surprise people.
 
-**It's a huge matrix.** $d_{model} \times V$ is $4096 \times 128{,}256$ — **525M parameters**, 6.5% of an 8B model in a single layer. The embedding table from [§7](#where-attention-sits-in-the-model) has exactly the same shape, just used in the opposite direction, so those two together are 13% of the whole model. (Some models *tie* them, using one set of weights for both, which saves that 525M outright.)
+**It's a huge matrix.** It needs one row of 4,096 weights for each of the 128,256 words it scores, so its size is $V \times d_{model} = 128{,}256 \times 4{,}096$ — **525M parameters**, 6.5% of an 8B model in a single layer. The embedding table is exactly the same size, for exactly the same reason, which puts 13% of the model in these two lookup tables and only 87% in the blocks. Since they hold the same kind of thing, some models *tie* them — one set of weights used in both directions, saving the 525M outright.
 
 **Its output is enormous during training.** One token's logits are 128,256 numbers — half a megabyte. But training runs every position at once, so a single 4,096-token sequence produces **about 2 GB of logits**, more than the weights of the block that produced them. It's a real constraint, and why loss computation is often chunked rather than done in one go.
 
