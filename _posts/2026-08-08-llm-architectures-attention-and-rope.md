@@ -454,7 +454,7 @@ Gigabytes are easier to judge against hardware you can rent. Two common accelera
 
 **Training** the same model doesn't fit at all: that 135 GiB of optimizer state is ~145 GB against an 80 GB card, before any activations. You need several GPUs and a sharding strategy for a model that serves happily on one. Same weights, different job.
 
-Then the number that decides how fast you can generate. A decode step reads every weight exactly once, so you can time it two ways — by the arithmetic it does, or by the bytes it moves:
+Then the number that decides how fast you can generate. At **batch 1** — a single stream, one token at a time — a decode step reads every weight exactly once, so you can time it two ways: by the arithmetic it does, or by the bytes it moves:
 
 ```text
   GPU        if compute-bound  if bandwidth-bound   gap
@@ -477,7 +477,7 @@ $$
 
 And it's getting *worse*, not better: the H100 has 3.2× the compute of an A100 but only 1.6× the bandwidth, so the gap roughly doubles between generations. Buying a faster chip mostly buys compute you can't use.
 
-*(These are peak numbers; real kernels reach a fraction of them, and batching improves the picture a lot. But the ratio is what matters here, and it survives the discount.)*
+*(These are peak numbers; real kernels reach a fraction of them. Batching improves the picture a lot, and now it's clear why — a batch of 64 reads each weight once and spends it on 64 tokens, so the arithmetic done per byte moved rises with the batch size. But the ratio is what matters here, and it survives the discount.)*
 
 It also sets up the two posts that follow, which are both about memory rather than math. Post 2 is about a cost that doesn't appear in any table here at all — generating text needs to *keep* every key and value it has computed, and that cache can outgrow the weights. Post 3 is about the fourth row above: the $seq \times seq$ score grid, and how to get attention's answer without ever writing it down.
 
