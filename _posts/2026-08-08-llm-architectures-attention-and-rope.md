@@ -237,7 +237,7 @@ The natural worry is that 32 heads means 32× the work. It doesn't — but "head
 Two things do, and it's worth being exact about both:
 
 - **$d_{model}$ — how wide a token's vector is.** The 4,096 numbers the embedding table hands over, carried unchanged through every block. Wider model, wider everything.
-- **$seq$ — how many tokens you are running through right now.** Not the model's advertised context *window*, which is only a ceiling. Feed a 128k-window model a 300-token prompt and every formula below uses $seq = 300$, not 128,000 — headroom you don't use costs nothing.
+- **$seq$ — how many tokens you are running through right now.** Not the model's advertised context *window*, which is only a ceiling. Feed a 128k-window model a 300-token prompt and every formula below uses $seq = 300$, not 128,000 — headroom you don't use costs nothing. (Where that ceiling comes from in the first place turns out to be a RoPE question, so it waits for [§13](#rope-absolute-rotation-relative-score).)
 
 Here is where every cost in an attention layer comes from:
 
@@ -1039,6 +1039,16 @@ Position 5 and position 4093 give the same score to seven digits. The model neve
 ![RoPE scores are invariant to absolute position, sensitive to relative offset](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/rope-relative-dark.png){: .dark width="1000" height="544" }
 
 Two panels, same y-axis. Left: slide both vectors along 128 positions, holding the gap at +3 — a flat line. Right: pin the query and sweep the offset — structure everywhere. Flat where you want invariance, expressive where you want sensitivity.
+
+#### Where a context window actually comes from
+
+Which answers the question [§5](#what-attention-costs) left open: what makes a model "128k"?
+
+**Not the architecture.** Every weight matrix in this post is sized by $d_{model}$, $d_{ff}$ or the vocabulary — not one of them mentions sequence length, so the same weights run on ten tokens or ten million. Older models did have a hard wall, because they *learned* position: a table with one row per slot, and no row 513 if you trained 512 of them. RoPE has no such wall. The rotation for position 500,000 is a formula, and it computes perfectly well.
+
+What's left is experience. The model has only ever seen rotations from the range it trained on, and past that edge the angles are unfamiliar and quality falls away. So the advertised window is **a claim about where quality was checked**, not a limit sitting in the weights — which is also why it tends to be bought in two stages. Training cost grows with $seq$, so a model does the overwhelming bulk of its training short and cheap, then extends in a brief final phase that rescales the frequency vector until rotations learned at the short length still mean something at the long one. Llama 3 pretrained at 8k; Llama 3.1 stretched the same architecture to 128k.
+
+Two things that number hides. Models routinely degrade well before their stated limit — "128k" means "doesn't fall apart," not "equally sharp throughout." And inference servers enforce the ceiling for an unrelated reason: the KV cache grows with every token, so serving needs a fixed memory budget per request. That one is post 2.
 
 One consequence that returns in post 12: because the rotation happens *after* the $Q$/$K$ projections, RoPE doesn't commute with tricks that absorb those projections into neighbouring matrices — exactly the complication DeepSeek's MLA has to work around.
 
