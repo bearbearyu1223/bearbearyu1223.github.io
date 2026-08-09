@@ -278,7 +278,21 @@ $$
 \text{bytes} \;=\; (\text{how many numbers}) \times (\text{bytes per number})
 $$
 
-The multiplier is the **precision** you store them in: **4 bytes** for fp32, **2** for the bf16 or fp16 most serving runs in, **1** for fp8. So attention's 67.1M parameters weigh 256 MiB stored in fp32 and 128 MiB in bf16 — same architecture, half the memory, decided long after the model was designed. That's why the memory rows in the table are written as counts: the count is fixed by the model, the multiplier is picked when you deploy it.
+The multiplier is the **precision** you store them in. Run attention's four projections through it — the count first, from the four $4096 \times 4096$ matrices above:
+
+$$
+4 \times 4096^2 = 67{,}108{,}864 \text{ numbers}
+$$
+
+| Stored as | Bytes per number | Total bytes | Weighs |
+| --- | --- | --- | --- |
+| fp32 | 4 | 268,435,456 | **256 MiB** |
+| bf16 / fp16 | 2 | 134,217,728 | **128 MiB** |
+| fp8 | 1 | 67,108,864 | 64 MiB |
+
+Same architecture, down to a quarter of the memory, decided long after the model was designed. That's why the memory rows in the table are written as counts: the count is fixed by the model, the multiplier is picked when you deploy it.
+
+Those totals land on round numbers because every quantity here is a power of two. $4096 = 2^{12}$, so one matrix is $2^{24}$ numbers and four of them are $2^{26}$; at 4 bytes each that's $2^{28}$ bytes, and since a MiB is $2^{20}$ bytes, the answer is exactly $2^8 = 256$ MiB. Worth watching the units, though — a MiB is $1024^2$ bytes while a MB is $10^6$, so those same weights are an unlovely 268.4 MB in the decimal units GPU spec sheets quote. This post stays in MiB until [the hardware section](#what-this-costs-on-real-hardware), where the comparison is against real cards.
 
 One warning the capacity number hides. Memory costs you twice — how many bytes you must *hold*, and how fast you can *move* them, measured in GB/s rather than GB. They're separate budgets, and [the hardware section below](#what-this-costs-on-real-hardware) shows a decode step where the second one, not the first, sets the speed.
 
