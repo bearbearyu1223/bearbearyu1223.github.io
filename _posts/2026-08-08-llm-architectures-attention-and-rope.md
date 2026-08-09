@@ -69,7 +69,7 @@ Before attention, the thing attention is part of.
 
 A language model does one thing: **given some tokens, predict the next one.** To write a sentence it does that over and over — predict a token, stick it on the end, feed the whole thing back in, predict again. All the sophistication is in how that single prediction gets computed.
 
-That computation is a **transformer**: a stack of $L$ identical **blocks** — 32 of them in an 8-billion-parameter model — that a token's numbers pass through in order, edited a little by each. Every block does exactly two things:
+That computation is a **transformer**: a stack of $L$ identical **blocks** — 32 of them in Llama-3-8B, for example — that a token's numbers pass through in order, edited a little by each. Every block does exactly two things:
 
 ![Where attention sits in a decoder block](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/block-anatomy-light.png){: .light width="700" height="845" }
 ![Where attention sits in a decoder block](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/block-anatomy-dark.png){: .dark width="700" height="845" }
