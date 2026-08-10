@@ -518,6 +518,14 @@ $$
 \text{math: } \frac{16\ \text{GFLOP}}{990\ \text{TFLOP/s}} \approx 0.016\ \text{ms} \;\longrightarrow\; 61{,}644\ \text{tok/s}
 $$
 
+Neither number is the answer on its own. A chip can be doing arithmetic while bytes are still in flight, so the two overlap and the slower one sets the floor:
+
+$$
+\text{time} \;\approx\; \max\!\left(\frac{\text{bytes}}{\text{bandwidth}},\;\; \frac{\text{FLOPs}}{\text{throughput}}\right)
+$$
+
+Compute both, take the larger, and that tells you which spec-sheet number you're actually buying. It's the **roofline** model in one line, it applies to any kernel rather than just decode, and it assumes the overlap is perfect — which is why real code lands above this floor rather than on it.
+
 **Bandwidth wins by two orders of magnitude.** The chip multiplies for 16 microseconds, then waits roughly 4.8 milliseconds for the next weights to arrive — busy about 0.3% of the time. All those TFLOP/s are unreachable for this workload.
 
 And it gets *worse*, not better: the H100 has 3.2× the compute of an A100 but only 1.6× the bandwidth, so the gap roughly doubles between generations. Buying a faster chip mostly buys compute you can't use.
