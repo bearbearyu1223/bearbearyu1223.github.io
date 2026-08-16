@@ -44,7 +44,7 @@ Every number and figure below came out of that command on my M-series Mac. The c
 
 ### 1. The problem is memory traffic, not FLOPs {#the-problem-is-memory-traffic-not-flops}
 
-Two names for memory first, because the whole argument is about the distance between them. **HBM** is *high-bandwidth memory* — the GPU's main memory, the tens of gigabytes a spec sheet quotes when it says "80 GB". **SRAM** is the small pool of memory sitting on the chip itself, next to the arithmetic units. HBM is where your tensors live; SRAM is where they have to be for the chip to touch them, and everything moves between the two.
+Two names for memory first, because the whole argument is about the distance between them. **HBM** is *high-bandwidth memory* — the GPU's main memory, the tens of gigabytes a spec sheet quotes when it says "80 GB". **SRAM** is the small, fast memory sitting on the chip itself, next to the arithmetic units. HBM is where your tensors live; SRAM is where they have to be for the chip to touch them, and everything moves between the two.
 
 Standard attention does this:
 
@@ -54,12 +54,14 @@ Standard attention does this:
 
 Three round-trips through main memory for a matrix that grows quadratically with sequence length. At $n = 8192$ with 8 heads in fp32, that intermediate is **2 GiB** — per layer, per forward pass.
 
-Now the hardware, and the two numbers that matter:
+Now the hardware, and the two numbers that matter. These are the A100 figures from the FlashAttention paper's own §2.1, which is where the design pressure came from:
 
 | | Bandwidth | How much of it |
 | --- | --- | --- |
-| **HBM** — main memory | ~2 TB/s | 40–80 GB |
+| **HBM** — main memory | 1.5–2.0 TB/s | 40–80 GB |
 | **SRAM** — on-chip | ~19 TB/s | ~20 MB |
+
+That SRAM figure is worth unpacking, because "20 MB" sounds like a strange amount of memory for a chip to have. It isn't one pool: it's 192 KB on each of the A100's 108 streaming multiprocessors, and $108 \times 192\ \text{KB} \approx 20\ \text{MB}$ only if you add up every SM's private scratchpad. No single tile ever gets to use 20 MB — it gets 192 KB.
 
 Roughly an order of magnitude apart in speed, and four orders apart in size. That combination is the entire problem: SRAM is fast enough to keep the arithmetic units fed, and far too small to hold an $n \times n$ score matrix. So attention at long context isn't waiting on arithmetic. It's waiting on the trip to HBM and back, exactly like decode in [post 2](/posts/llm-architectures-kv-cache/).
 
@@ -101,9 +103,11 @@ Note `l * torch.exp(m - m_new)`. When the max doesn't change, that factor is $e^
 
 ### 3. Receipt 1: partial softmaxes compose {#receipt-1-partial-softmaxes-compose}
 
-Does it actually agree with `torch.softmax`? Testing on logits scaled by 8, so each row spans a range of about 80 — enough that a careless implementation returns `inf` or `nan`:
+Does it actually agree with `torch.softmax`? Testing on logits scaled by 8, so each row spans a range of about 57:
 
 ```text
+  logit row range (max - min)        56.9
+
   block size  max |online - torch|  rows sum to
   -----------------------------------------------
   64                     5.960e-08       1.0000
@@ -113,6 +117,21 @@ Does it actually agree with `torch.softmax`? Testing on logits scaled by 8, so e
 ```
 
 Agreement at `1e-7` in fp32, and the rows still sum to 1. **Block size changes the memory schedule, not the answer.** That's the property everything else rests on.
+
+#### And the running max — what is it for?
+
+Worth being precise here, because the usual story ("without it the exponentials overflow") is not quite true and it's easy to repeat. Compare against the naive `exp(x)/sum(exp(x))` at both precisions:
+
+```text
+  dtype  exp overflows past  actual row max  overflowed?  bad values  naive error
+  ---------------------------------------------------------------------------------
+  fp32                 88.7            29.6           no           0    5.960e-08
+  fp16                 11.1            29.6          yes       1,340          nan
+```
+
+In fp32, `exp` overflows only past $x \approx 88.7$, and a row max near 30 isn't close — the unstable version **survives these logits perfectly well**, matching to `6e-8`. In fp16 the threshold drops to $x \approx 11.1$, the same logits overflow 1,340 times, and every one becomes a `nan`.
+
+So the max subtraction isn't there to rescue a computation that would otherwise blow up in the abstract. It's there because inference runs in the precision where it *does* blow up. That matters for Flash Attention specifically: the running max is what lets the algorithm carry the same guarantee **per tile**, at whatever precision the kernel is compiled for, without ever seeing the whole row.
 
 ### 4. Tiled attention in 40 lines {#tiled-attention-in-40-lines}
 
@@ -196,6 +215,8 @@ Now the comparison that gives "exact" its meaning. Sliding-window attention is a
 
 The measured naive column tracks the analytic $n^2$ column to within a couple of MiB. The tiled residual is 0 because each tile is freed as the loop advances — that's the claim, not a measurement artifact; the meaningful number is the constant 0.5 MiB in column four.
 
+And that constant is where [§1](#the-problem-is-memory-traffic-not-flops)'s 192 KB comes back. The 0.5 MiB is a $128 \times 128$ tile across all 8 heads at once; per head it's 64 KiB, and a head is what one streaming multiprocessor works on. So the tile was sized to fit an SM's private scratchpad with room to spare — that's the constraint the block size is chosen against, and why it's a constant rather than a function of $n$.
+
 ![Attention memory scaling](/assets/picture/2026-08-02-llm-architectures-flash-attention/memory-scaling-light.png){: .light width="1000" height="684" }
 ![Attention memory scaling](/assets/picture/2026-08-02-llm-architectures-flash-attention/memory-scaling-dark.png){: .dark width="1000" height="684" }
 
@@ -237,17 +258,51 @@ Just under half the work disappears. The naive path computes that entire upper t
 
 ### 8. Where the speed actually comes from {#where-the-speed-actually-comes-from}
 
-An honest caveat: **the Python tiled loop above is slower than naive attention.** Every tile still round-trips through HBM, plus Python overhead per iteration. The algorithm buys memory; fusing it into a single kernel is what buys time.
+#### First: it is not from doing less arithmetic
+
+This post has been asserting that the win is memory traffic rather than FLOPs. That's a comparison, so it needs both quantities in one table. The FLOP column is tallied inside the tiled loop as each tile is computed — two matmuls per tile, $Q K^\top$ and $PV$, at $2 \cdot \text{rows} \cdot \text{cols} \cdot d$ each — rather than derived after the fact. The traffic column counts the score matrix crossing HBM on the four passes §1 listed: write $S$, read $S$, write $P$, read $P$.
+
+With causal masking **off**, where both paths must touch every position:
+
+```text
+  seq   naive FLOPs  tiled FLOPs  ratio  naive score traffic  tiled
+  -------------------------------------------------------------------
+  512         0.5 G        0.5 G  1.00x               32 MiB  0 MiB
+  1024        2.1 G        2.1 G  1.00x              128 MiB  0 MiB
+  2048        8.6 G        8.6 G  1.00x              512 MiB  0 MiB
+  4096       34.4 G       34.4 G  1.00x             2048 MiB  0 MiB
+```
+
+**The FLOP columns are equal to the digit.** The tiled path does not save a single multiply. What it removes is the entire third column — 2 GiB of score traffic at 4k context, gone, because the tile never leaves the accumulator.
+
+That is the trade in one line, and it explains the shape of everything else in this post: FLOPs and score traffic both grow as $n^2$, but after tiling only one of them is still being paid.
+
+Turn causal masking on and the tiled path does strictly less of *both*, because of the skipped blocks from [§7](#causal-masking-gets-a-bonus):
+
+```text
+  seq   naive FLOPs  tiled FLOPs  ratio  naive score traffic  tiled
+  -------------------------------------------------------------------
+  512         0.5 G        0.3 G  0.62x               32 MiB  0 MiB
+  1024        2.1 G        1.2 G  0.56x              128 MiB  0 MiB
+  2048        8.6 G        4.6 G  0.53x              512 MiB  0 MiB
+  4096       34.4 G       17.7 G  0.52x             2048 MiB  0 MiB
+```
+
+The ratio settles toward 0.52 — which is the 47% skip rate from §7 seen from the other side. Worth keeping the two straight: the arithmetic saving is a **bonus that tiling makes available**, while the traffic elimination is the **mechanism**. Flash Attention would still be worth it at ratio 1.00.
+
+#### Then: why the loop above is still slow
+
+An honest caveat: **the Python tiled loop is slower than naive attention.** Every tile still round-trips through HBM, plus Python overhead per iteration. The algorithm buys memory; fusing it into a single kernel is what buys time.
 
 So for timing, compare naive attention against `F.scaled_dot_product_attention`, which dispatches to a fused kernel doing exactly this:
 
 ```text
   seq   naive (ms)  fused SDPA (ms)  speedup
   --------------------------------------------
-  512       1.1330           0.3411    3.32x
-  1024      3.5072           0.7662    4.58x
-  2048     12.7797           2.0381    6.27x
-  4096     54.8068           6.9735    7.86x
+  512       1.2125           0.3747    3.24x
+  1024      3.7768           0.7772    4.86x
+  2048     13.2941           2.0287    6.55x
+  4096     55.5913           6.9845    7.96x
 ```
 
 ![Naive vs fused attention timing](/assets/picture/2026-08-02-llm-architectures-flash-attention/timing-light.png){: .light width="1000" height="684" }
@@ -271,7 +326,7 @@ A note on versions, since interviews like the specifics. Two more pieces of voca
 
 This is wrong, and it's a common wrong answer — the name sounds like the efficient-attention family (Linformer, Performer, Longformer), which *are* approximations.
 
-**A stronger answer:** "No. It's exact — an IO-aware reordering of the same computation. It tiles Q, K and V so the score tiles stay in SRAM, and uses online softmax with a running max and sum so partial results compose. Outputs match a naive implementation to floating-point reassociation noise, around 1e-6 in fp32; I've measured it. Memory goes from $O(n^2)$ to $O(n)$, which is what made long context feasible, and speed comes from eliminating HBM round-trips. That's the opposite of sparse or linear attention, which genuinely change the function — sliding-window attention differs from exact attention by about 0.6 on the same test, five orders of magnitude more than Flash does."
+**A stronger answer:** "No. It's exact — an IO-aware reordering of the same computation. It tiles Q, K and V so the score tiles stay in SRAM, and uses online softmax with a running max and sum so partial results compose. Outputs match a naive implementation to floating-point reassociation noise, around 1e-6 in fp32; I've measured it. It doesn't even do less arithmetic — non-causal, the FLOP counts are identical to the digit. What it removes is the quadratic score traffic to HBM, which is why memory goes from $O(n^2)$ to $O(n)$ and why long context became feasible. That's the opposite of sparse or linear attention, which genuinely change the function — sliding-window attention differs from exact attention by about 0.6 on the same test, five orders of magnitude more than Flash does."
 
 The tell is whether someone distinguishes it from the approximate-attention family, and whether they know the mechanism is online softmax rather than "it's optimized CUDA."
 

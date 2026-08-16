@@ -206,13 +206,13 @@ Now the cost. Generate from a 64-token prompt, with and without the cache:
 
   tokens generated  cached (ms)  uncached (ms)  speedup
   -------------------------------------------------------
-  64                    52.2749        97.0638    1.86x
-  128                   83.6763       227.7447    2.72x
-  256                  148.0159       614.0643    4.15x
-  512                  284.2491      1943.9379    6.84x
+  64                    54.1744        95.6451    1.77x
+  128                  108.0281       225.1538    2.08x
+  256                  160.2089       614.7870    3.84x
+  512                  312.1989      1927.7645    6.17x
 
-  8x more tokens costs (cached)      5.4x
-  8x more tokens costs (uncached)    20.0x
+  8x more tokens costs (cached)      5.8x
+  8x more tokens costs (uncached)    20.2x
   tokens processed at n=512 (cached) 576
   tokens processed at n=512 (uncached) 163584
   wasted work multiplier             284x
@@ -385,7 +385,25 @@ if self.n_rep > 1:
     v = v.repeat_interleave(self.n_rep, dim=1)
 ```
 
-The expansion happens *after* the cache read, which is the entire point: you store 8 heads and compute against 32. Post 12 covers DeepSeek's MLA, which attacks the same problem differently — compressing K and V into a shared low-rank latent and caching that instead.
+The expansion happens *after* the cache read, which is the entire point: you store 8 heads and compute against 32.
+
+#### What that actually buys, measured
+
+That's two claims — the cache shrinks, the computation doesn't — so here they are side by side. Same model built three times, 12 query heads throughout, only `n_kv_heads` changing:
+
+```text
+  variant  kv heads  q per kv  params  cache @512       vs MHA  ms/decode step
+  ------------------------------------------------------------------------------
+  MHA            12         1   68.9M    24.0 MiB            —          4.3953
+  GQA             4         3   62.6M     8.0 MiB   3x smaller          5.3112
+  MQA             1        12   60.3M     2.0 MiB  12x smaller          5.4696
+```
+
+The cache column tracks `n_kv_heads` exactly — 24 → 8 → 2 MiB, no approximation in it. The time column barely moves. That asymmetry is the whole reason GQA is worth doing: **it's a storage decision the compute side hardly notices.** (The toy shares 3 query heads per KV head where Llama-3-8B shares 4; the ratio is whatever `n_kv_heads` says it is.)
+
+One thing in that table is worth not glossing over, because it points at something real. MQA has *fewer* parameters than MHA and still takes slightly *longer* per step. The cause is the `repeat_interleave` above: it allocates the widened tensor rather than viewing it, and the fewer K/V heads you store, the more there is to expand. Production kernels take the shared K/V directly and never build that tensor — PyTorch exposes it as `scaled_dot_product_attention`'s `enable_gqa` flag. So the small penalty here is my implementation's, not GQA's, and it's a good reminder that "the cache got smaller" and "the kernel got faster" are separate claims that have to be measured separately.
+
+Post 12 covers DeepSeek's MLA, which attacks the same problem differently — compressing K and V into a shared low-rank latent and caching that instead.
 
 ### 6. Prefill vs decode: the whole ballgame {#prefill-vs-decode-the-whole-ballgame}
 
@@ -406,10 +424,10 @@ Timing both on the same 62.6M-parameter model:
 ```text
   phase    tokens/pass  ms/pass  ms/token    tokens/s
   -----------------------------------------------------
-  prefill          512  33.2425    0.0649  15401.9894
-  decode             1   5.3860    5.3860    185.6665
+  prefill          512  32.8005    0.0641  15609.4982
+  decode             1   5.5220    5.5220    181.0925
 
-  per-token cost, decode / prefill   83.0x
+  per-token cost, decode / prefill   86.2x
 ```
 
 **A token costs roughly two orders of magnitude more to generate than to read.** Both passes stream the same weights through the chip's arithmetic units (ALUs — the circuits that actually do the multiplying). Prefill amortizes that read across 512 tokens; decode pays it in full for one.
@@ -425,7 +443,39 @@ The clean way to see why is arithmetic intensity — FLOPs performed per byte of
   decode        1        0.125 G      0.23 GiB     0.5000
 ```
 
-Modern accelerators need roughly 100–300 FLOP/byte to keep their tensor cores busy. Prefill sits at 256 — right in the productive zone, **compute-bound**. Decode sits at **0.5**, two to three orders of magnitude short of what the hardware needs to stay busy. The hardware spends essentially all of decode waiting on memory. It is **memory-bandwidth-bound**. Pope et al., [Efficiently Scaling Transformer Inference](https://arxiv.org/abs/2211.05102) (2022), work the same analysis through at production scale if you want it in more depth than one table.
+#### Where "100–300 FLOP/byte" comes from
+
+That threshold gets quoted a lot, usually with no source attached, so it's worth not leaving it as folklore. It isn't a rule of thumb — it's the **ridge point** of the roofline model: peak arithmetic throughput divided by memory bandwidth. Below it, a kernel cannot saturate the arithmetic units however well it's written, because the bytes can't arrive fast enough to feed them.
+
+Divide one datasheet number by the other and you get it directly:
+
+```text
+  accelerator     dense fp16  HBM bandwidth    ridge point
+  ----------------------------------------------------------
+  A100 40GB SXM  312 TFLOP/s     1,555 GB/s  201 FLOP/byte
+  A100 80GB SXM  312 TFLOP/s     2,039 GB/s  153 FLOP/byte
+  H100 SXM       989 TFLOP/s     3,350 GB/s  295 FLOP/byte
+  H200 SXM       989 TFLOP/s     4,800 GB/s  206 FLOP/byte
+
+  ridge point, across these four     153-295 FLOP/byte
+```
+
+These are vendor peak figures, not anything I measured — the one table here that comes off a spec sheet rather than out of my laptop, and labelled as such. But the spread is the interesting part: **153 to 295**, across two architectures and a 3× jump in raw FLOP/s. Bandwidth and arithmetic have grown closely enough in step that the ridge point barely moved, which is why a rule of thumb this crude has survived the hardware it was coined for. Note also that H100 → H200 is a pure bandwidth upgrade at identical FLOP/s, and it *lowers* the ridge — more workloads land on the compute-bound side of it.
+
+Now place the two phases against the narrowest of those ridges:
+
+```text
+  phase    FLOP/byte  vs ridge (153)                      verdict
+  -----------------------------------------------------------------
+  prefill      256.0           1.67x  at or above — compute-bound
+  decode         0.5         0.0033x  far below — bandwidth-bound
+
+  decode is short of the ridge by    306x
+```
+
+Prefill sits at 256 — past the ridge on the two A100s, near it on the Hopper parts, comfortably in the productive zone either way. Decode sits at **0.5**, short of the easiest ridge by **306×**. The hardware spends essentially all of decode waiting on memory. It is **memory-bandwidth-bound**.
+
+And that's a statement about the workload, not the implementation. There is no kernel that fixes a 306× shortfall — you have to change the arithmetic-per-byte ratio itself, which is exactly what every optimization below does. Pope et al., [Efficiently Scaling Transformer Inference](https://arxiv.org/abs/2211.05102) (2022), work the same analysis through at production scale if you want it in more depth than one table.
 
 This single fact explains a startling amount:
 
@@ -452,35 +502,55 @@ With a short (32-token) prefix:
 ```text
   batch  ms/step  latency vs b=1  tokens/s  throughput vs b=1
   -------------------------------------------------------------
-  1       4.0439           1.00x       247               1.0x
-  2       4.2512           1.05x       470               1.9x
-  4       4.7698           1.18x       839               3.4x
-  8       5.6999           1.41x      1404               5.7x
-  16      6.3692           1.57x      2512              10.2x
-  32      7.8962           1.95x      4053              16.4x
+  1       4.1567           1.00x       241               1.0x
+  2       5.4191           1.30x       369               1.5x
+  4       5.0820           1.22x       787               3.3x
+  8       5.8200           1.40x      1375               5.7x
+  16      6.8876           1.66x      2323               9.7x
+  32      9.1050           2.19x      3515              14.6x
 ```
 
-32× the work for **1.95×** the time — 16.4× the throughput. The GPU was idling on memory, so the extra sequences rode along inside a weight read that was happening anyway. That is what memory-bound looks like, and it's why every serving stack batches aggressively.
+32× the work for **2.19×** the time — 14.6× the throughput. The GPU was idling on memory, so the extra sequences rode along inside a weight read that was happening anyway. That is what memory-bound looks like, and it's why every serving stack batches aggressively.
 
 Now the same sweep with a **512-token** prefix:
 
 ```text
   batch  ms/step  latency vs b=1  tokens/s  throughput vs b=1
   -------------------------------------------------------------
-  1       5.3172           1.00x       188               1.0x
-  2       6.6708           1.25x       300               1.6x
-  4       9.0386           1.70x       443               2.4x
-  8      14.1554           2.66x       565               3.0x
-  16     22.3690           4.21x       715               3.8x
-  32     39.7320           7.47x       805               4.3x
+  1       5.6198           1.00x       178               1.0x
+  2       7.3265           1.30x       273               1.5x
+  4       9.6397           1.72x       415               2.3x
+  8      14.8361           2.64x       539               3.0x
+  16     23.1560           4.12x       691               3.9x
+  32     40.5192           7.21x       790               4.4x
 ```
 
-The free lunch is gone: 16.4× throughput becomes **4.3×**.
+The free lunch is gone: 14.6× throughput becomes **4.4×**.
 
 ![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-light.png){: .light width="1000" height="540" }
 ![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-dark.png){: .dark width="1000" height="540" }
 
-The reason is the formula from §4. **Weights are shared across the batch; the KV cache is not.** Every sequence brings its own cache, so KV traffic scales with batch while weight traffic stays flat. At batch 32 with a 512-token prefix, this model reads 0.250 GiB of KV cache against 0.23 GiB of weights — the cache has become the *majority* of memory traffic, and batching can't amortize it.
+The reason is the formula from §4. **Weights are shared across the batch; the KV cache is not.** Every sequence brings its own cache, so KV traffic scales with batch while weight traffic stays flat. Which is a claim about two numbers, so here are the two numbers, per decode step, at the 512-token prefix:
+
+```text
+  batch  weight bytes   KV bytes      total  KV share  bound by
+  ---------------------------------------------------------------
+  1         0.233 GiB  0.008 GiB  0.241 GiB        3%   weights
+  2         0.233 GiB  0.016 GiB  0.249 GiB        6%   weights
+  4         0.233 GiB  0.031 GiB  0.265 GiB       12%   weights
+  8         0.233 GiB  0.062 GiB  0.296 GiB       21%   weights
+  16        0.233 GiB  0.125 GiB  0.358 GiB       35%   weights
+  32        0.233 GiB  0.250 GiB  0.483 GiB       52%  KV cache
+
+  KV overtakes weights at batch (32-tok prefix) 478
+  KV overtakes weights at batch (512-tok prefix) 30
+```
+
+Read the weight column: it never changes. Read the KV column: it doubles every row. Somewhere between batch 16 and 32 they cross, and the KV share goes from a rounding error at 3% to the **majority** of memory traffic at 52%.
+
+Line that up against the throughput column above and the two tell one story. Throughput is still climbing steeply while KV share is under 20%; it flattens as the share passes half. Batching amortizes one term and multiplies the other, and the shape of the curve is just which term is winning.
+
+The last two rows are the same crossover stated as a batch size, and the gap between them is the point: with a 32-token prefix you'd need batch **478** before the cache matters, with a 512-token prefix you need batch **30**. Sixteen times the context, sixteen times sooner. The context length you support and the batch size you can profitably run are the same decision.
 
 I find this the most useful thing in the post, because the textbook version ("decode is memory-bound, so batch it") is only half the story. Batching amortizes one term. The other term grows with exactly the thing you were batching. That crossover is why production serving is a scheduling problem — continuous batching, prefix sharing for common system prompts, paged caches to stop reserving worst-case memory, and KV-cache quantization to shrink the term that doesn't amortize.
 
