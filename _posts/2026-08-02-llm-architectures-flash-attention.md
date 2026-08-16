@@ -15,7 +15,7 @@ published: false
 
 [Post 2](/posts/llm-architectures-kv-cache/) ended on a principle: don't move bytes you don't have to. That was about weights and the KV cache. This post applies the same idea one level down, to attention itself.
 
-The first thing to say about Flash Attention — and the thing that trips people up — is that **it is exact**. It is not a sparse approximation, not a low-rank factorization, not a kernel trick. It computes precisely the same function as the attention in [post 1](/posts/llm-architectures-attention-and-rope/). It just computes it in an order that touches memory far less.
+The first thing to say about Flash Attention — Dao et al., [FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness](https://arxiv.org/abs/2205.14135) (2022) — and the thing that trips people up, is that **it is exact**. The word is in the title for a reason. It is not a sparse approximation, not a low-rank factorization, not a kernel trick. It computes precisely the same function as the attention in [post 1](/posts/llm-architectures-attention-and-rope/). It just computes it in an order that touches memory far less.
 
 Which means it's a claim you can check — and as in the earlier posts, every claim here gets a **receipt** you can run yourself, from the companion repo [`llm-architectures-refresher`](https://github.com/bearbearyu1223/llm-architectures-refresher):
 
@@ -41,7 +41,9 @@ Every number and figure below came out of that command on my M-series Mac. The c
 
 ---
 
-### The problem is memory traffic, not FLOPs {#the-problem-is-memory-traffic-not-flops}
+### 1. The problem is memory traffic, not FLOPs {#the-problem-is-memory-traffic-not-flops}
+
+Two names for memory first, because the whole argument is about the distance between them. **HBM** is *high-bandwidth memory* — the GPU's main memory, the tens of gigabytes a spec sheet quotes when it says "80 GB". **SRAM** is the small pool of memory sitting on the chip itself, next to the arithmetic units. HBM is where your tensors live; SRAM is where they have to be for the chip to touch them, and everything moves between the two.
 
 Standard attention does this:
 
@@ -51,13 +53,20 @@ Standard attention does this:
 
 Three round-trips through main memory for a matrix that grows quadratically with sequence length. At $n = 8192$ with 8 heads in fp32, that intermediate is **2 GiB** — per layer, per forward pass.
 
-Now the hardware. On an A100, HBM bandwidth is roughly 2 TB/s, while on-chip SRAM runs at about 19 TB/s — an order of magnitude faster, but there's only ~20 MB of it. So attention at long context isn't waiting on arithmetic. It's waiting on the trip to HBM and back, exactly like decode in [post 2](/posts/llm-architectures-kv-cache/).
+Now the hardware, and the two numbers that matter:
+
+| | Bandwidth | How much of it |
+| --- | --- | --- |
+| **HBM** — main memory | ~2 TB/s | 40–80 GB |
+| **SRAM** — on-chip | ~19 TB/s | ~20 MB |
+
+Roughly an order of magnitude apart in speed, and four orders apart in size. That combination is the entire problem: SRAM is fast enough to keep the arithmetic units fed, and far too small to hold an $n \times n$ score matrix. So attention at long context isn't waiting on arithmetic. It's waiting on the trip to HBM and back, exactly like decode in [post 2](/posts/llm-architectures-kv-cache/).
 
 The fix is the standard one for memory-bound problems: **fuse the steps so intermediates never leave fast memory**. Compute a tile of $S$, softmax it, multiply by $V$, accumulate, discard — all while the tile sits in SRAM.
 
 There's an obvious objection, and it's the interesting part. Softmax has a denominator that sums over the *entire* row. How can you normalize a tile before you've seen all the tiles?
 
-### Online softmax: the one idea {#online-softmax-the-one-idea}
+### 2. Online softmax: the one idea {#online-softmax-the-one-idea}
 
 Recall the numerically stable softmax subtracts the row max first:
 
@@ -67,7 +76,7 @@ $$
 
 You need $m$ before you can exponentiate anything, and $m$ depends on the whole row. That's the blocker.
 
-The trick is to keep *running* statistics and retroactively correct them. Carry a running max $m$ and a running sum $\ell$. When a new block arrives with a larger max, every term you've already accumulated was rebased against the old max — so rescale it:
+The trick predates Flash Attention by four years: Milakov & Gimelshein, [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867) (2018), showed you can compute the normalizer in a single streaming pass instead of two. Keep *running* statistics and retroactively correct them. Carry a running max $m$ and a running sum $\ell$. When a new block arrives with a larger max, every term you've already accumulated was rebased against the old max — so rescale it:
 
 $$
 m_{\text{new}} = \max(m_{\text{old}},\; \max(\text{block})), \qquad
@@ -89,7 +98,7 @@ for start in range(0, n, block_size):
 
 Note `l * torch.exp(m - m_new)`. When the max doesn't change, that factor is $e^0 = 1$ and costs nothing. When it does, it corrects the entire accumulated history in one multiply.
 
-### Receipt 1: partial softmaxes compose {#receipt-1-partial-softmaxes-compose}
+### 3. Receipt 1: partial softmaxes compose {#receipt-1-partial-softmaxes-compose}
 
 Does it actually agree with `torch.softmax`? Testing on logits scaled by 8, so each row spans a range of about 80 — enough that a careless implementation returns `inf` or `nan`:
 
@@ -104,7 +113,7 @@ Does it actually agree with `torch.softmax`? Testing on logits scaled by 8, so e
 
 Agreement at `1e-7` in fp32, and the rows still sum to 1. **Block size changes the memory schedule, not the answer.** That's the property everything else rests on.
 
-### Tiled attention in 40 lines {#tiled-attention-in-40-lines}
+### 4. Tiled attention in 40 lines {#tiled-attention-in-40-lines}
 
 Now build attention on it. Outer loop over query blocks; inner loop streams key/value blocks past them, updating the running statistics *and* the accumulated output:
 
@@ -134,17 +143,26 @@ The line that carries the algorithm is `acc = acc * correction + p @ vj`. The ac
 
 Also notice the division by `l` happens **once at the end**, outside the inner loop. You accumulate an unnormalized weighted sum and normalize last, which is what makes the whole thing associative.
 
-### Receipt 2: exact, and what "exact" is worth {#receipt-2-exact-and-what-exact-is-worth}
+### 5. Receipt 2: exact, and what "exact" is worth {#receipt-2-exact-and-what-exact-is-worth}
 
 Against `F.scaled_dot_product_attention`, across tile shapes:
 
 ```text
-  causal=False                       causal=True
-  tile (q x k)  max abs difference   tile (q x k)  max abs difference
-  ----------------------------------  ----------------------------------
-  64 x 64                4.768e-07   64 x 64                1.431e-06
-  128 x 128              5.066e-07   128 x 128              1.431e-06
-  256 x 512              4.917e-07   256 x 512              1.431e-06
+  causal=False: tiled vs F.scaled_dot_product_attention
+
+  tile (q x k)  max abs difference
+  ----------------------------------
+  64 x 64                4.768e-07
+  128 x 128              5.066e-07
+  256 x 512              4.917e-07
+
+  causal=True: tiled vs F.scaled_dot_product_attention
+
+  tile (q x k)  max abs difference
+  ----------------------------------
+  64 x 64                1.431e-06
+  128 x 128              1.431e-06
+  256 x 512              1.431e-06
 ```
 
 That's floating-point reassociation noise — the same order as [post 1](/posts/llm-architectures-attention-and-rope/)'s check. The tile shape doesn't move it, because the tile shape isn't part of the math.
@@ -161,7 +179,7 @@ Now the comparison that gives "exact" its meaning. Sliding-window attention is a
 
 **Five orders of magnitude apart.** This is the distinction to hold onto: sparse attention, linear attention, and low-rank attention all change the function being computed, and you have to evaluate whether the change costs you anything. Flash Attention changes only the order of memory accesses. There is nothing to evaluate — if it produced different results, it would be a bug.
 
-### Receipt 3: the memory that never gets allocated {#receipt-3-the-memory-that-never-gets-allocated}
+### 6. Receipt 3: the memory that never gets allocated {#receipt-3-the-memory-that-never-gets-allocated}
 
 ```text
   seq   score matrix (n^2)  naive measured  one tile  tiled residual
@@ -191,9 +209,9 @@ Extrapolating past what my laptop can hold:
   131072                   512.0 GiB
 ```
 
-Half a terabyte for one attention layer's intermediate at 128k context. **This is why long context was infeasible before 2022** — not because the FLOPs were unaffordable, but because you could not allocate the intermediate. $O(n^2) \to O(n)$ memory is the entire unlock.
+Half a terabyte for one attention layer's intermediate at 128k context. **This is why long context was infeasible before 2022** — not because the FLOPs were unaffordable, but because you could not allocate the intermediate. $O(n^2) \to O(n)$ memory is the entire unlock, and Rabe & Staats, [Self-attention Does Not Need $O(n^2)$ Memory](https://arxiv.org/abs/2112.05682) (2021), had made the same point a year earlier from the memory side alone, without the IO-aware kernel that turned it into a speedup.
 
-### Causal masking gets a bonus {#causal-masking-gets-a-bonus}
+### 7. Causal masking gets a bonus {#causal-masking-gets-a-bonus}
 
 Once you're looping over tiles, causal masking stops being a `masked_fill` and becomes a scheduling decision. If a key block starts after the query block ends, every score in that tile would be $-\infty$. So don't compute it:
 
@@ -216,7 +234,7 @@ if causal and j > i + rows - 1:
 
 Just under half the work disappears. The naive path computes that entire upper triangle, writes it to HBM, reads it back, and softmaxes it into zeros. Only the diagonal tiles need an actual mask — everything below is fully visible, everything above is skipped outright. Smaller blocks skip a larger fraction, because the diagonal band they must compute is thinner.
 
-### Where the speed actually comes from {#where-the-speed-actually-comes-from}
+### 8. Where the speed actually comes from {#where-the-speed-actually-comes-from}
 
 An honest caveat: **the Python tiled loop above is slower than naive attention.** Every tile still round-trips through HBM, plus Python overhead per iteration. The algorithm buys memory; fusing it into a single kernel is what buys time.
 
@@ -225,22 +243,26 @@ So for timing, compare naive attention against `F.scaled_dot_product_attention`,
 ```text
   seq   naive (ms)  fused SDPA (ms)  speedup
   --------------------------------------------
-  512       1.2210           0.3307    3.69x
-  1024      3.5331           0.7961    4.44x
-  2048     13.4070           2.0592    6.51x
-  4096     55.1674           7.0320    7.85x
+  512       1.1330           0.3411    3.32x
+  1024      3.5072           0.7662    4.58x
+  2048     12.7797           2.0381    6.27x
+  4096     54.8068           6.9735    7.86x
 ```
 
 ![Naive vs fused attention timing](/assets/picture/2026-08-02-llm-architectures-flash-attention/timing-light.png){: .light width="1000" height="684" }
 ![Naive vs fused attention timing](/assets/picture/2026-08-02-llm-architectures-flash-attention/timing-dark.png){: .dark width="1000" height="684" }
 
-The speedup **grows with sequence length** — 3.7× at 512, 7.9× at 4096 — because the naive path's memory traffic grows quadratically while the fused path's grows linearly. Extrapolate and it keeps widening.
+The speedup **grows with sequence length** — about 3× at 512, about 8× at 4096 — because the naive path's memory traffic grows quadratically while the fused path's grows linearly. Extrapolate and it keeps widening. (Wall-clock again, so the exact multiples move a little between runs; the widening is the part that holds.)
 
 One more piece: the backward pass. Training normally stores the attention probabilities for the backward pass, which is the $O(n^2)$ tensor you just avoided allocating. Flash Attention instead **recomputes** the tiles during the backward pass from $Q$, $K$, $V$ and the saved statistics. Recomputation sounds expensive, but it's arithmetic — and arithmetic is the resource you have in surplus. It's cheaper to redo the FLOPs than to have stored and re-read the result.
 
-A note on versions, since interviews like the specifics. **FA2** improved work partitioning across warps and cut non-matmul FLOPs — tensor cores are roughly 16× faster at matmul than at anything else, so the non-matmul work dominates disproportionately. **FA3** targets Hopper: asynchronous copies via TMA, warp specialization, and FP8.
+A note on versions, since interviews like the specifics. Two more pieces of vocabulary make it readable: a **warp** is the group of 32 GPU threads that execute in lockstep, the unit work gets divided into; **tensor cores** are the dedicated circuits that do matrix multiplies, separate from the general-purpose arithmetic units beside them.
 
-### Sidebar: the probe {#sidebar-the-probe}
+**[FlashAttention-2](https://arxiv.org/abs/2307.08691)** (2023) improved how work is partitioned across warps and cut the number of *non-matmul* FLOPs. That sounds like a strange thing to optimize until you see the gap it exploits: on an A100 the tensor cores do 312 TFLOP/s of FP16 matmul against 19.5 TFLOP/s of non-matmul FP32, so as the paper puts it, "each non-matmul FLOP is 16× more expensive than a matmul FLOP." Rescalings and sums are exactly the non-matmul work online softmax adds, which is why trimming them mattered.
+
+**[FlashAttention-3](https://arxiv.org/abs/2407.08608)** (2024) targets Hopper hardware: asynchronous memory copies through the TMA (Tensor Memory Accelerator, a unit that moves tiles between HBM and SRAM without occupying the compute threads), warp specialization so different warps handle copying and computing, and FP8.
+
+### 9. Sidebar: the probe {#sidebar-the-probe}
 
 > **"Does Flash Attention change your model's output?"**
 
@@ -254,13 +276,13 @@ The tell is whether someone distinguishes it from the approximate-attention fami
 
 ### What's next {#whats-next}
 
-Post 4 turns to **quantization**, where the tradeoff is real: fewer bytes per weight genuinely does lose information, and the interesting question is *what breaks first*. We'll implement INT8 and NF4 by hand, watch per-tensor scaling get destroyed by a single outlier channel, and see why perplexity is a misleading way to decide whether a quantized model is safe to ship.
+Next in the series — planned as post 4 — is **quantization**, where the tradeoff is real: fewer bytes per weight genuinely does lose information, and the interesting question is *what breaks first*. The plan is to implement INT8 and NF4 by hand, watch per-tensor scaling get destroyed by a single outlier channel, and work out why perplexity is a misleading way to decide whether a quantized model is safe to ship.
 
 ### References
 
-- Dao et al., [FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness](https://arxiv.org/abs/2205.14135) (2022).
-- Dao, [FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning](https://arxiv.org/abs/2307.08691) (2023).
-- Shah et al., [FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision](https://arxiv.org/abs/2407.08608) (2024).
-- Milakov & Gimelshein, [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867) (2018) — where the running-statistics trick comes from.
-- Rabe & Staats, [Self-attention Does Not Need $O(n^2)$ Memory](https://arxiv.org/abs/2112.05682) (2021).
+- Dao et al., [FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness](https://arxiv.org/abs/2205.14135) (2022) — the paper this post reimplements. "Exact" is in its title.
+- Dao, [FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning](https://arxiv.org/abs/2307.08691) (2023) — §8's version notes. The 16× figure is its §3.1: 312 TFLOP/s of matmul against 19.5 TFLOP/s of non-matmul on an A100.
+- Shah et al., [FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision](https://arxiv.org/abs/2407.08608) (2024) — the Hopper-specific work in §8.
+- Milakov & Gimelshein, [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867) (2018) — where §2's running-statistics trick comes from, four years before Flash Attention put it to this use.
+- Rabe & Staats, [Self-attention Does Not Need $O(n^2)$ Memory](https://arxiv.org/abs/2112.05682) (2021) — §6's point, made a year earlier without the fused kernel.
 - Code for this post: [`llm-architectures-refresher`](https://github.com/bearbearyu1223/llm-architectures-refresher), `uv run demo03`.
