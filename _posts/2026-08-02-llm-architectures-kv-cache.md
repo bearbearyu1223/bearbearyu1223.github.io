@@ -1,6 +1,6 @@
 ---
 title: "LLM Architecture Refresh [2]: The KV Cache, and Why Decode Is Memory-Bound"
-date: 2026-08-02 00:00:00 -0700
+date: 2026-08-16 00:00:00 -0700
 categories: [LLM Architecture Refresh, Inference]
 tags: [kv-cache, inference, gqa, mqa, batching, memory-bandwidth, pytorch]
 description: >-
@@ -8,6 +8,7 @@ description: >-
   cache outgrows the model weights at long context, and why decode is
   memory-bandwidth-bound while prefill is compute-bound.
 math: true
+pin: true
 published: false
 ---
 
