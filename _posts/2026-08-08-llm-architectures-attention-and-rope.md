@@ -287,12 +287,14 @@ $$
 4 \times 4096^2 = 67{,}108{,}864 \text{ numbers}
 $$
 
-| Stored as | Bits: sign / exponent / fraction | Bytes each | Total bytes | Weighs |
-| --- | --- | --- | --- | --- |
-| fp32 | 32: 1 / 8 / 23 | 4 | 268,435,456 | **256 MiB** |
-| bf16 | 16: 1 / 8 / 7 | 2 | 134,217,728 | **128 MiB** |
-| fp16 | 16: 1 / 5 / 10 | 2 | 134,217,728 | **128 MiB** |
-| fp8 | 8: 1 / 4 / 3 | 1 | 67,108,864 | 64 MiB |
+```text
+  stored as  sign/exp/frac  bits  bytes each  total bytes   weighs
+  ------------------------------------------------------------------
+  fp32              1/8/23    32           4  268,435,456  256 MiB
+  bf16               1/8/7    16           2  134,217,728  128 MiB
+  fp16              1/5/10    16           2  134,217,728  128 MiB
+  fp8                1/4/3     8           1   67,108,864   64 MiB
+```
 
 Same architecture, down to a quarter of the memory, decided long after the model was designed. That's why the memory rows in the table are written as counts: the count is fixed by the model, the multiplier is picked when you deploy it.
 
@@ -1016,15 +1018,23 @@ $$
 
 Some numbers, since everything below depends on them:
 
-| gap $g$ | resulting weights |
-| --- | --- |
-| 1 | 0.27, 0.73 |
-| 2 | 0.12, 0.88 |
-| 4 | 0.018, 0.982 |
-| 8 | 0.0003, 0.9997 |
-| 16 | 0.0000001, 0.9999999 |
+```text
+  gap g  weight on lower  weight on higher
+  ------------------------------------------
+  1            0.2689414         0.7310586
+  2            0.1192029         0.8807971
+  4            0.0179862         0.9820138
+  8            0.0003354         0.9996646
+  16           0.0000001         0.9999999
+```
 
-Two things follow. **Only differences matter.** Add 100 to both logits and every weight stays the same, because the shared factor $e^{100}$ cancels between the numerator and the denominator. And **the size of those differences decides everything else**: gaps near 1 give a real blend, gaps past about 8 give a winner that takes nearly all of it.
+Two things follow. **The size of those gaps decides everything else**: gaps near 1 give a real blend, gaps past about 8 give a winner that takes nearly all of it. And **only differences matter**, since adding a constant to both logits multiplies the top and bottom of the fraction by the same $e^c$, which cancels:
+
+```text
+  softmax([0, 4])                    0.0179862, 0.9820138
+  softmax([100, 104])                0.0179862, 0.9820138
+  identical                          yes
+```
 
 So asking whether a head will average or pick is the same as asking how far apart its logits are.
 
@@ -1276,7 +1286,23 @@ Two things about this step surprise people.
 
 **It's a huge matrix.** It needs one row of 4,096 weights for each of the 128,256 words it scores, so its size is $n_{vocab} \times d_{model} = 128{,}256 \times 4{,}096$ — **525M parameters**, which against the model's 8.03B is 6.5% sitting in a single layer. The embedding table is exactly the same size, for exactly the same reason, so double it: $2 \times 525\text{M} = 1.05\text{B}$, or **13% of the model in two lookup tables**, leaving the 32 blocks the other 87%. Since they hold the same kind of thing, some models *tie* them — one set of weights used in both directions, saving the 525M outright.
 
-You can read which one a model chose off its advertised size. Thirty-two blocks come to 6.98B; add two 525M tables and you get **8.03B**, add one and you get 7.50B. Llama-3-8B is sold as 8.03B, so it keeps them separate. GPT-2 tied its two, and so do several of the smaller models released since, where 525M is a much larger share of the budget.
+You can read which one a model chose off its advertised size:
+
+```text
+  one table (n_vocab x d_model)      525.3M
+  one block (attention + FFN)        218.1M
+  32 blocks                          6.979B
+
+  arrangement                 tables  total parameters
+  ------------------------------------------------------
+  untied (separate matrices)       2            8.030B
+  tied (one shared matrix)         1            7.505B
+
+  Llama-3-8B is advertised as        8.03B
+  so it keeps them                   separate
+```
+
+GPT-2 tied its two, and so do several of the smaller models released since, where 525M is a much larger share of the budget.
 
 **Its output is enormous during training.** One token's logits are 128,256 numbers, and [the bytes rule](#an-aside-what-those-671m-numbers-weigh) turns a count into a size: the loss is computed in fp32, so 4 bytes each, and $128{,}256 \times 4 = 513$ KB. That's the half a megabyte — one token's worth of scores.
 
@@ -1400,11 +1426,15 @@ $$
 \theta_i = 10{,}000^{-i/d_{head}}, \qquad i = 0, 2, 4, \ldots, 126
 $$
 
-| plane | its rate $\theta_i$ | comes full circle every |
-| --- | --- | --- |
-| $i = 0$, the fastest | 1.0 | ~6 positions |
-| $i = 64$ | 0.01 | ~628 positions |
-| $i = 126$, the slowest | 0.000115 | ~54,000 positions |
+```text
+  plane i      theta_i  full circle every
+  -----------------------------------------
+  0                  1        6 positions
+  32               0.1       63 positions
+  64              0.01      628 positions
+  96             0.001    6,283 positions
+  126      0.000115478   54,410 positions
+```
 
 The fast planes resolve close neighbours sharply and wrap constantly. The slow ones have barely begun to turn by the end of a long context, so they carry coarse, long-range position instead. Read all 64 together and the offset is pinned down exactly.
 
