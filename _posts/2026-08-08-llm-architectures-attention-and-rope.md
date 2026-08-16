@@ -1,6 +1,6 @@
 ---
 title: "LLM Architecture Refresh [1]: Inside a Transformer Block — Attention, Heads, and the FFN"
-date: 2026-08-08 00:00:00 -0700
+date: 2026-08-15 00:00:00 -0700
 categories: [LLM Architecture Refresh, Transformers]
 tags: [attention, multi-head-attention, transformer, ffn, swiglu, rmsnorm, rope, positional-encoding, softmax, flops, pytorch]
 description: >-
@@ -227,7 +227,7 @@ The thing to notice is that the four are not copies of each other. Compare their
 
 That also gives the number a concrete reading — undo the logarithm, and $e^{\text{spread}}$ is roughly **how many tokens the row is effectively looking at**. Head 0, at 1.72, is spreading itself over about 6 of the 12; head 1, at 2.28, over nearly 10. Same input, four different opinions.
 
-One caveat I want to be exact about: **these are random weights.** The heads differ because they were initialized differently, which shows they aren't redundant copies — it is *not* specialization. In trained models specialization is real and catalogued: "previous-token heads" that look one step back, "induction heads" that spot a repeated pattern and predict its continuation. You can't see that in a figure like this.
+One caveat I want to be exact about: **these are random weights.** The heads differ because they were initialized differently, which shows they aren't redundant copies — it is *not* specialization. In trained models specialization is real and catalogued: "previous-token heads" that look one step back, "induction heads" that spot a repeated pattern and predict its continuation — both named and traced in Olsson et al., [In-context Learning and Induction Heads](https://arxiv.org/abs/2209.11895) (2022). You can't see that in a figure like this.
 
 So why not 512 heads? Because $n_{heads} \times d_{head}$ is fixed at $d_{model}$ — every head you add narrows all of them. At 32 heads each gets 128 numbers to describe a query; at 64 heads, 64 numbers; at 512, just 8, which is too few to express much of anything. A single head of 4,096 has the opposite problem: all the room in the world, and only one opinion. Models land at 32–64, where there are enough heads to disagree and enough width for each to have something to say.
 
@@ -377,7 +377,7 @@ Now, 128 MiB doesn't sound alarming — but that's at a 1,024-token sequence, an
   seq 131,072:   2.0 TiB  per layer, per forward pass
 ```
 
-At an 8k context, **one layer's scores are 8 GiB — over half the size of the entire 15 GiB model**, and there are 32 layers. At 128k it's 2 TiB per layer, which no accelerator on earth has.
+At an 8k context, **one layer's scores are 8 GiB — over half the size of the entire model's weights**, which come to 15 GiB in bf16 (the same quantity [§6](#what-the-model-costs) quotes as 16.1 GB, once you switch to the decimal units spec sheets use). And there are 32 layers. At 128k it's 2 TiB per layer, which no accelerator on earth has.
 
 And the reason to avoid this cost rather than budget for it: **it's scratch.** The score matrix isn't part of the model and isn't part of the answer. It's computed, softmaxed, multiplied by $V$, and thrown away microseconds later. Nothing wants it — it's just an unavoidable-looking step on the way to the output.
 
@@ -431,7 +431,7 @@ One number carries the section, and it has just changed meaning:
   (not the 67.1M above — that was one layer's four projections)
 ```
 
-[The FLOP aside](#an-aside-what-a-flop-is-and-how-to-count-one) used $N$ for a single layer's four projections. From here it means the whole model — all 32 blocks, plus the embedding table and the LM head.
+[The FLOP aside](#an-aside-what-a-flop-is-and-how-to-count-one) used $N$ for a single layer's four projections. From here it means the whole model — all 32 blocks, plus the embedding table and the **LM head**: the two lookup tables sitting at either end of the stack, one turning a token into a vector on the way in, the other turning a vector back into scores over the whole vocabulary on the way out. [§13](#the-last-two-boxes-the-final-norm-and-the-lm-head) opens them up as a single table read in both directions; for now what matters is that they are large, and they are part of $N$.
 
 #### The budget
 
@@ -579,7 +579,17 @@ Those last four rows are the compute story made concrete. The gradients need 16.
 
 The 128 GB above is the part people remember. Two more get underestimated, and either can be the thing that actually triggers the out-of-memory error.
 
-**Activations.** Inference discards each layer's intermediate values as it goes; training cannot, because $dW = X^\top dY$ needs the layer's input $X$ from the forward pass ([§13](#the-return-trip) shows exactly which product is responsible). Gradient checkpointing is the escape: store only each layer's input and recompute the rest during the backward pass, trading roughly 30% extra compute for a large memory saving.
+**Activations.** Inference discards each layer's intermediate values as it goes; training cannot, because $dW = X^\top dY$ needs the layer's input $X$ from the forward pass ([§13](#the-return-trip) shows exactly which product is responsible). Left alone, that means every intermediate inside every block stays alive from the moment it is computed until the backward pass comes back for it — and they are not small. The FFN's middle tensor alone is $4{,}096 \times 14{,}336$ numbers, 117 MB per block in bf16, **3.8 GB** across all 32.
+
+**Gradient checkpointing** is the escape, and the name is meant literally. You choose checkpoints through the network, here the input to each block, keep only those, and throw away everything computed in between. When the backward pass asks for something that was thrown away, that block is run forward a second time from its saved input to rebuild it. Storage drops to one tensor per block; the price is a second forward pass through every block, roughly 30% more compute overall.
+
+That makes the surviving figure easy to predict: one saved tensor per block, each $seq \times d_{model}$, two bytes apiece.
+
+$$
+32 \times 4{,}096 \times 4{,}096 \times 2 \text{ bytes} \;\approx\; 1.1 \text{ GB}
+$$
+
+which is what the demo prints. In its shorthand, `ckpt` means checkpointing is on, `b` is the batch size and `s` the sequence length:
 
 ```text
   activations, ckpt b=1 s=4096       1.1 GB
@@ -616,7 +626,7 @@ $$
 C \approx 6ND
 $$
 
-That's the entire budget for a training run, and it is the $6N$ from this section with $D$ tokens pushed through it. Llama 3 was trained on more than 15 trillion:
+That's the entire budget for a training run, and it is the $6N$ from this section with $D$ tokens pushed through it. Llama 3 was trained on more than 15 trillion, [per Meta's model card](https://github.com/meta-llama/llama3/blob/main/MODEL_CARD.md):
 
 $$
 6 \times 8.03\text{B} \times 15\text{T} \approx 7.2 \times 10^{23} \text{ FLOPs}
@@ -779,7 +789,7 @@ $$
 \text{RMSNorm}(x) = \frac{x}{\sqrt{\tfrac{1}{n}\sum x_i^2}} \cdot g
 $$
 
-where $g$ is a learned per-dimension scale. The original transformer used **LayerNorm**, which also subtracts the mean first. RMSNorm's contribution is a *discovery, not an invention*: that mean-subtraction turned out not to matter. Dropping it costs no quality and saves a pass over the data.
+where $g$ is a learned per-dimension scale. The original transformer used **LayerNorm**, which also subtracts the mean first. RMSNorm's contribution — Zhang & Sennrich, [Root Mean Square Layer Normalization](https://arxiv.org/abs/1910.07467) (2019) — is a *discovery, not an invention*: that mean-subtraction turned out not to matter. Dropping it costs no quality and saves a pass over the data; the paper reports 7–64% lower running time depending on the model.
 
 #### The residual, and what "pre-norm" means
 
@@ -791,7 +801,7 @@ $$
 
 If a sublayer learns nothing useful, the block degrades to the identity rather than to noise. That unbroken path is also the road the gradient travels back down undiminished, which is what lets you stack 80 of these.
 
-**"Pre-norm"** describes where the norm sits relative to that bypass. The 2017 original normalized *after* adding the residual, putting a norm on the trunk itself, so every layer's output got rescaled on the way through. Modern decoders moved it to the *bypassed* side: in the diagram, the norm sits between the point where the arrow branches off and the sublayer it feeds — so the skip route goes around the norm as well as around the sublayer. That leaves the residual path unnormalized end to end, so deep models train stably without the learning-rate warmup gymnastics the original recipe needed.
+**"Pre-norm"** describes where the norm sits relative to that bypass. The 2017 original (Vaswani et al., [Attention Is All You Need](https://arxiv.org/abs/1706.03762), the paper that introduced the transformer) normalized *after* adding the residual, putting a norm on the trunk itself, so every layer's output got rescaled on the way through. Modern decoders moved it to the *bypassed* side: in the diagram the norm sits between the point where the arrow branches off and the sublayer it feeds, so the skip route goes around the norm as well as around the sublayer. That leaves the residual path unnormalized end to end, which is what lets deep models train stably without the learning-rate warmup gymnastics the original recipe needed. Xiong et al., [On Layer Normalization in the Transformer Architecture](https://arxiv.org/abs/2002.04745), traced the difference to the gradients at initialization: large near the output under post-norm, well-behaved under pre-norm.
 
 That leaves one box in the diagram unexplained, and it's the biggest one.
 
@@ -825,7 +835,7 @@ $$
 
 Two up-projections run in parallel. One produces content; the other is squashed by a smooth S-curve (SiLU) into a set of dimmers, and the two are multiplied element by element. The network learns, per feature and per input, how much signal to let through — a dimmer it controls rather than a hard on/off switch. The third matrix is paid for by shrinking the expansion from $4d$ to about $\tfrac{8}{3}d$. That's how $d_{ff}$ ends up at 14,336 rather than a rounder 16,384.
 
-The paper introducing SwiGLU is refreshingly candid about this. It tested a family of gated variants, found they worked better, offered no theory, and closed by attributing their success "to divine benevolence." Much of a modern transformer is there because it measured better, not because someone derived it.
+The paper introducing SwiGLU — Shazeer, [GLU Variants Improve Transformer](https://arxiv.org/abs/2002.05202) (2020) — is refreshingly candid about this. It tested a family of gated variants, found they worked better, offered no theory, and closed with: *"We offer no explanation as to why these architectures seem to work; we attribute their success, as all else, to divine benevolence."* Much of a modern transformer is there because it measured better, not because someone derived it.
 
 **Why more than one matrix at all?** Because two stacked matrices with nothing between them *are* one matrix:
 
@@ -905,7 +915,7 @@ Double the input and a linear function would have moved that number to $-0.2394$
 
 #### Why knowledge ends up there
 
-The FFN's *shape* is a lookup table. Write it out one slot at a time:
+The FFN's *shape* is a lookup table, the reading developed in Geva et al., [Transformer Feed-Forward Layers Are Key-Value Memories](https://arxiv.org/abs/2012.14913) (2021). Write it out one slot at a time:
 
 $$
 \text{FFN}(x) = \sum_{i=1}^{d_{ff}} \underbrace{a_i(x)}_{\text{did slot } i \text{ match?}} \cdot \underbrace{W_{\text{down}}[i]}_{\text{what slot } i \text{ says}}
@@ -936,7 +946,7 @@ by_hand = sum(acts[row, i] * w_down[i] for i in range(d_ff))   # slot by slot
   largest disagreement, all 64       8.941e-08
 ```
 
-So "the model knows Paris is in France" has a concrete home: some slot whose up-projection fires on *the Eiffel Tower is in*, whose down-projection nudges the output toward *Paris*. Llama-3-8B has 14,336 slots per layer across 32 layers — **458,752 of them**. This isn't only a metaphor: the ROME and MEMIT lines of work locate specific factual associations in specific FFN weights and *edit* them, changing what a model believes by writing to a handful of numbers.
+So "the model knows Paris is in France" has a concrete home: some slot whose up-projection fires on *the Eiffel Tower is in*, whose down-projection nudges the output toward *Paris*. Llama-3-8B has 14,336 slots per layer across 32 layers — **458,752 of them**. This isn't only a metaphor: the [ROME](https://arxiv.org/abs/2202.05262) and [MEMIT](https://arxiv.org/abs/2210.07229) lines of work locate specific factual associations in specific FFN weights and *edit* them, changing what a model believes by writing to a handful of numbers.
 
 The real picture is less tidy than that, in two ways. Slots aren't cleanly one-fact-each — facts spread across many, and a slot participates in many facts. And with the random weights measured above, most slots respond to anything; trained FFNs are far sparser.
 
@@ -954,7 +964,7 @@ Counting attention against FFN in a single block, across three real models:
 
 Attention gets the name and the diagrams, but it's the **minority of the weights**. The classic two-thirds figure comes from the original shapes — attention $4d^2$, FFN $2 \cdot d \cdot 4d = 8d^2$. Modern decoders push further from both ends: GQA shrinks $K$/$V$ while SwiGLU adds a third FFN matrix.
 
-That's the parameter-count version of the same point: **routing lives in attention, knowledge lives in the FFN.** If the FFN is the model's memory, it needs to be big. It's also why LoRA on attention alone underperforms (post 5), and why Mixture-of-Experts replaces the *FFN* (post 9).
+That's the parameter-count version of the same point: **routing lives in attention, knowledge lives in the FFN.** If the FFN is the model's memory, it needs to be big. It's also why LoRA on attention alone underperforms, and why Mixture-of-Experts replaces the *FFN* — both planned for later in this series (LoRA in post 5, MoE in post 9).
 
 ### 10. The implementation, in five lines {#the-implementation-in-five-lines}
 
@@ -988,17 +998,81 @@ Agreement to `5e-07` in float32 — floating-point reassociation noise, not an a
 
 ### 11. Why divide by sqrt(d_k)? {#why-divide-by-sqrt-dk}
 
-The argument is short. If $q$ and $k$ have independent components with mean 0 and variance 1, then
+The formula back in [§3](#the-formula-symbol-by-symbol) divides the scores by $\sqrt{d_k}$ before the softmax sees them, and that constant looks like something someone tuned by trial. It isn't. It's the one choice that keeps attention behaving the same way no matter how wide you make a head — and getting there takes four small steps, none of which require anything you don't already have.
+
+One word first. The raw scores going into a softmax — one per key, before any normalizing — are called **logits**. They're unbounded, they can be negative, and on their own they mean nothing.
+
+#### Step 1: a softmax only ever sees gaps
+
+Take the smallest case that shows anything: two keys, with logits $0$ and $g$. The weight landing on the larger one is
+
+$$
+\frac{e^{g}}{e^{0} + e^{g}} = \frac{1}{1 + e^{-g}}
+$$
+
+Some numbers, since everything below depends on them:
+
+| gap $g$ | resulting weights |
+| --- | --- |
+| 1 | 0.27, 0.73 |
+| 2 | 0.12, 0.88 |
+| 4 | 0.018, 0.982 |
+| 8 | 0.0003, 0.9997 |
+| 16 | 0.0000001, 0.9999999 |
+
+Two things follow. **Only differences matter.** Add 100 to both logits and every weight stays the same, because the shared factor $e^{100}$ cancels between the numerator and the denominator. And **the size of those differences decides everything else**: gaps near 1 give a real blend, gaps past about 8 give a winner that takes nearly all of it.
+
+So asking whether a head will average or pick is the same as asking how far apart its logits are.
+
+#### Step 2: the size of the gaps is what "temperature" means
+
+**Temperature** is the standard dial on a softmax, written
+
+$$
+\text{softmax}(z / T)
+$$
+
+where $z$ are the logits and $T > 0$ is the temperature. Dividing every logit by $T$ divides every *gap* by $T$ as well, so Step 1 already tells you what it does. A large $T$ shrinks the gaps and flattens the weights toward even, which is called hot; a small $T$ stretches them and sharpens toward one winner, which is called cold. It's the same dial you set when sampling text from a model.
+
+What matters here is what happens if you never touch the dial. Leaving it alone still sets a temperature, namely $T = 1$, so whatever spread the logits happen to have becomes the temperature you get. Any decision that changes how far apart the logits sit is therefore also a decision about temperature, whether it was meant that way or not.
+
+Head width is one of those decisions.
+
+#### Step 3: how far apart attention's logits actually sit
+
+Two terms first, in case they're rusty. The **standard deviation** of a set of numbers is their typical distance from the average, which is a reasonable way of saying how big the gaps between them are. The **variance** is that squared, and it has the property this argument needs: for independent quantities, variances add.
+
+Now take one query $q$ and one key $k$, each $d_k$ numbers long, and assume what holds at initialization: their components are independent of each other, average 0, and have variance 1. The logit is their dot product:
 
 $$
 q \cdot k = \sum_{i=1}^{d_k} q_i k_i
 $$
 
-is a sum of $d_k$ independent mean-zero terms. So $\operatorname{Var}(q \cdot k) = d_k$, and the standard deviation is $\sqrt{d_k}$.
+Build it up from one term. A single product $q_i k_i$ averages 0, since both factors average 0 and are independent. Its variance is
 
-Logits with a standard deviation of 32 aren't "large numbers" — they're a **temperature setting**. A softmax over scores that spread that wide puts essentially all its mass on the single largest one.
+$$
+\mathbb{E}[q_i^2 k_i^2] = \mathbb{E}[q_i^2]\,\mathbb{E}[k_i^2] = 1 \times 1 = 1
+$$
 
-So let's measure it. Sample random queries and keys at several $d_k$, and report two diagnostics: the average largest weight (1.0 = fully one-hot) and the entropy in nats (0.0 = one-hot; $\ln 8 = 2.08$ = uniform over our 8 keys).
+That's one term. The dot product is $d_k$ of them, they're independent, and variances add, so the variance is $d_k$ and the standard deviation is its square root:
+
+$$
+\operatorname{Var}(q \cdot k) = d_k
+\qquad\Longrightarrow\qquad
+\operatorname{std}(q \cdot k) = \sqrt{d_k}
+$$
+
+So **the logits spread over a range of roughly $\pm\sqrt{d_k}$, and head width alone decides how wide that is.** At $d_k = 64$ the spread is about 8, and at $d_k = 1024$ about 32, both far down the Step 1 table where a softmax has stopped blending and started picking. Nobody chose that behaviour; it arrived with the head width.
+
+#### Step 4: so divide by the spread
+
+Dividing every logit by $\sqrt{d_k}$ sets $T = \sqrt{d_k}$ in Step 2, and by Step 3 that is the standard deviation of the logits. Divide a set of numbers by their own standard deviation and they come out with standard deviation 1, whatever they started at. The temperature no longer depends on $d_k$, and head width goes back to being a free choice.
+
+That's why it's a square root and not $d_k$ or $\log d_k$: the square root is the function that cancels the spread the dot product actually produces.
+
+#### The receipt
+
+Now measure it, since Step 3 rested on an assumption about the numbers being independent and unit-variance. Sample random queries and keys at several $d_k$, and report two diagnostics: the average largest weight, where 1.0 is fully one-hot, and the **entropy**, the same spread measure from [§4](#what-a-head-is), written $H$ in the table below. There, 0.0 means all the weight sits on one key and $\ln 8 = 2.08$ means it's shared evenly across our 8 keys.
 
 ```text
   d_k   logit std  max w unscaled  H unscaled  max w scaled  H scaled
@@ -1013,16 +1087,22 @@ So let's measure it. Sample random queries and keys at several $d_k$, and report
 ![Softmax saturation without the sqrt(d_k) scale](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/softmax-saturation-light.png){: .light width="1000" height="696" }
 ![Softmax saturation without the sqrt(d_k) scale](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/softmax-saturation-dark.png){: .dark width="1000" height="696" }
 
-Read the `logit std` column first: `1.96, 3.95, 7.94, 15.92, 32.45` — exactly $\sqrt{4}, \sqrt{16}, \sqrt{64}, \sqrt{256}, \sqrt{1024}$. The theory holds to the digit.
+Read the `logit std` column against Step 3's prediction: `1.96, 3.95, 7.94, 15.92, 32.45`, where $\sqrt{d_k}$ says `2, 4, 8, 16, 32`. Close enough that the assumption holds up on real samples.
 
-Then the consequence. Unscaled, entropy collapses from 1.30 nats to **0.067**; at $d_k = 1024$ the average largest weight is 0.97, so attention has stopped averaging and become a hard `argmax`. Scaled, entropy holds at **~1.74 across a 256× range of $d_k$**. That flat blue line is the whole case for the constant.
+Then the consequence, which is Step 1 playing out. Unscaled, entropy collapses from 1.30 nats to **0.067**; at $d_k = 1024$ the average largest weight is 0.97, so attention has stopped averaging and turned into a hard `argmax`. Scaled, entropy holds at **~1.74 across a 256× range of $d_k$**. The flat blue line is the case for the constant.
 
-Why does saturation hurt? Two reasons, and the second is the one that kills training:
+Why 1.74 and not the uniform 2.08? Scaling leaves the logits with a standard deviation of 1 rather than 0, so the weights still express preferences: about 0.35 on the favourite, by the `max w scaled` column. That's what you want. A head that weighted all eight keys equally would be no more useful than one that picked a single key, and the constant keeps it between those two at any width.
 
-1. **It stops being attention.** A near-one-hot distribution ignores all but one token.
-2. **The gradient vanishes.** The softmax Jacobian is $\operatorname{diag}(p) - pp^\top$. As $p \to$ one-hot, every entry goes to zero. No gradient reaches $Q$ and $K$, and the model can't learn to attend differently.
+#### Why saturation breaks training
 
-That second point is the real argument. $1/\sqrt{d_k}$ is not about overflow — softmax handles large logits fine by subtracting the row max. It's there to **keep the softmax in a regime where it still has a gradient**, whatever width you make the heads.
+Two reasons, and the second is the one that does the damage:
+
+1. **It stops being attention.** A near-one-hot distribution ignores all but one token, so the mechanism built to blend information is no longer blending anything.
+2. **The gradient vanishes.** Training works by asking, of every number in the model, "if I nudge this up a little, how much does the output change?", and it only acts where the answer isn't zero. When the weights already read 0.9999999 and 0.0000001, nudging a logit barely moves them. The answer comes back as zero, which looks exactly like a number that is already correct.
+
+The exact statement behind point 2 uses the softmax's **Jacobian**, the matrix holding every one of those "how much does this move that" pairs. It works out to $\operatorname{diag}(p) - pp^\top$. As $p$ approaches one-hot, with one entry at 1 and the rest at 0, every entry of that matrix goes to 0 as well. No gradient reaches $Q$ or $K$, so the model never learns what to attend to.
+
+That second point is the real argument. $1/\sqrt{d_k}$ isn't about overflow; softmax handles large logits fine by subtracting the row max before exponentiating. It's there to **keep the softmax in a range where a gradient still exists**, whatever width you make the heads.
 
 ### 12. Causal masking {#causal-masking}
 
@@ -1086,16 +1166,22 @@ Read it in two halves.
 
 So each prediction is a function of the input tokens up to it, and nothing else.
 
-So during training, every position is conditioned on the **real text**, never on what the model came up with. If position 1 wrongly guessed "dog", position 2 is still working from the actual "cat" that was in the document. That convention has a name — **teacher forcing** — and it's what makes the parallel training above possible at all.
+So during training, every position is conditioned on the **real text**, never on what the model came up with. If position 1 wrongly guessed "dog", position 2 is still working from the actual "cat" that was in the document. That convention has a name: **teacher forcing**.
 
-Generation is the one place a guess does feed forward, and only because you explicitly append it and run the whole thing again. That's the orange arrow in the diagram, and it's a genuine difference between the two jobs: the model is trained on flawless prefixes and then asked to run on prefixes it wrote itself, mistakes included.
+It's also what lets training be **parallel**, which is worth pinning down since this post leans on the word repeatedly. It means one specific thing: *every position in a document is computed in the same forward pass, at the same time, rather than one after another.*
+
+That only works because every position's input is known before the pass begins. Consider the alternative. If position 2's input were position 1's *prediction*, position 2 couldn't start until position 1 had finished, position 3 couldn't start until position 2 had finished, and training on a 4,000-token document would become a chain of 4,000 dependent trips through all 32 blocks. That is the shape generation is stuck with, and the reason generation is slow. Teacher forcing breaks the chain by handing each position the document's own token instead, and those are all sitting in the file before training starts. Nothing waits for anything, so the whole document goes through together.
+
+Teacher forcing is only half of what makes that legal, though. It supplies all the inputs up front, while the **causal mask** stops a position from simply reading the answer sitting next to it once they're all present together. That half comes just below the diagram.
+
+Generation is the one place a guess does feed forward, and only because you explicitly append it and run the whole thing again. That's the orange arrow in the diagram, and it's a real difference between the two jobs: the model trains on flawless prefixes and then has to run on prefixes it wrote itself, mistakes included. That mismatch has a name too, **exposure bias**, and it's what teacher forcing costs you in exchange for the speed.
 
 ![Training and generating with the same forward pass](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/train-vs-infer-light.png){: .light width="1000" height="571" }
 ![Training and generating with the same forward pass](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/train-vs-infer-dark.png){: .dark width="1000" height="571" }
 
 **Training** grades all of them. You already know what came next — it's the very next token in the text — so a single pass over a 5-token sentence gives you 5 graded predictions, and over a 4,000-token document, 4,000 of them. The model nudges its weights to make the right answers likelier, and repeats a few trillion tokens' worth.
 
-This is where the causal mask earns its keep. Position 2 is being asked to guess "sat" while "sat" is sitting *right there* in the input, two boxes along. The mask is what makes that a real question rather than a copying exercise — and it's why one pass can train every position at once instead of needing a separate pass per prediction. Without it you'd need 4,000 forward passes for that document instead of one.
+This is where the causal mask earns its keep, and it's the half of the deal left owing above. Position 2 is being asked to guess "sat" while "sat" is sitting *right there* in the input, two boxes along. The mask is what makes that a real question rather than a copying exercise. Teacher forcing puts all 4,000 tokens in front of the model at once; the mask keeps that from being cheating. You need both to train in one pass.
 
 **Generating** runs exactly the same pass and throws almost all of it away. You feed in what exists, every position dutifully produces a guess, and you keep only the last one — the others are answers to questions you already know. That kept token gets appended, and the whole thing runs again, one token longer.
 
@@ -1114,13 +1200,13 @@ The difference is entirely in what happens at the bottom.
 
 Both halves of that sentence are load-bearing. The **comparison** is possible because the right answer is free — it's the next token in the document, so a 4,000-token passage arrives with 4,000 labels already attached. The **one number** is required because a gradient answers "how does *this single quantity* change if I nudge this weight," and a forward pass leaves you holding one score per word per position. Those get averaged into a single loss precisely so there is something to push down.
 
-One thing training does *not* do, though it's the natural guess: it never picks predicted tokens and compares them to the real ones. Picking means taking the highest score, and that operation has no useful derivative — nudge a weight slightly and the winner doesn't change, so the gradient is zero almost everywhere and nothing could learn. Instead the model keeps the full distribution and is scored on a softer question: *how much probability did you put on the token that actually came next?* That answer moves smoothly, so it still gives a direction to travel even when the top guess is wrong. Then comes the part that has no counterpart on the right — **the return trip.** That error is walked back down through every layer, working out how each individual weight contributed to it, and every weight is nudged. That backward journey is where the extra cost from [§5](#what-attention-costs) comes from: roughly twice the forward pass, which is what turns $2N$ into $6N$.
+One thing training does *not* do, though it's the natural guess: it never picks predicted tokens and compares them to the real ones. Picking means taking the highest score, and that operation has no useful derivative — nudge a weight slightly and the winner doesn't change, so the gradient is zero almost everywhere and nothing could learn. Instead the model keeps the full distribution and is scored on a softer question: *how much probability did you put on the token that actually came next?* That answer moves smoothly, so it still gives a direction to travel even when the top guess is wrong. Then comes the part that has no counterpart on the right — **the return trip.** That error is walked back down through every layer, working out how each individual weight contributed to it, and every weight is nudged. That backward journey is where the extra cost from [§6](#what-the-model-costs) comes from: roughly twice the forward pass, which is what turns $2N$ into $6N$.
 
 **Generating** never goes back. It takes the bottom row, throws away everything except the last position's scores, picks a word from them, sticks it on the end of the input, and runs the entire stack again — 32 blocks, from the top, for one more token. That loop is why a 500-token answer means 500 trips through the whole model.
 
 #### The return trip, in two matrix multiplies {#the-return-trip}
 
-[§5](#what-attention-costs) priced that backward journey at roughly twice the forward pass. Here's where the factor of two comes from, on a single linear layer — which is what each of the four projections is.
+[§6](#what-the-model-costs) priced that backward journey at roughly twice the forward pass. Here's where the factor of two comes from, on a single linear layer — which is what each of the four projections is.
 
 Forward, the layer computes
 
@@ -1156,9 +1242,9 @@ Not an analogy — literally the same tensor. Layer $\ell$ computes $dX$, and th
 | backward | $X^\top dY$ | $2 \, n \, d_{in} \, d_{out}$ |
 | backward | $dY W^\top$ | $2 \, n \, d_{in} \, d_{out}$ |
 
-One forward, two backward — training costs $3\times$ inference, which is the $2N \to 6N$ from §5, derived rather than asserted.
+One forward, two backward — training costs $3\times$ inference, which is the $2N \to 6N$ from [§6](#what-the-model-costs), derived rather than asserted.
 
-One more consequence falls out of $dW = X^\top dY$: it needs $X$, the layer's input *from the forward pass*. So every layer's input has to be held in memory from the moment it's computed until the backward pass comes back for it. That's the activation memory §5 flags and doesn't count. Note that $dX = dY W^\top$ needs only $W$ — it's the weight gradient alone that pins those activations down.
+One more consequence falls out of $dW = X^\top dY$: it needs $X$, the layer's input *from the forward pass*. So every layer's input has to be held in memory from the moment it's computed until the backward pass comes back for it. That's the activation memory [§6](#what-the-model-costs) flags and doesn't count. Note that $dX = dY W^\top$ needs only $W$ — it's the weight gradient alone that pins those activations down.
 
 #### The last two boxes: the final norm and the LM head
 
@@ -1168,23 +1254,37 @@ Those bottom boxes have appeared in three diagrams now without being opened, and
 
 **The LM head** is one matrix, and conceptually the simplest thing in the model: it takes a token's 4,096 numbers and produces **one score per word in the vocabulary** — all 128,256 of them.
 
-That number should look familiar. Back in [§8](#where-attention-sits-in-the-model) the model turned a token *into* a vector by looking up one of 128,256 rows. The LM head is that same table read the other way: instead of fetching one row by its number, it compares your vector against **every** row and reports how well each one matches.
+That number should look familiar. Back in [§8](#where-attention-sits-in-the-model) the model turned a token *into* a vector by looking up one of 128,256 rows. The LM head is a table of the same shape doing the same job in reverse: instead of fetching one row by its number, it compares your vector against **every** row and reports how well each one matches. A lookup is just what that comparison collapses to when you hand it a single token id instead of a blended vector, which is why the two feel like one object.
 
-![The embedding table and the LM head are one table read in two directions](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/word-table-light.png){: .light width="880" height="486" }
-![The embedding table and the LM head are one table read in two directions](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/word-table-dark.png){: .dark width="880" height="486" }
+Same shape and a mirrored job, but **not the same numbers.** In Llama-3-8B these are two separate $128{,}256 \times 4{,}096$ matrices, each trained on its own, and nothing forces the row for *cat* on the way in to resemble the row for *cat* on the way out. Sharing them is a design decision called **weight tying**, and the parameter count below is where that decision shows up.
+
+![The embedding table and the LM head are the same table shape, read in two directions](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/word-table-light.png){: .light width="880" height="486" }
+![The embedding table and the LM head are the same table shape, read in two directions](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/word-table-dark.png){: .dark width="880" height="486" }
 
 Read left to right, that is the whole model in one line: a word becomes a row, thirty-two blocks edit that row's numbers using the other words present, and then you ask which row the edited numbers now look most like. Predicting a word is a *similarity search over the vocabulary*.
 
 ![From a vector to an actual next word](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/lm-head-light.png){: .light width="880" height="723" }
 ![From a vector to an actual next word](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/lm-head-dark.png){: .dark width="880" height="723" }
 
-Those raw scores are called **logits** — they're unbounded and don't mean anything on their own; only their differences matter. Softmax turns them into shares of 100%, and then a word is drawn from that distribution. Always taking the highest-scoring word makes the model repetitive, so real sampling deliberately keeps some of the randomness. That's what makes the same prompt give different answers twice.
+Those raw scores are **logits** again — the same word as [§11](#why-divide-by-sqrt-dk), now over the vocabulary rather than over keys, and with the same two properties: unbounded, and meaningful only through their differences. Softmax turns them into shares of 100%, and then a word is drawn from that distribution. Always taking the highest-scoring word makes the model repetitive, so real sampling deliberately keeps some of the randomness. That's what makes the same prompt give different answers twice.
 
 Two things about this step surprise people.
 
-**It's a huge matrix.** It needs one row of 4,096 weights for each of the 128,256 words it scores, so its size is $n_{vocab} \times d_{model} = 128{,}256 \times 4{,}096$ — **525M parameters**, 6.5% of an 8B model in a single layer. The embedding table is exactly the same size, for exactly the same reason, which puts 13% of the model in these two lookup tables and only 87% in the blocks. Since they hold the same kind of thing, some models *tie* them — one set of weights used in both directions, saving the 525M outright.
+**It's a huge matrix.** It needs one row of 4,096 weights for each of the 128,256 words it scores, so its size is $n_{vocab} \times d_{model} = 128{,}256 \times 4{,}096$ — **525M parameters**, which against the model's 8.03B is 6.5% sitting in a single layer. The embedding table is exactly the same size, for exactly the same reason, so double it: $2 \times 525\text{M} = 1.05\text{B}$, or **13% of the model in two lookup tables**, leaving the 32 blocks the other 87%. Since they hold the same kind of thing, some models *tie* them — one set of weights used in both directions, saving the 525M outright.
 
-**Its output is enormous during training.** One token's logits are 128,256 numbers — half a megabyte. But training runs every position at once, so a single 4,096-token sequence produces **about 2 GB of logits**, more than the weights of the block that produced them. It's a real constraint, and why loss computation is often chunked rather than done in one go.
+You can read which one a model chose off its advertised size. Thirty-two blocks come to 6.98B; add two 525M tables and you get **8.03B**, add one and you get 7.50B. Llama-3-8B is sold as 8.03B, so it keeps them separate. GPT-2 tied its two, and so do several of the smaller models released since, where 525M is a much larger share of the budget.
+
+**Its output is enormous during training.** One token's logits are 128,256 numbers, and [the bytes rule](#an-aside-what-those-671m-numbers-weigh) turns a count into a size: the loss is computed in fp32, so 4 bytes each, and $128{,}256 \times 4 = 513$ KB. That's the half a megabyte — one token's worth of scores.
+
+Half a megabyte is nothing on its own. The trouble is that training scores every position at once, so a 4,096-token sequence holds all of them together:
+
+$$
+4{,}096 \times 128{,}256 \times 4 \text{ bytes} \;\approx\; 2.1 \text{ GB of logits}
+$$
+
+**And that is a memory cost, not a compute one**, which is worth separating because the LM head is unremarkable on the compute side. By the $2N$ rule it costs $2 \times 525\text{M} = 1.05$ GFLOP per token against the whole model's 16.1, or 6.5%. That's exactly its share of the parameters, since the rule charges every weight alike. Nothing surprising there.
+
+What's out of proportion is the tensor it leaves lying around. Those 2.1 GB have to *stay* in memory until the backward pass consumes them, which makes a single layer's output bigger than every other stored activation in the model put together; [§6](#what-the-model-costs) measures those at 1.1 GB with checkpointing on. That's what chunked loss computation is for: split the positions into groups, compute the loss group by group, and never hold the whole tensor at once.
 
 #### So what actually runs in parallel?
 
@@ -1214,15 +1314,99 @@ Two more things follow, and they're the seeds of the next two posts:
 
 Back to the gap from [§3](#the-formula-symbol-by-symbol): attention has no idea what order the tokens came in. Something must inject position.
 
-The original transformer added a position vector to each embedding. That encodes *absolute* position, but language mostly cares about *relative* — "the adjective two tokens back" is a useful pattern at position 5 and at position 5000.
+The original transformer solved this by **adding** a position vector to each embedding. §3.5 of [Attention Is All You Need](https://arxiv.org/abs/1706.03762) builds that vector out of sines and cosines of the position, sized to match $d_{model}$ so the two can be summed. It encodes *absolute* position, so token 5 gets the vector meaning "5", and that turns out to be the wrong thing to hand a dot product, for two reasons.
 
-**Rotary Position Embedding** gets relative position out of absolute rotation, using one fact of geometry: rotate two vectors, and their dot product depends only on the *difference* of the angles.
+**The position gets mixed in with the meaning.** The encoding is added straight into the same 4,096 numbers that carry what the token *is*, and it then falls to $W_q$ and $W_k$ to pull the two apart well enough that the score comes out sensitive to distance. Nothing in the architecture makes that happen. The model has to learn it.
+
+**And it has to learn it over and over.** Language mostly cares about *relative* position: "the adjective two tokens back" is the same useful pattern at position 5 and at position 5,000. Under absolute encodings those two arrive as unrelated input patterns, the vector for 5 meeting the vector for 7 in one case and 5,000 meeting 5,002 in the other. One fact about language, learned separately at every offset the training data happened to show it.
+
+**Rotary Position Embedding** — Su et al., [RoFormer: Enhanced Transformer with Rotary Position Embedding](https://arxiv.org/abs/2104.09864) (2021) — fixes both by changing *where* position is applied. Instead of adding it to the vector before the projections, it rotates $Q$ and $K$ afterwards, so position lands in the score itself. Sensitivity to distance is no longer something the model has to learn; the geometry provides it.
+
+![Where position enters: added to the vector in 2017, applied to Q and K by RoPE](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/position-injection-light.png){: .light width="1000" height="613" }
+![Where position enters: added to the vector in 2017, applied to Q and K by RoPE](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/position-injection-dark.png){: .dark width="1000" height="613" }
+
+Two tokens are in play throughout, since a score always involves a pair. **$m$ is the position of the token doing the looking**, whose vector becomes the query $q$, and **$n$ is the position of the token being looked at**, whose vector becomes the key $k$. If the query sits at 4,093 and the key at 4,096, then $m = 4{,}093$, $n = 4{,}096$, and the gap between them is $m - n = -3$.
+
+Both columns run the same five-stage path, and the only difference is which rung the orange arrow lands on. Anything above the projections is upstream of learning: the model gets vectors with position stirred into them and has to make something of that. Anything below arrives directly in the dot product, where the score is formed.
+
+The rest of this section is why that second placement works at all. It takes four steps, and the first two carry most of the idea.
+
+#### Step 1: a dot product never sees absolute direction
+
+The score attention computes is $q \cdot k$, and for any two vectors that equals
+
+$$
+q \cdot k \;=\; \lVert q \rVert \, \lVert k \rVert \cos\alpha
+$$
+
+where $\lVert q \rVert$ is the length of $q$ (its *magnitude*, the same quantity under either name) and $\alpha$ is the angle between the two. So a dot product depends on exactly three things: the two lengths, and the angle *between* the vectors.
+
+What it never depends on is which way either vector points on its own. Turn $q$ ninety degrees and turn $k$ ninety degrees the same way, and the score doesn't budge, since neither length has changed and neither has the angle between them. Absolute orientation is invisible to a dot product; only the relative angle gets in.
+
+That's the opening to work with. If a score only responds to a difference of angles, then encoding position as an angle should give a score that only responds to a difference of positions.
+
+#### Step 2: rotate each vector by its own position
+
+Work in two dimensions first, where "rotate" means exactly what it sounds like.
+
+Let $q$ point at angle $\varphi_q$ and $k$ at angle $\varphi_k$, so before position enters, their score is $\lVert q \rVert \lVert k \rVert \cos(\varphi_q - \varphi_k)$. Now place the query at position $m$ and the key at position $n$, and turn each one by its own position times a fixed rate $\theta$:
+
+| | angle before | angle after |
+| --- | --- | --- |
+| query, at position $m$ | $\varphi_q$ | $\varphi_q + m\theta$ |
+| key, at position $n$ | $\varphi_k$ | $\varphi_k + n\theta$ |
+
+Rotating a vector never changes its length, so the lengths in Step 1 are untouched and the only thing that moves is the angle between them:
+
+$$
+(\varphi_q + m\theta) - (\varphi_k + n\theta) \;=\; (\varphi_q - \varphi_k) \;+\; (m-n)\,\theta
+$$
+
+That line is the mechanism. Two absolute positions went in, and only their difference $m-n$ came out, because the $m\theta$ and $n\theta$ terms subtract. The score is now
+
+$$
+q_m \cdot k_n \;=\; \lVert q \rVert \lVert k \rVert \cos\!\big((\varphi_q - \varphi_k) + (m-n)\theta\big)
+$$
+
+which comes out the same for a query at 5 reading a key at 8 as for a query at 4,093 reading a key at 4,096, since both are three apart. Written compactly, with $R_m$ meaning "rotate by $m\theta$":
 
 $$
 \langle R_m q,\; R_n k \rangle = \langle R_{m-n}\, q,\; k \rangle
 $$
 
-Here $R_m$ is the rotation applied at position $m$, and $\theta_i$ below is the rotation speed for the $i$-th pair of dimensions. Split the head dimension into 2D subspaces and rotate the $i$-th by $\text{position} \times \theta_i$:
+No learned parameters appear anywhere in that derivation. The invariance is a property of rotation itself, not something the model had to be taught.
+
+#### Step 3: but a head is 128 numbers, not 2
+
+Rotation is a two-dimensional idea, so RoPE cuts a head's 128 dimensions into **64 independent planes** and spins each plane on its own. That costs nothing, because a dot product over 128 numbers is just the sum of the 64 planes' dot products:
+
+$$
+q \cdot k \;=\; \sum_{i=1}^{64} \big(q \cdot k\big)\big\vert_{\text{plane } i}
+$$
+
+By Step 2, every term on the right depends only on $m-n$. A sum of things that each depend only on $m-n$ depends only on $m-n$, so the property survives the scale-up.
+
+#### Step 4: why the planes spin at different speeds
+
+If all 64 planes turned at the same rate $\theta$, the score would come down to $\cos((m-n)\theta)$, and a cosine repeats. Offsets of 3 and of $3 + 2\pi/\theta$ would give identical scores, and the model could not tell "three tokens back" from "three tokens and one full turn back."
+
+Giving each plane its own rate fixes that, for the same reason a clock has more than one hand. The second hand is precise but comes round every minute; the hour hand is coarse but doesn't wrap all day; only together do they name a time unambiguously. RoPE's rates run geometrically from fast to slow. These are the $\theta_i$ in the code below, built on the same base of 10,000 as the 2017 sinusoids:
+
+$$
+\theta_i = 10{,}000^{-i/d_{head}}, \qquad i = 0, 2, 4, \ldots, 126
+$$
+
+| plane | its rate $\theta_i$ | comes full circle every |
+| --- | --- | --- |
+| $i = 0$, the fastest | 1.0 | ~6 positions |
+| $i = 64$ | 0.01 | ~628 positions |
+| $i = 126$, the slowest | 0.000115 | ~54,000 positions |
+
+The fast planes resolve close neighbours sharply and wrap constantly. The slow ones have barely begun to turn by the end of a long context, so they carry coarse, long-range position instead. Read all 64 together and the offset is pinned down exactly.
+
+That table is also where context extension happens. Every method you've heard of, [position interpolation](https://arxiv.org/abs/2306.15595) and NTK-aware scaling and [YaRN](https://arxiv.org/abs/2309.00071), is some way of **rescaling that column of rates**, so rotations learned at 4k still mean something at 128k.
+
+#### The code
 
 ```python
 def rope_frequencies(head_dim, base=10_000.0):
@@ -1243,9 +1427,11 @@ def apply_rope(x, positions, base=10_000.0):
     return x * cos + rotate_half(x) * sin
 ```
 
-Low $i$ rotates fast (resolving nearby tokens), high $i$ rotates slowly (carrying long-range position). Every context-extension method you've heard of — position interpolation, NTK-aware scaling, YaRN — is some way of **rescaling that frequency vector**, so rotations learned at 4k still mean something at 128k.
+The last line is the only one that looks like sleight of hand. Turning a plane $(x_1, x_2)$ by $\alpha$ gives $(x_1\cos\alpha - x_2\sin\alpha,\; x_1\sin\alpha + x_2\cos\alpha)$ — and that is exactly `x * cos + rotate_half(x) * sin`, once `rotate_half` is the map $(x_1, x_2) \to (-x_2, x_1)$. Doing it this way means the code pairs dimension $j$ with dimension $j+64$ rather than with its neighbour $j+1$: the same 64 planes as Step 3, just sliced for cheaper tensor operations, which is where the name *rotate_half* comes from.
 
-Now the receipt. Take one query and one key, place them at wildly different absolute positions but always 3 apart:
+Now the receipt, which tests the claim from Step 2 directly: if the score really depends only on $m-n$, sliding both tokens along the sequence while holding the gap fixed should change nothing.
+
+So take **one** query vector and **one** key vector, the same two throughout and never re-drawn, and try them at four different pairs of positions, always three apart:
 
 ```text
   query pos m  key pos n  offset m-n  q_m . k_n
@@ -1255,10 +1441,14 @@ Now the receipt. Take one query and one key, place them at wildly different abso
   105                108          -3    -1.1905
   4093              4096          -3    -1.1905
 
-  spread across absolute positions   1.073e-06
+  range across absolute positions    1.073e-06
 ```
 
-Position 5 and position 4093 give the same score to seven digits. The model never has to relearn "3 tokens back" for each position in the window — it gets that invariance from geometry, with **zero learned parameters**.
+Read a row left to right: put that query at position $m$, put that key at position $n$, rotate each by its own position, take the dot product. The first row is a query at 0 against a key at 3, the last a query at 4,093 against a key at 4,096. Very different places in the sequence, identical gap. (The offset comes out negative because the query sits *before* the key in these pairs. This is the bare geometry, with no causal mask in play.)
+
+The final column is the answer, and it never moves: $-1.1905$ in all four rows. The line beneath it is that column's range, largest minus smallest, and at `1.073e-06` that's floating-point noise rather than a real difference. Position 5 and position 4,093 give the same score to seven digits.
+
+So the model never has to relearn "3 tokens back" for each position in the window. It gets that invariance from geometry, with **zero learned parameters**, which is the thing the additive scheme was making it work for.
 
 ![RoPE scores are invariant to absolute position, sensitive to relative offset](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/rope-relative-light.png){: .light width="1000" height="544" }
 ![RoPE scores are invariant to absolute position, sensitive to relative offset](/assets/picture/2026-08-01-llm-architectures-attention-and-rope/rope-relative-dark.png){: .dark width="1000" height="544" }
@@ -1275,7 +1465,7 @@ What's left is experience. The model has only ever seen rotations from the range
 
 The number is optimistic in two ways. Models routinely degrade well before their stated limit — "128k" means "doesn't fall apart," not "equally sharp throughout." And inference servers enforce the ceiling for an unrelated reason: the KV cache grows with every token, so serving needs a fixed memory budget per request. That one is post 2.
 
-One consequence that returns in post 12: because the rotation happens *after* the $Q$/$K$ projections, RoPE doesn't commute with tricks that absorb those projections into neighbouring matrices. That's the complication DeepSeek's MLA has to work around.
+One consequence worth flagging now: because the rotation happens *after* the $Q$/$K$ projections, RoPE doesn't commute with tricks that absorb those projections into neighbouring matrices. That's the complication DeepSeek's MLA has to work around, and the planned capstone of this series (post 12) is where it gets picked up.
 
 ### 15. A silent MPS bug that deleted RoPE {#a-silent-mps-bug-that-deleted-rope}
 
@@ -1287,13 +1477,19 @@ The angle table needs float64: at position 4096 the fastest frequency has accumu
 pos = positions.to("cpu", torch.float64)     # looks fine. is not.
 ```
 
-On an **int64 MPS** tensor, torch 2.13 reinterprets the bits instead of converting them:
+On an **int64 MPS** tensor, torch 2.13 reinterprets the bits instead of converting them. The reason that slips through is that PyTorch *does* guard this path, just not for the dtype a tensor of positions happens to be:
 
 ```python
-p = torch.tensor([105], device='mps')
-p.to('cpu', torch.float64)    # tensor([5.1877e-322])   <- 105's bit pattern read as a float
-p.cpu().to(torch.float64)     # tensor([105.])          <- correct
+i = torch.tensor([105], device='mps')     # int64 — what positions always are
+f = torch.tensor([105.0], device='mps')   # float32
+
+i.to('cpu', torch.float64)    # tensor([5.1877e-322])  <- 105's bits read as a float
+i.cpu().to(torch.float64)     # tensor([105.])         <- correct
+f.to('cpu', torch.float64)    # TypeError: MPS doesn't support float64
+i.to('cpu', torch.float32)    # tensor([105.])         <- correct
 ```
+
+Ask a *float* MPS tensor for float64 and you get a loud refusal. Ask an int64 one, which is what a list of positions is, and a number comes back. One dtype away from the exception that would have ended the search immediately.
 
 `5.19e-322` is a denormal indistinguishable from zero. Every angle became 0, so `cos = 1`, `sin = 0`, and `x * 1 + rotate_half(x) * 0` returned `x` unchanged. **RoPE had silently degraded into the identity function** — no exception, no warning, just a model with no positional information that would have trained to a mediocre loss and left me blaming hyperparameters.
 
@@ -1323,7 +1519,8 @@ Both are drafted and will go up shortly.
 | --- | --- | --- |
 | $n$, `seq` | tokens in the sequence | varies with input |
 | $d_{model}$ | width of a token's vector | 4096 |
-| $h$, `n_heads` | number of attention heads | 32 |
+| $n_{heads}$, `n_heads` | number of attention heads | 32 |
+| $h$ | index of a single head, $0 \ldots n_{heads}-1$ | — |
 | $d_{head}$, $d_k$ | width of one head's slice | 128 |
 | $d_{ff}$ | width of the FFN's middle layer | 14336 |
 | $L$ | blocks stacked | 32 |
@@ -1336,7 +1533,10 @@ Both are drafted and will go up shortly.
 | $\oplus$ | residual addition | — |
 | $\odot$ | elementwise multiply (SwiGLU's gate) | — |
 | $R_m$ | RoPE's rotation for position $m$ | — |
-| $\theta_i$ | RoPE's rotation frequency for dimension pair $i$ | — |
+| $\theta_i$ | RoPE's rotation rate for plane $i$ — how far it turns per position | $10{,}000^{-i/128}$ |
+| $\varphi_q$, $\varphi_k$ | the angle a query or key points at, before position is applied | — |
+| $\alpha$ | the angle between two vectors, as in $q \cdot k = \lVert q \rVert \lVert k \rVert \cos\alpha$ | — |
+| $T$ | softmax temperature — logits are divided by it before the softmax | $\sqrt{d_k}$ in attention |
 | FLOP | one floating-point add or multiply; a matmul $(a,b)\times(b,c)$ costs $2abc$ | — |
 | MHA | multi-head attention — one key/value head per query head | 32 of each |
 | GQA | grouped-query attention — several query heads share one key/value head | 32 query, 8 kv |
@@ -1350,12 +1550,16 @@ Two naming traps, because papers are inconsistent about both:
 
 ### References
 
-- Vaswani et al., [Attention Is All You Need](https://arxiv.org/abs/1706.03762) (2017) — the scale factor is justified in a footnote in §3.2.1.
-- Su et al., [RoFormer: Enhanced Transformer with Rotary Position Embedding](https://arxiv.org/abs/2104.09864) (2021).
+- Vaswani et al., [Attention Is All You Need](https://arxiv.org/abs/1706.03762) (2017) — the scale factor is justified in a footnote in §3.2.1; the post-norm arrangement of §8 is stated in §3.1 as $\text{LayerNorm}(x + \text{Sublayer}(x))$, and the warmup schedule it needed is §5.3.
+- Olsson et al., [In-context Learning and Induction Heads](https://arxiv.org/abs/2209.11895) (2022) — the head specialization §4 mentions: previous-token heads and induction heads, named and traced. Builds on Elhage et al., [A Mathematical Framework for Transformer Circuits](https://transformer-circuits.pub/2021/framework/index.html) (2021), where induction heads were first identified.
+- Su et al., [RoFormer: Enhanced Transformer with Rotary Position Embedding](https://arxiv.org/abs/2104.09864) (2021) — the RoPE paper behind §14.
 - Chen et al., [Extending Context Window of Large Language Models via Position Interpolation](https://arxiv.org/abs/2306.15595) (2023).
 - Peng et al., [YaRN: Efficient Context Window Extension of Large Language Models](https://arxiv.org/abs/2309.00071) (2023).
-- Shazeer, [GLU Variants Improve Transformer](https://arxiv.org/abs/2002.05202) (2020) — the SwiGLU paper, and the divine-benevolence line.
+- Zhang & Sennrich, [Root Mean Square Layer Normalization](https://arxiv.org/abs/1910.07467) (2019) — the RMSNorm paper behind §8; it reports 7–64% lower running time than LayerNorm depending on the model.
+- Xiong et al., [On Layer Normalization in the Transformer Architecture](https://arxiv.org/abs/2002.04745) (2020) — the pre-norm vs post-norm analysis behind §8: post-norm's gradients are large near the output at initialization, which is why the original recipe needed warmup.
+- Shazeer, [GLU Variants Improve Transformer](https://arxiv.org/abs/2002.05202) (2020) — the SwiGLU paper behind §9; the divine-benevolence line is the last sentence of its §4.
 - Geva et al., [Transformer Feed-Forward Layers Are Key-Value Memories](https://arxiv.org/abs/2012.14913) (2021) — where the lookup-table reading comes from.
 - Meng et al., [Locating and Editing Factual Associations in GPT](https://arxiv.org/abs/2202.05262) (2022) — ROME, editing a fact by writing to FFN weights.
+- Meng et al., [Mass-Editing Memory in a Transformer](https://arxiv.org/abs/2210.07229) (2022) — MEMIT, the same editing idea scaled to thousands of facts at once.
 - Meta, [Llama 3 model card](https://github.com/meta-llama/llama3/blob/main/MODEL_CARD.md) — the config in §1, the 8k context, "over 15 trillion tokens", and the 1.3M H100-hours §6 turns into GPU-years.
 - Code for this post: [`llm-architectures-refresher`](https://github.com/bearbearyu1223/llm-architectures-refresher), `uv run demo01`.
