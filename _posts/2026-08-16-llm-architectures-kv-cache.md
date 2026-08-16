@@ -66,15 +66,23 @@ Now generate text. Each step appends one token and asks for the next, so the mod
 
 Read down the K and V columns. Step 2 needs $K_1, K_2, K_3$ — **the same $K_1, K_2, K_3$ step 1 already computed.** Step 3 needs them again. Every step recomputes almost everything the previous step just finished computing.
 
-Counting those reads makes the case, and three steps is enough to see it:
+Counting what that table asks for makes the case, and three steps is enough to see it. Add up the K column: step 1 wants three keys, step 2 wants four, step 3 wants five — $3 + 4 + 5 = 12$. But only five distinct keys ever appear in the whole table, $K_1$ through $K_5$. So most of those twelve are the same vector being asked for again:
 
 ```text
-  Q vectors read, over 3 steps       3
-  K vectors read, over 3 steps       12
-  of which are recomputations        7
+  tensor  needed over 3 steps  distinct vectors  repeat reads
+  -------------------------------------------------------------
+  Q                         3                 3             0
+  K                        12                 5             7
+  V                        12                 5             7
 ```
 
-Three queries, each used once. Twelve key reads for five distinct keys, seven of them redoing work that was already done. The Q column is a diagonal, the K column a triangle. [The figure below](#why-k-and-v-but-not-q) draws exactly that, and the quadratic in [§3](#generation-is-quadratic) is what the triangle costs once the sequence is long.
+**The last column is the whole argument**, and the two rows could not be further apart.
+
+For **Q** it is zero. Three steps, three queries, and no query is ever wanted twice — $3 - 3 = 0$. A cache would sit there with nothing to hand back.
+
+For **K** and **V** it is seven: $12 - 5 = 7$. Seven of the twelve demands are for a vector some earlier step already produced. And here is where the counting turns into a cost, because *needing* a vector and *recomputing* it are the same thing when you have nowhere to keep it. Without a cache, those seven repeats are seven key vectors calculated a second time — from tokens that have not changed since the first time. With one, they are seven array lookups.
+
+Said as shapes: the Q column is a **diagonal**, the K column a **triangle**. [The figure below](#why-k-and-v-but-not-q) draws exactly that, and the quadratic in [§3](#generation-is-quadratic) is what the triangle costs once the sequence is long rather than three steps.
 
 #### Why they're safe to reuse
 
@@ -135,6 +143,8 @@ The name is "KV cache", not "QKV cache". The reason is easiest to see as a pictu
 $Q$ fills a **diagonal**. Step 3 computes $Q_3$, uses it to produce token 4, and is then done with it — no later step ever asks for $Q_3$ again. A diagonal has nothing to reuse, so there is nothing a cache could save you.
 
 $K$ and $V$ fill a **triangle**. Step 3 needs $K_1, K_2, K_3$; step 4 needs those *plus* $K_4$; step 5 needs all five. Every column extends downward forever. Across five steps, five keys get computed once each but **read fifteen times** between them — and by the arithmetic in the next section, that gap widens quadratically.
+
+(That fifteen is a different count from the twelve above, and the difference is only the starting point: the figure walks five steps out from a *single* token, so the triangle is $1+2+3+4+5 = 15$, while the table earlier started from a three-token prompt and covered three steps, $3+4+5 = 12$. Same shape, sliced at different places. Whatever the prompt, the triangle grows as the square of the sequence and the diagonal grows linearly, which is the only part that matters.)
 
 So the rule is not "keys and values are special". It's simply: **cache what gets read again.** In the diagram, that's everything below the diagonal.
 
