@@ -371,13 +371,17 @@ That table had a fourth row, and it's the honest exception. The scores live in a
 Now, 128 MiB doesn't sound alarming — but that's at a 1,024-token sequence, and this term is quadratic. Stretch the context and it goes somewhere ridiculous:
 
 ```text
-  seq   1,024:   128 MiB  per layer, per forward pass
-  seq   8,192:     8 GiB  per layer, per forward pass
-  seq  32,768:   128 GiB  per layer, per forward pass
-  seq 131,072:   2.0 TiB  per layer, per forward pass
+  seq      score matrix (fp32)  vs 8B weights in bf16
+  -----------------------------------------------------
+  1,024                128 MiB                  0.01x
+  8,192                  8 GiB                  0.53x
+  32,768               128 GiB                  8.56x
+  131,072                2 TiB                136.93x
 ```
 
-At an 8k context, **one layer's scores are 8 GiB — over half the size of the entire model's weights**, which come to 15 GiB in bf16 (the same quantity [§6](#what-the-model-costs) quotes as 16.1 GB, once you switch to the decimal units spec sheets use). And there are 32 layers. At 128k it's 2 TiB per layer, which no accelerator on earth has.
+Every figure there is per layer, per forward pass, and the model has 32 layers.
+
+That last column is the one to hold on to. At an 8k context, one layer's score matrix is **0.53× the size of every weight in the model** — 8 GiB against 15 GiB in bf16, which is the quantity [§6](#what-the-model-costs) quotes as 16.1 GB once you switch to the decimal units spec sheets use. At 128k a single layer reaches **137× the weights**, which no accelerator on earth has.
 
 And the reason to avoid this cost rather than budget for it: **it's scratch.** The score matrix isn't part of the model and isn't part of the answer. It's computed, softmaxed, multiplied by $V$, and thrown away microseconds later. Nothing wants it — it's just an unavoidable-looking step on the way to the output.
 
@@ -592,13 +596,13 @@ $$
 which is what the demo prints. In its shorthand, `ckpt` means checkpointing is on, `b` is the batch size and `s` the sequence length:
 
 ```text
-  activations, ckpt b=1 s=4096       1.1 GB
+    activations, ckpt b=1 s=4096     1.1 GB
 ```
 
 **The logits tensor**, which is the sneaky one. The vocabulary is 128,256 wide, and training scores *every position at once*, so one 4,096-token sequence materialises a $4096 \times 128{,}256$ tensor:
 
 ```text
-  logits, fp32 at seq 4096           2.1 GB per sequence
+    logits, fp32 at seq 4096         2.1 GB per sequence
 ```
 
 Softmax and its gradient typically need two or three copies of that, so 4–6 GB for a single sequence — larger than several transformer blocks put together, from a layer that is conceptually just a lookup ([§13](#training-and-inference) opens it up). On models with big vocabularies this is often the real OOM trigger rather than the optimizer. Fused and chunked cross-entropy implementations exist for exactly this.
