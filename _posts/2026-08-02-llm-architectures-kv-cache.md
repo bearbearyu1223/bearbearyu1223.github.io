@@ -56,12 +56,24 @@ $$
 Now generate text. Each step appends one token and asks for the next, so the model runs again with a sequence one token longer:
 
 ```text
-step 1:  [The cat sat]           -> needs  Q3  and  K1 K2 K3,  V1 V2 V3   -> "on"
-step 2:  [The cat sat on]        -> needs  Q4  and  K1..K4,   V1..V4     -> "the"
-step 3:  [The cat sat on the]    -> needs  Q5  and  K1..K5,   V1..V5     -> "mat"
+  step       sequence so far  needs     and     and  predicts
+  -------------------------------------------------------------
+  1            [The cat sat]     Q3  K1..K3  V1..V3      "on"
+  2         [The cat sat on]     Q4  K1..K4  V1..V4     "the"
+  3     [The cat sat on the]     Q5  K1..K5  V1..V5     "mat"
 ```
 
 Read down the K and V columns. Step 2 needs $K_1, K_2, K_3$ — **the same $K_1, K_2, K_3$ step 1 already computed.** Step 3 needs them again. Every step recomputes almost everything the previous step just finished computing.
+
+Counting those reads makes the case, and three steps is enough to see it:
+
+```text
+  Q vectors read, over 3 steps       3
+  K vectors read, over 3 steps       12
+  of which are recomputations        7
+```
+
+Three queries, each used once. Twelve key reads for five distinct keys, seven of them redoing work that was already done. The Q column is a diagonal, the K column a triangle. [The figure below](#why-k-and-v-but-not-q) draws exactly that, and the quadratic in [§3](#generation-is-quadratic) is what the triangle costs once the sequence is long.
 
 #### Why they're safe to reuse
 
@@ -193,14 +205,14 @@ Now the cost. Generate from a 64-token prompt, with and without the cache:
 
   tokens generated  cached (ms)  uncached (ms)  speedup
   -------------------------------------------------------
-  64                    54.7214        97.1847    1.78x
-  128                   93.6767       224.2902    2.39x
-  256                  153.4499       618.5234    4.03x
-  512                  293.5081      1920.9685    6.54x
+  64                    52.2749        97.0638    1.86x
+  128                   83.6763       227.7447    2.72x
+  256                  148.0159       614.0643    4.15x
+  512                  284.2491      1943.9379    6.84x
 
   8x more tokens costs (cached)      5.4x
-  8x more tokens costs (uncached)    19.8x
-  tokens processed at n=512 (cached)   576
+  8x more tokens costs (uncached)    20.0x
+  tokens processed at n=512 (cached) 576
   tokens processed at n=512 (uncached) 163584
   wasted work multiplier             284x
 ```
@@ -214,7 +226,7 @@ $$
 \sum_{i=0}^{n-1} (p + i) \;=\; np + \frac{n(n-1)}{2}
 $$
 
-Quadratic in the number of generated tokens. The measured growth reflects it: 8× more tokens costs 5.4× with a cache and **19.8×** without.
+Quadratic in the number of generated tokens, and the measured growth reflects it: 8× more tokens costs roughly 5–6× with a cache and about **20×** without. Those are wall-clock numbers so they wobble a little between runs; the contrast between "grows a bit faster than linear" and "grows like the square" is the part that holds.
 
 One honest note about this measurement. I used a *short* prompt on purpose. With a long prompt the $np$ term dominates at these values of $n$ and the curve looks straight — you'd still see a big absolute saving, but not the shape. A short prompt isolates the $n^2/2$ term. Real serving has both: long prompts *and* long generations.
 
@@ -259,13 +271,23 @@ And you pay it for *every* token in the conversation, not just the new one: the 
   131,072 tokens      128 KiB        16.00 GiB
 ```
 
-Which is just the formula written out in order:
+That walk up from one token is the formula. Here it is in one line, with its symbols first, in the order they appear:
+
+| Symbol | What it is | Llama-3-8B |
+| --- | --- | --- |
+| $L$ | how many blocks are stacked | 32 |
+| $H_{kv}$ | key/value heads per block | 8 |
+| $d_{head}$ | numbers in one key or value vector | 128 |
+| $S$ | tokens in the sequence so far | grows every step |
+| $B$ | sequences being served at once | your batch size |
 
 $$
 \text{KV bytes} = \underbrace{2}_{K \text{ and } V} \times L \times H_{kv} \times d_{head} \times S \times B \times \text{bytes}
 $$
 
-Note what's in there: sequence length $S$ **and** batch size $B$, both linear. The weights don't have either.
+The leading 2 is there because every position stores a key *and* a value. Everything else is a count of how many of those you end up holding.
+
+Note which two are in there: sequence length $S$ **and** batch size $B$, both linear. The weights have neither — that difference is what the rest of this section is about.
 
 Llama-3-8B shapes, fp16, batch 1 — the weights are 15.0 GiB. The three rows are the
 three ways a model can allocate key/value heads: one per query head (**MHA**, multi-head
@@ -274,8 +296,8 @@ actually does), or a single one for all of them (**MQA**, multi-query attention)
 [§5](#gqa-mqa-and-what-you-give-up) covers what each costs you.
 
 ```text
-  variant           kv heads   4k ctx   8k ctx   32k ctx  128k ctx
-  ------------------------------------------------------------------
+  variant           kv heads    4k ctx    8k ctx    32k ctx   128k ctx
+  ----------------------------------------------------------------------
   as MHA                  32  2.00 GiB  4.00 GiB  16.00 GiB  64.00 GiB
   Llama-3-8B (GQA)         8  0.50 GiB  1.00 GiB   4.00 GiB  16.00 GiB
   as MQA                   1  0.06 GiB  0.12 GiB   0.50 GiB   2.00 GiB
@@ -324,14 +346,14 @@ So at a 128k context, one conversation's cache is **16 GiB** — against 15 GiB 
 And that's **one** user. Serving more doesn't mean loading the model again — one copy of the weights answers everybody. But each concurrent conversation brings its own cache. So read the next table down the columns: the weights stay at 15.0 GiB no matter how many people you serve, while the cache multiplies by however many of them there are.
 
 ```text
-  model        batch   weights  KV cache @128k  cache/weights
-  -------------------------------------------------------------
-  Llama-3-8B       1   15.0 GiB         16.0 GiB          1.07x
-  Llama-3-8B       8   15.0 GiB        128.0 GiB          8.56x
-  Llama-3-8B      32   15.0 GiB        512.0 GiB         34.23x
-  Llama-3-70B      1  131.5 GiB         40.0 GiB          0.30x
-  Llama-3-70B      8  131.5 GiB        320.0 GiB          2.43x
-  Llama-3-70B     32  131.5 GiB       1280.0 GiB          9.73x
+  model        batch    weights  KV cache @128k  cache/weights
+  --------------------------------------------------------------
+  Llama-3-8B       1   15.0 GiB        16.0 GiB          1.07x
+  Llama-3-8B       8   15.0 GiB       128.0 GiB          8.56x
+  Llama-3-8B      32   15.0 GiB       512.0 GiB         34.23x
+  Llama-3-70B      1  131.5 GiB        40.0 GiB          0.30x
+  Llama-3-70B      8  131.5 GiB       320.0 GiB          2.43x
+  Llama-3-70B     32  131.5 GiB      1280.0 GiB          9.73x
 ```
 
 That last row is worth doing by hand, because it's the one that decides hardware budgets:
@@ -351,8 +373,8 @@ It's also why the 70B row is interesting: at batch 1 its cache is only 0.30× it
 Notice that $H_{kv}$ — the number of *key/value* heads — is in the formula, but the number of *query* heads isn't. That's the lever.
 
 - **MHA**: every query head gets its own K/V head. Maximum expressiveness, maximum cache.
-- **MQA**: all query heads share a single K/V head. 32× smaller cache here, but a real quality cost — every head is forced to look up against the same keys.
-- **GQA**: query heads are split into groups, one K/V head each. Llama-3-8B uses 8 KV heads for 32 query heads — **4× less cache** than MHA at a quality cost small enough that it's now the default.
+- **MQA**: all query heads share a single K/V head. 32× smaller cache here, but a real quality cost — every head is forced to look up against the same keys. Shazeer proposed it in [Fast Transformer Decoding](https://arxiv.org/abs/1911.02150) (2019) for exactly this reason: decoding was already memory-bound.
+- **GQA**: query heads are split into groups, one K/V head each. Llama-3-8B uses 8 KV heads for 32 query heads — **4× less cache** than MHA at a quality cost small enough that it's now the default. Ainslie et al., [GQA](https://arxiv.org/abs/2305.13245) (2023), also gave a recipe for *uptraining* an existing multi-head checkpoint into a grouped-query one for about 5% of the original pre-training compute — you didn't have to retrain to adopt it, which is part of why it spread so fast.
 
 In code the sharing is just a broadcast before the attention call:
 
@@ -383,13 +405,15 @@ Timing both on the same 62.6M-parameter model:
 ```text
   phase    tokens/pass  ms/pass  ms/token    tokens/s
   -----------------------------------------------------
-  prefill          512  33.0275    0.0645  15502.2522
-  decode             1   5.2635    5.2635    189.9862
+  prefill          512  33.2425    0.0649  15401.9894
+  decode             1   5.3860    5.3860    185.6665
 
-  per-token cost, decode / prefill   81.6x
+  per-token cost, decode / prefill   83.0x
 ```
 
-**A token costs 82× more to generate than to read.** Both passes stream the same weights through the chip's arithmetic units (ALUs — the circuits that actually do the multiplying). Prefill amortizes that read across 512 tokens; decode pays it in full for one.
+**A token costs roughly two orders of magnitude more to generate than to read.** Both passes stream the same weights through the chip's arithmetic units (ALUs — the circuits that actually do the multiplying). Prefill amortizes that read across 512 tokens; decode pays it in full for one.
+
+The exact multiple is the least trustworthy number in this post. Across repeated runs on this laptop it lands anywhere between about 80× and 100×, depending on what else the machine is busy with. The order of magnitude is what holds, and it is the only part the argument needs.
 
 The clean way to see why is arithmetic intensity — FLOPs performed per byte of weights moved:
 
@@ -400,13 +424,13 @@ The clean way to see why is arithmetic intensity — FLOPs performed per byte of
   decode        1        0.125 G      0.23 GiB     0.5000
 ```
 
-Modern accelerators need roughly 100–300 FLOP/byte to keep their tensor cores busy. Prefill sits at 256 — right in the productive zone, **compute-bound**. Decode sits at **0.5**, two to three orders of magnitude short of what the hardware needs to stay busy. The hardware spends essentially all of decode waiting on memory. It is **memory-bandwidth-bound**.
+Modern accelerators need roughly 100–300 FLOP/byte to keep their tensor cores busy. Prefill sits at 256 — right in the productive zone, **compute-bound**. Decode sits at **0.5**, two to three orders of magnitude short of what the hardware needs to stay busy. The hardware spends essentially all of decode waiting on memory. It is **memory-bandwidth-bound**. Pope et al., [Efficiently Scaling Transformer Inference](https://arxiv.org/abs/2211.05102) (2022), work the same analysis through at production scale if you want it in more depth than one table.
 
 This single fact explains a startling amount:
 
 - **Batching works** — the weight read is already paid for, so more sequences are nearly free (until they aren't; see below).
 - **Quantization speeds up decode** even when the arithmetic isn't faster, because there are simply fewer bytes to move.
-- **Speculative decoding wins** because verifying $k$ draft tokens in one pass costs about the same as generating one — you were bandwidth-bound, not compute-bound.
+- **[Speculative decoding](https://arxiv.org/abs/2211.17192) wins** because verifying $k$ draft tokens in one pass costs about the same as generating one — you were bandwidth-bound, not compute-bound.
 - **Bigger GPUs don't help decode much** unless their *bandwidth* went up.
 
 ### 7. The batch sweep, and where it stops working {#the-batch-sweep}
@@ -427,12 +451,12 @@ With a short (32-token) prefix:
 ```text
   batch  ms/step  latency vs b=1  tokens/s  throughput vs b=1
   -------------------------------------------------------------
-  1       4.0446           1.00x       247               1.0x
-  2       4.2466           1.05x       471               1.9x
-  4       4.6923           1.16x       852               3.4x
-  8       5.5535           1.37x      1441               5.8x
-  16      6.3332           1.57x      2526              10.2x
-  32      7.9067           1.95x      4047              16.4x
+  1       4.0439           1.00x       247               1.0x
+  2       4.2512           1.05x       470               1.9x
+  4       4.7698           1.18x       839               3.4x
+  8       5.6999           1.41x      1404               5.7x
+  16      6.3692           1.57x      2512              10.2x
+  32      7.8962           1.95x      4053              16.4x
 ```
 
 32× the work for **1.95×** the time — 16.4× the throughput. The GPU was idling on memory, so the extra sequences rode along inside a weight read that was happening anyway. That is what memory-bound looks like, and it's why every serving stack batches aggressively.
@@ -442,15 +466,15 @@ Now the same sweep with a **512-token** prefix:
 ```text
   batch  ms/step  latency vs b=1  tokens/s  throughput vs b=1
   -------------------------------------------------------------
-  1       5.3005           1.00x       189               1.0x
-  2       6.6377           1.25x       301               1.6x
-  4       9.0194           1.70x       443               2.4x
-  8      14.0736           2.66x       568               3.0x
-  16     22.3713           4.22x       715               3.8x
-  32     40.2305           7.59x       795               4.2x
+  1       5.3172           1.00x       188               1.0x
+  2       6.6708           1.25x       300               1.6x
+  4       9.0386           1.70x       443               2.4x
+  8      14.1554           2.66x       565               3.0x
+  16     22.3690           4.21x       715               3.8x
+  32     39.7320           7.47x       805               4.3x
 ```
 
-The free lunch is gone: 16.4× throughput becomes **4.2×**.
+The free lunch is gone: 16.4× throughput becomes **4.3×**.
 
 ![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-light.png){: .light width="1000" height="540" }
 ![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-dark.png){: .dark width="1000" height="540" }
@@ -480,7 +504,7 @@ A short mental checklist I now use when reasoning about an inference setup:
 
 That's true, and it's the answer most people give. But it describes the *dependency structure* without saying why sequential is expensive. If the work per token were the same, 500 sequential steps would cost a tenth of 5,000 parallel ones.
 
-**A stronger answer:** "Both phases stream the whole weight matrix through the ALUs. Prefill amortizes that read over thousands of tokens and lands around 250 FLOPs per byte, which is roughly where the hardware saturates — it's compute-bound. Decode does the same read for a single token, landing near 0.5 FLOPs per byte, so it's memory-bandwidth-bound and the ALUs sit idle. In my measurement a decoded token cost 82× a prefilled one. That's also why batching, quantization, and speculative decoding all help decode specifically: they either amortize the read or shrink it. The caveat is that batching only amortizes the *weight* read — KV-cache traffic scales with batch, so past a point throughput plateaus."
+**A stronger answer:** "Both phases stream the whole weight matrix through the ALUs. Prefill amortizes that read over thousands of tokens and lands around 250 FLOPs per byte, which is roughly where the hardware saturates — it's compute-bound. Decode does the same read for a single token, landing near 0.5 FLOPs per byte, so it's memory-bandwidth-bound and the ALUs sit idle. In my measurements a decoded token cost somewhere around 80–100× a prefilled one. That's also why batching, quantization, and speculative decoding all help decode specifically: they either amortize the read or shrink it. The caveat is that batching only amortizes the *weight* read — KV-cache traffic scales with batch, so past a point throughput plateaus."
 
 The difference is that the second answer names the bottleneck resource and predicts which optimizations work.
 
@@ -490,9 +514,9 @@ The difference is that the second answer names the bottleneck resource and predi
 
 ### References
 
-- Shazeer, [Fast Transformer Decoding: One Write-Head is All You Need](https://arxiv.org/abs/1911.02150) (2019) — MQA.
-- Ainslie et al., [GQA: Training Generalized Multi-Query Transformer Models](https://arxiv.org/abs/2305.13245) (2023).
-- Kwon et al., [Efficient Memory Management for Large Language Model Serving with PagedAttention](https://arxiv.org/abs/2309.06180) (2023) — vLLM.
-- Pope et al., [Efficiently Scaling Transformer Inference](https://arxiv.org/abs/2211.05102) (2022) — the roofline analysis in depth.
-- Leviathan et al., [Fast Inference from Transformers via Speculative Decoding](https://arxiv.org/abs/2211.17192) (2022).
+- Shazeer, [Fast Transformer Decoding: One Write-Head is All You Need](https://arxiv.org/abs/1911.02150) (2019) — MQA, behind §5. Its abstract names the problem this whole post is about: incremental inference is slow "due to the memory-bandwidth cost of repeatedly loading the large 'keys' and 'values' tensors."
+- Ainslie et al., [GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints](https://arxiv.org/abs/2305.13245) (2023) — §5's middle option, and the uptraining recipe that made it adoptable.
+- Kwon et al., [Efficient Memory Management for Large Language Model Serving with PagedAttention](https://arxiv.org/abs/2309.06180) (2023) — vLLM, and the fix for the pre-allocation problem in §1.
+- Pope et al., [Efficiently Scaling Transformer Inference](https://arxiv.org/abs/2211.05102) (2022) — the arithmetic-intensity analysis of §6, worked through at production scale.
+- Leviathan et al., [Fast Inference from Transformers via Speculative Decoding](https://arxiv.org/abs/2211.17192) (2022) — why §6's bandwidth bound is what makes drafting pay.
 - Code for this post: [`llm-architectures-refresher`](https://github.com/bearbearyu1223/llm-architectures-refresher), `uv run demo02`.
