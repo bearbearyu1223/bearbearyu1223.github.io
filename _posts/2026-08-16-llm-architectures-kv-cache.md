@@ -16,7 +16,20 @@ published: false
 
 [Post 1](/posts/llm-architectures-attention-and-rope/) was about how attention works. This one is about the single fact that determines what you can actually deploy: **generating a token is a fundamentally different workload from reading one**, and almost every inference optimization you've heard of follows from that one asymmetry.
 
-The setup is the same as before: every claim gets a **receipt** — a small program that prints the number the claim asserts. The code lives in a companion repo, [`llm-architectures-refresher`](https://github.com/bearbearyu1223/llm-architectures-refresher), and runs unchanged on Apple Silicon or a Linux + NVIDIA box:
+### The short version {#the-short-version}
+
+If you read nothing else, these are the things this post establishes — each one measured rather than asserted:
+
+- **A cache exists because generation keeps asking for the same vectors.** Over three steps from a three-token prompt, the model demands twelve key vectors, but only five of them are distinct — the other seven are repeats of something an earlier step already built. Queries have no repeats at all: a query is used by the step that created it and never again. That gap is why the thing is a KV cache and not a QKV cache.
+- **It changes nothing about the output.** Cached and uncached generation return identical token ids, not merely close ones. The cache is memoization, not approximation — if yours produces different text, you have a bug, and it is usually a position-offset error.
+- **Without it, generation is quadratic.** Producing 512 tokens from a 64-token prompt pushes 576 tokens through the model with a cache and **163,584** without — a 284× multiplier of pure repeated work, because every step redoes the whole prefix.
+- **It is a bargain, not free money.** You hold roughly 10× the memory to save 200–2000× the compute. What makes the trade worth taking is that the two sides scale differently: the memory cost grows *linearly* with context, the compute saving *quadratically*.
+- **At long context the cache outgrows the model.** One 128k-token conversation on Llama-3-8B needs 16 GiB of cache against 15 GiB of weights. One copy of the weights serves everybody, but every conversation brings its own cache — so thirty-two concurrent users at that length need **half a terabyte**, about six 80 GiB accelerators, for a model that fits on one. "How many users can I serve?" is a KV-cache question, not a model-size question.
+- **Sharing key/value heads is a storage decision the compute side barely notices.** Going from 12 K/V heads down to 1 shrinks the cache **12×** while time per decode step stays inside a **1.3× band**. That asymmetry is the whole case for grouped-query attention.
+- **Generating a token costs about two orders of magnitude more than reading one** — 83× per token here. Both phases stream the same weights through the chip. Prefill spreads that read across 512 tokens and lands at 256 FLOPs per byte, past the point where the hardware saturates, so it is compute-bound. Decode pays the same read for a single token and lands at **0.5**, roughly 306× short of that mark, so it sits waiting on memory. No kernel fixes a gap that size.
+- **Batching is nearly free, until abruptly it isn't.** With a short prompt, 32 sequences at once cost 2× the time of one — 16× the throughput. With a 512-token prompt the same batch costs 7.5× the time for only 4.3×. Weight traffic is flat in batch while KV traffic is linear in it, so past a crossover — batch 30 here — the term batching *cannot* amortize is the majority of memory traffic.
+
+Every one of those has a **receipt** behind it — a small program that prints the number, so you can check it rather than take my word. The code lives in a companion repo, [`llm-architectures-refresher`](https://github.com/bearbearyu1223/llm-architectures-refresher), and runs unchanged on Apple Silicon or a Linux + NVIDIA box:
 
 ```bash
 git clone https://github.com/bearbearyu1223/llm-architectures-refresher
@@ -29,6 +42,8 @@ Every number and figure below came out of that command on my M-series Mac. The P
 This post needs a real model rather than loose tensors, so the repo gained one: `toy_model.py`, a Llama-shaped decoder — pre-norm, RMSNorm, RoPE, SwiGLU, no biases, configurable grouped-query attention. It's small (8–60M parameters) but not *wrong*, and the later posts on quantization and MoE will reuse it. The weights are random, because everything here measures time and memory, never output quality.
 
 ### Table of Contents
+
+Skip to [the short version](#the-short-version) for the findings without the derivations.
 
 1. [Why a cache exists at all](#why-a-cache-exists-at-all)
 2. [The cache changes nothing about the output](#the-cache-is-exact)
