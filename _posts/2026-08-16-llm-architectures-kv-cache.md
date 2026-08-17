@@ -88,7 +88,7 @@ Said as shapes: the Q column is a **diagonal**, the K column a **triangle**. [Th
 
 That only works if those keys and values are genuinely unchanged, and two facts from post 1 guarantee it:
 
-1. **$K_j$ and $V_j$ depend only on token $j$ and its position.** They're $W_k$ and $W_v$ applied to one token's vector, with RoPE applied for position $j$. Appending a token later changes neither input.
+1. **$K_j$ and $V_j$ depend only on token $j$, its position, and the weights.** They're $W_k$ and $W_v$ applied to one token's vector, with RoPE applied for position $j$. Appending a token later changes none of the three — the token is what it was, position $j$ is still position $j$, and the weights are frozen because this is inference. (That last clause is doing quiet work. [The next subsection](#inference-only) is what happens when it stops being true.)
 2. **Causal masking means no token's representation can depend on anything after it.** Token 3 could not see token 4 even in principle, so token 4's arrival cannot disturb it.
 
 That's an argument, so let's check it. Run the model on a 4-token prefix, then on those same tokens plus two more, and compare what each run stored for the first four positions:
@@ -130,6 +130,36 @@ Now compare them. Subtract one from the other, take absolute values, and keep th
 ```
 
 Not merely close — **identical, across all 1,024 numbers**. So recomputing them is pure waste, and storing them is safe.
+
+#### This is an inference-only structure {#inference-only}
+
+Worth saying outright, because it's the first thing to wonder if you've come at this from the training side: **there is no KV cache during training.** Two independent reasons, either of which would be enough on its own.
+
+**There would be nothing to reuse.** [Teacher forcing](/posts/llm-architectures-attention-and-rope/#training-and-inference) hands the model the entire real sequence before the pass begins, so a training step is *one* forward pass that computes $K_1 \ldots K_n$ once and lets the causal mask do the rest. Run this section's count against it and the case evaporates:
+
+```text
+                        K vectors computed  of them, redundant
+  generation, 3 steps                   12                   7
+  training, 1 pass                       5                   0
+```
+
+Over the same five token positions, an uncached generation run computes twelve key vectors and seven of them duplicate work it already did. A training pass computes five and duplicates nothing.
+
+Both rows are already in the table above, which is the tidy part. The generation row is its "needed" and "repeat reads" columns; the training row is its **"distinct vectors"** column, twice — because computing each vector exactly once is the whole of what a single pass does. Training already sits at the floor the cache is trying to reach. A cache memoizes work repeated across calls; training makes one call, so you would fill it and never read it.
+
+(One thing here looks like reuse and isn't. Inside that single pass, $K_j$ *is* attended to by every query position from $j$ onward — so in the masked score matrix it gets consulted many times. But consulting is not computing: those are all one $QK^\top$ matmul, which reads each $K_j$ from memory once. Sharing a value within a matmul is free; recomputing it across calls is what costs, and that is the only thing a cache removes.)
+
+**And the premise above would be false anyway.** Fact 1 said $K_j$ and $V_j$ depend on the token, its position, *and the weights*. Training changes the weights on every optimizer step, so a key cached at step $t$ is wrong at step $t+1$ — not stale, wrong. Frozen weights are what make the whole scheme legal, and only inference has them.
+
+The clean way to hold it: **training looks like prefill, generation looks like decode.** Both training and prefill push a known sequence through in one parallel pass, which is why [§6](#prefill-vs-decode-the-whole-ballgame) finds prefill compute-bound in the same regime training lives in. Only decode has the step-by-step structure a cache exists to exploit.
+
+Three places the line genuinely blurs, though:
+
+- **Post-training with RL** — PPO, GRPO and friends alternate a *rollout* phase that generates completions with a full KV cache (usually through a serving stack like vLLM) and a *learning* phase that does a parallel forward/backward over those completions with none. So a modern post-training run leans on a KV cache heavily; just not in the part that computes gradients. Same for any sampling you do for eval mid-run.
+- **Prefill inside inference** — it *populates* the cache but takes no benefit from it, being a single pass over a known sequence. It pays the cache's cost and collects none of its saving.
+- **A genuine exception:** Dai et al.'s [Transformer-XL](https://arxiv.org/abs/1901.02860) (2019) caches the previous segment's keys and values *during training* and attends over them with a stop-gradient. So the precise claim is "not in standard teacher-forced training", not "never".
+
+What training worries about instead is a different list entirely: activations stored for the backward pass, gradients, and optimizer states — Adam alone keeps two more copies of every parameter. Which sets up a symmetry worth noticing, since [§4](#how-big-does-the-cache-actually-get) frames the cache as a time-memory trade. Activation checkpointing, the technique that dominates training memory, is **the same trade run backwards**: throw activations away and recompute them in the backward pass, spending compute to save memory. The KV cache spends memory to save compute. Same axis, opposite directions — because the two jobs are pinned against different walls.
 
 #### Why K and V but not Q
 
@@ -600,6 +630,7 @@ The difference is that the second answer names the bottleneck resource and predi
 - Shazeer, [Fast Transformer Decoding: One Write-Head is All You Need](https://arxiv.org/abs/1911.02150) (2019) — MQA, behind §5. Its abstract names the problem this whole post is about: incremental inference is slow "due to the memory-bandwidth cost of repeatedly loading the large 'keys' and 'values' tensors."
 - Ainslie et al., [GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints](https://arxiv.org/abs/2305.13245) (2023) — §5's middle option, and the uptraining recipe that made it adoptable.
 - Kwon et al., [Efficient Memory Management for Large Language Model Serving with PagedAttention](https://arxiv.org/abs/2309.06180) (2023) — vLLM, and the fix for the pre-allocation problem in §1.
+- Dai et al., [Transformer-XL: Attentive Language Models Beyond a Fixed-Length Context](https://arxiv.org/abs/1901.02860) (2019) — §1's exception: keys and values cached across segments *during* training, held with a stop-gradient.
 - Pope et al., [Efficiently Scaling Transformer Inference](https://arxiv.org/abs/2211.05102) (2022) — the arithmetic-intensity analysis of §6, worked through at production scale.
 - Leviathan et al., [Fast Inference from Transformers via Speculative Decoding](https://arxiv.org/abs/2211.17192) (2022) — why §6's bandwidth bound is what makes drafting pay.
 - Code for this post: [`llm-architectures-refresher`](https://github.com/bearbearyu1223/llm-architectures-refresher), `uv run demo02`.
