@@ -736,6 +736,59 @@ I find this the most useful thing in the post, because the textbook version ("de
 
 *(These are laptop numbers on Apple Silicon with a small model, so the absolute values reflect a modest bandwidth budget and some kernel-launch overhead. The shape of both curves, and the crossover between them, is what transfers — that's arithmetic, not hardware.)*
 
+#### But surely compute runs out too?
+
+Everything above is bytes. Weight traffic, KV traffic — memory, both of them. Yet the model still has to *do* the matmuls, and every user you add is one more full pass through the weights. That work is shared with nobody. So why isn't arithmetic the thing that runs out first?
+
+It's a fair objection, and the honest answer is that compute scales exactly the way KV traffic does. Per decode step at batch $B$:
+
+```text
+  term                  scales as            shared across users?
+  -----------------------------------------------------------------
+  weight reads     15.0 GiB, flat  yes — one copy feeds everybody
+  weight matmuls   2 x params x B      no — one pass per sequence
+  KV cache reads  128 KiB x S x B     no — one cache per sequence
+```
+
+Batching amortizes the first and multiplies the other two. So the plateau above could be *either* of the unshared terms — bandwidth or arithmetic — and the sweep alone can't tell you which.
+
+Settle it by starting with attention over the cache, since that is the part doing the reading. Its FLOPs and its bytes *both* scale with $B$ and with $S$, so both cancel, and what's left is a constant of the architecture:
+
+$$
+\frac{\text{attention FLOPs}}{\text{KV bytes}}
+= \frac{4\,n_{heads}\,S\,d_{head}\,L}{2\,H_{kv}\,S\,d_{head}\,L \times \text{bytes}}
+= \frac{2\,n_{heads}}{H_{kv} \times \text{bytes}}
+$$
+
+In fp16 the bytes cancel too and that is simply $n_{heads} / H_{kv}$ — **the grouping ratio, and nothing else**:
+
+```text
+  variant           kv heads  q heads per kv head  FLOP/byte
+  ------------------------------------------------------------
+  as MHA                  32                    1        1.0
+  Llama-3-8B (GQA)         8                    4        4.0
+  as MQA                   1                   32       32.0
+```
+
+Which hands [§5](#gqa-mqa-and-what-you-give-up) a second job I didn't give it credit for. Sharing K/V heads doesn't only shrink the cache — it raises the arithmetic intensity of every read from that cache by the very same factor. Four times less to store, four times more work done per byte stored.
+
+Now put the two together and solve for the batch size at which the matmuls finally take longer than the bytes take to arrive:
+
+```text
+  accelerator    ridge  S=128   S=1k   S=8k  S=32k
+  --------------------------------------------------
+  A100 80GB SXM    153    181  never  never  never
+  H100 SXM         295    424  never  never  never
+```
+
+At a very short context the answer is a real batch size, and it lands suspiciously close to the ridge point. That's not a coincidence: the weight term's arithmetic intensity is $2B/\text{bytes}$, which in fp16 is just $B$, so it crosses the ridge at a batch equal to the ridge.
+
+Past about a thousand tokens of context, the answer is **never**. The KV read sits at 4 FLOP/byte against a ridge of 153 — every user you add brings 38× more bytes than the hardware can pay for with arithmetic, so the gap widens rather than closes. No batch size climbs out of it.
+
+**So compute genuinely never amortizes, and it still isn't what binds.** At any context worth having, the cache read gets there first and stays there. Where arithmetic *does* bind is the other phase entirely: prefill is compute-bound from batch 1 ([§6](#prefill-vs-decode-the-whole-ballgame)), which means your FLOPs ceiling governs how fast you can take on **new** conversations, while bandwidth and cache capacity govern how many you can **carry**. Two different limits, two different fixes, and a serving stack has to respect both.
+
+*(This one is arithmetic from model shapes and datasheet peaks, not a measurement — the same footing as the ridge-point table in §6, and for the same reason: my laptop cannot reach batch 181.)*
+
 ### 8. What follows from all this {#what-follows-from-all-this}
 
 A short mental checklist I now use when reasoning about an inference setup:
@@ -745,7 +798,9 @@ A short mental checklist I now use when reasoning about an inference setup:
 | Time-to-first-token is slow | Prefill — compute-bound | Better kernels, more FLOPs, chunked prefill |
 | Tokens-per-second is slow | Decode — bandwidth-bound | Quantization, speculative decoding, faster memory |
 | Can't fit more users | KV cache | GQA/MLA, cache quantization, paging, shorter context |
-| Throughput plateaus as batch grows | KV traffic overtook weight traffic | Prefix sharing, cache quantization, smaller batch × longer context tradeoff |
+| Throughput plateaus as batch grows, **long context** | KV traffic overtook weight traffic — the usual case | Prefix sharing, cache quantization, GQA/MLA, smaller batch × longer context tradeoff |
+| Throughput plateaus as batch grows, **short context** | Compute — the matmuls saturated, around batch ≈ the ridge point | More FLOPs, lower precision; cache tricks will do nothing here |
+| Can't admit new users fast enough | Prefill — compute-bound from the first request | More FLOPs, chunked prefill, prefix sharing for shared system prompts |
 
 ### 9. Sidebar: the probe {#sidebar-the-probe}
 
