@@ -56,8 +56,9 @@ Skip to [the short version](#the-short-version) for the findings without the der
 5. [Shrinking the cache: GQA, MQA, and what you give up](#gqa-mqa-and-what-you-give-up)
 6. [Prefill vs decode: the whole ballgame](#prefill-vs-decode-the-whole-ballgame)
 7. [The batch sweep, and where it stops working](#the-batch-sweep)
-8. [What follows from all this](#what-follows-from-all-this)
-9. [Sidebar: the probe](#sidebar-the-probe)
+8. [A worked example: 1,000 users at 128k](#worked-example)
+9. [What follows from all this](#what-follows-from-all-this)
+10. [Sidebar: the probe](#sidebar-the-probe)
 
 Plus an [appendix of all notation](#appendix-all-notation) at the end, if a symbol ever goes by without introduction.
 
@@ -789,7 +790,64 @@ Past about a thousand tokens of context, the answer is **never**. The KV read si
 
 *(This one is arithmetic from model shapes and datasheet peaks, not a measurement — the same footing as the ridge-point table in §6, and for the same reason: my laptop cannot reach batch 181.)*
 
-### 8. What follows from all this {#what-follows-from-all-this}
+### 8. A worked example: 1,000 users at 128k {#worked-example}
+
+Everything so far has been measured one piece at a time. Point all of it at a single question and see what comes out: **you want to serve Llama-3.1-8B to a thousand people at once, each with the full 128k context.** How much hardware is that?
+
+Start where [§4](#how-big-does-the-cache-actually-get) left off. One token of context costs 128 KiB, a full 128k context costs 16 GiB, and a thousand of those is:
+
+```text
+  what            per user      x 1,000 users
+  ---------------------------------------------
+  KV cache       16.00 GiB          15.62 TiB
+  model weights          —  14.96 GiB per GPU
+```
+
+**Fifteen and a half terabytes of scratch space, for a fifteen-gigabyte model.** The weights are now a rounding error — you are not buying hardware to hold the model, you are buying it to hold the conversations. Divide that by what a card can actually give you:
+
+```text
+  accelerator       HBM  usable for KV  users/GPU  GPUs needed  tok/s per user
+  ------------------------------------------------------------------------------
+  A100 80GB SXM   80 GB         50 GiB        3.1          320              29
+  H100 SXM        80 GB         50 GiB        3.1          320              48
+  H200 SXM       141 GB        101 GiB        6.3          159              38
+```
+
+Roughly **320 H100s**, and the "usable" column is why the number is so unforgiving: an 80 GB card gives up about 50 GiB once you take 90% for reachable memory, subtract the weights, and leave activation headroom. That's **three users per card**.
+
+The last two columns answer different questions, and conflating them is how sizing goes wrong. **Capacity sets the fleet size** — the A100 and the H100 need the same 320 cards because they hold the same 80 GB. **Bandwidth sets the token rate**, and there the H100 is worth 1.6× the A100 for an identical bill of materials.
+
+The H200 row is the one worth sitting with. Twice the capacity halves the fleet, and each user gets **slower** — because a card holding twice as many caches must re-read twice as much of them on every step. Capacity buys density; only bandwidth buys speed.
+
+#### Is it fast enough, and what is it doing?
+
+```text
+  per decode step         bytes or time             share
+  ---------------------------------------------------------
+  KV cache read                50.1 GiB               77%
+  weight read                  15.0 GiB               23%
+  time, memory-bound            20.9 ms                 —
+  time, if compute-bound        0.27 ms  1.3% of the step
+```
+
+Every decode step re-reads **50 GiB of cache** against 15 GiB of weights. The term batching was supposed to amortize is now under a quarter of the traffic — [§7](#the-batch-sweep)'s crossover, arriving at production scale. And compute is **1.3%** of the step: the "never" column from the section above, seen from the deployment end. You could triple the FLOPs of every card in that fleet and serve the same thousand users at the same speed.
+
+#### What actually moves the number
+
+```text
+  lever                             cache/user  users/GPU  H100 SXMs needed
+  ---------------------------------------------------------------------------
+  baseline — fp16 cache, full 128k   16.00 GiB        3.1               320
+  quantize the KV cache to fp8        8.00 GiB        6.3               160
+  cap context at 32k                  4.00 GiB       12.5                80
+  both                                2.00 GiB       25.0                40
+```
+
+**320 cards to 40**, and not one of those levers touches the model or adds a single FLOP. Both of them shrink the cache — one by storing each number in half the space, the other by keeping fewer of them. That is the entire argument of this post arriving as a purchase order, and it is why "how long a context do we advertise?" is a hardware-budget decision wearing a product-spec costume.
+
+*(Analytic, like the ridge points in §6 — model shapes and datasheet capacities, not something a laptop can measure. The usable-memory assumption is deliberately generous; real serving stacks land lower, and none of the levers change shape if you tighten it.)*
+
+### 9. What follows from all this {#what-follows-from-all-this}
 
 A short mental checklist I now use when reasoning about an inference setup:
 
@@ -802,7 +860,7 @@ A short mental checklist I now use when reasoning about an inference setup:
 | Throughput plateaus as batch grows, **short context** | Compute — the matmuls saturated, around batch ≈ the ridge point | More FLOPs, lower precision; cache tricks will do nothing here |
 | Can't admit new users fast enough | Prefill — compute-bound from the first request | More FLOPs, chunked prefill, prefix sharing for shared system prompts |
 
-### 9. Sidebar: the probe {#sidebar-the-probe}
+### 10. Sidebar: the probe {#sidebar-the-probe}
 
 > **"Why does generating 500 tokens take so much longer than reading a 5,000-token prompt?"**
 
