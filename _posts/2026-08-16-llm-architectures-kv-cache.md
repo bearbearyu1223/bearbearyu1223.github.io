@@ -76,11 +76,13 @@ Counting what that table asks for makes the case, and three steps is enough to s
   V                        12                 5             7
 ```
 
-**The last column is the whole argument**, and the two rows could not be further apart.
+Look at the last column, and at how differently the two rows behave.
 
-For **Q** it is zero. Three steps, three queries, and no query is ever wanted twice — $3 - 3 = 0$. A cache would sit there with nothing to hand back.
+For **Q** it is zero. Three steps, three queries, and no query is ever wanted twice: $3 - 3 = 0$. A cache would sit there with nothing to hand back.
 
-For **K** and **V** it is seven: $12 - 5 = 7$. Seven of the twelve demands are for a vector some earlier step already produced. And here is where the counting turns into a cost, because *needing* a vector and *recomputing* it are the same thing when you have nowhere to keep it. Without a cache, those seven repeats are seven key vectors calculated a second time — from tokens that have not changed since the first time. With one, they are seven array lookups.
+For **K** and **V** it is seven: $12 - 5 = 7$. Seven of the twelve demands are for a vector that some earlier step already produced.
+
+That seven is where counting turns into cost. If you have nowhere to put a vector, asking for it again *means* building it again — the two are the same act. So without a cache, those seven repeats are seven key vectors computed a second time, from tokens that haven't changed since the first. With a cache, they're seven array lookups.
 
 Said as shapes: the Q column is a **diagonal**, the K column a **triangle**. [The figure below](#why-k-and-v-but-not-q) draws exactly that, and the quadratic in [§3](#generation-is-quadratic) is what the triangle costs once the sequence is long rather than three steps.
 
@@ -133,9 +135,9 @@ Not merely close — **identical, across all 1,024 numbers**. So recomputing the
 
 #### This is an inference-only structure {#inference-only}
 
-Worth saying outright, because it's the first thing to wonder if you've come at this from the training side: **there is no KV cache during training.** Two independent reasons, either of which would be enough on its own.
+If you've come at this from the training side, the first thing to wonder is whether any of it applies there. It doesn't: **there is no KV cache during training.** Two reasons, and either one alone would settle it.
 
-**There would be nothing to reuse.** [Teacher forcing](/posts/llm-architectures-attention-and-rope/#training-and-inference) hands the model the entire real sequence before the pass begins, so a training step is *one* forward pass that computes $K_1 \ldots K_n$ once and lets the causal mask do the rest. Run this section's count against it and the case evaporates:
+**There would be nothing to reuse.** [Teacher forcing](/posts/llm-architectures-attention-and-rope/#training-and-inference) hands the model the entire real sequence before the pass begins, so a training step is *one* forward pass that computes $K_1 \ldots K_n$ once and lets the causal mask do the rest. Run this section's count against a training step and there is nothing left to save:
 
 ```text
                         K vectors computed  of them, redundant
@@ -143,23 +145,27 @@ Worth saying outright, because it's the first thing to wonder if you've come at 
   training, 1 pass                       5                   0
 ```
 
-Over the same five token positions, an uncached generation run computes twelve key vectors and seven of them duplicate work it already did. A training pass computes five and duplicates nothing.
+Over the same five token positions, an uncached generation run computes twelve key vectors, seven of which redo work it has already done. A training pass computes five and redoes nothing.
 
-Both rows are already in the table above, which is the tidy part. The generation row is its "needed" and "repeat reads" columns; the training row is its **"distinct vectors"** column, twice — because computing each vector exactly once is the whole of what a single pass does. Training already sits at the floor the cache is trying to reach. A cache memoizes work repeated across calls; training makes one call, so you would fill it and never read it.
+Neatly, both rows come straight out of the table above. The generation row is its "needed" and "repeat reads" columns; the training row is its **"distinct vectors"** column written down twice, because computing each vector exactly once is all a single pass ever does. Training already sits at the floor that caching is trying to reach.
 
-(One thing here looks like reuse and isn't. Inside that single pass, $K_j$ *is* attended to by every query position from $j$ onward — so in the masked score matrix it gets consulted many times. But consulting is not computing: those are all one $QK^\top$ matmul, which reads each $K_j$ from memory once. Sharing a value within a matmul is free; recomputing it across calls is what costs, and that is the only thing a cache removes.)
+Which gets at what a cache is actually for. It saves work that would otherwise be repeated from one call to the next, and training makes exactly one call. You'd fill it and never read it.
+
+(One thing here looks like reuse and isn't. Inside that single pass, $K_j$ *is* attended to by every query position from $j$ onward, so it gets consulted many times over. But consulting is not computing. Those consultations are all one $QK^\top$ matmul, which reads each $K_j$ out of memory a single time. Sharing a value inside one matmul is free; rebuilding it on a later call is what costs, and rebuilding is the only thing a cache prevents.)
 
 **And the premise above would be false anyway.** Fact 1 said $K_j$ and $V_j$ depend on the token, its position, *and the weights*. Training changes the weights on every optimizer step, so a key cached at step $t$ is wrong at step $t+1$ — not stale, wrong. Frozen weights are what make the whole scheme legal, and only inference has them.
 
-The clean way to hold it: **training looks like prefill, generation looks like decode.** Both training and prefill push a known sequence through in one parallel pass, which is why [§6](#prefill-vs-decode-the-whole-ballgame) finds prefill compute-bound in the same regime training lives in. Only decode has the step-by-step structure a cache exists to exploit.
+One line to remember it by: **training looks like prefill, generation looks like decode.** Training and prefill both push a known sequence through in a single parallel pass, which is why [§6](#prefill-vs-decode-the-whole-ballgame) finds prefill compute-bound in the same regime training lives in. Only decode has the step-by-step structure a cache exists to exploit.
 
-Three places the line genuinely blurs, though:
+Three places the line does blur, though:
 
-- **Post-training with RL** — PPO, GRPO and friends alternate a *rollout* phase that generates completions with a full KV cache (usually through a serving stack like vLLM) and a *learning* phase that does a parallel forward/backward over those completions with none. So a modern post-training run leans on a KV cache heavily; just not in the part that computes gradients. Same for any sampling you do for eval mid-run.
-- **Prefill inside inference** — it *populates* the cache but takes no benefit from it, being a single pass over a known sequence. It pays the cache's cost and collects none of its saving.
-- **A genuine exception:** Dai et al.'s [Transformer-XL](https://arxiv.org/abs/1901.02860) (2019) caches the previous segment's keys and values *during training* and attends over them with a stop-gradient. So the precise claim is "not in standard teacher-forced training", not "never".
+- **Post-training with RL** — PPO, GRPO and their relatives alternate two phases. A *rollout* phase generates completions, which is ordinary autoregressive inference and uses a full KV cache, usually through a serving stack like vLLM. Then a *learning* phase runs a parallel forward and backward over those completions, with no cache at all. So a modern post-training run leans on a KV cache heavily — just not in the part that computes gradients. The same goes for any sampling you do for evaluation mid-run.
+- **Prefill inside inference** — it *populates* the cache but takes no benefit from it, being a single pass over a sequence you already have. It pays the cache's cost and collects none of its saving.
+- **A real exception** — Dai et al.'s [Transformer-XL](https://arxiv.org/abs/1901.02860) (2019) caches the previous segment's keys and values *during training* and attends over them with a stop-gradient, meaning they are read as fixed inputs and no gradient flows back into the segment that produced them. So the precise claim is "not in standard teacher-forced training", rather than "never".
 
-What training worries about instead is a different list entirely: activations stored for the backward pass, gradients, and optimizer states — Adam alone keeps two more copies of every parameter. Which sets up a symmetry worth noticing, since [§4](#how-big-does-the-cache-actually-get) frames the cache as a time-memory trade. Activation checkpointing, the technique that dominates training memory, is **the same trade run backwards**: throw activations away and recompute them in the backward pass, spending compute to save memory. The KV cache spends memory to save compute. Same axis, opposite directions — because the two jobs are pinned against different walls.
+Training worries about a different list entirely: activations stored for the backward pass, gradients, and optimizer states — Adam alone keeps two extra copies of every parameter.
+
+There is a nice symmetry hiding in that. [§4](#how-big-does-the-cache-actually-get) frames the cache as a time-memory trade, and activation checkpointing — the technique that dominates training memory — is the same trade run backwards. It throws activations away and recomputes them during the backward pass, spending compute to save memory. The KV cache spends memory to save compute. Same axis, opposite directions, because the two jobs are pinned against different walls.
 
 #### Why K and V but not Q
 
@@ -439,11 +445,11 @@ That's two claims — the cache shrinks, the computation doesn't — so here the
   MQA             1        12   60.3M     2.0 MiB  12x smaller          5.1851
 ```
 
-Read the two right-hand columns against each other, because that contrast is the point. The cache column tracks `n_kv_heads` exactly — 24 → 8 → 2 MiB, a **12× swing** with no approximation in it. The time column stays inside a **1.3× band**. That asymmetry is the whole reason GQA is worth doing: **it's a storage decision the compute side hardly notices.** (The toy shares 3 query heads per KV head where Llama-3-8B shares 4; the ratio is whatever `n_kv_heads` says it is.)
+Compare the two right-hand columns. The cache column tracks `n_kv_heads` exactly — 24 → 8 → 2 MiB, a **12× swing**, with no approximation anywhere in it. The time column stays inside a **1.3× band**. That gap is why GQA caught on: **it is a storage decision that the compute side barely notices.** (The toy shares 3 query heads per KV head where Llama-3-8B shares 4; the ratio is whatever `n_kv_heads` says it is.)
 
-Don't read the *ordering* within that time column, though. Those three numbers sit close enough together that which one comes last shuffles between runs on this laptop — I've had GQA slowest and MQA slowest on consecutive runs. What survives every run is the thing worth having: **fewer K/V heads never bought a faster decode step.** If anything it costs a little, and the reason is the `repeat_interleave` above — it allocates the widened tensor rather than viewing it, so work you removed from storage comes back as a copy. Production kernels take the shared K/V directly and never build that tensor; PyTorch exposes this as `scaled_dot_product_attention`'s `enable_gqa` flag.
+Don't read the *ordering* inside that time column, though. The three numbers sit close enough together that which one lands last shuffles between runs on this laptop — I've had GQA slowest and MQA slowest on consecutive runs. What holds every time is this: **fewer K/V heads never bought a faster decode step.** If anything it costs a little, and the `repeat_interleave` above is why. It allocates the widened tensor instead of viewing it, so work you took out of storage comes back at you as a copy. Production kernels read the shared K/V directly and never build that tensor; PyTorch exposes this as `scaled_dot_product_attention`'s `enable_gqa` flag.
 
-Which is the useful caution here: "the cache got smaller" and "the kernel got faster" are separate claims, and this table only earns the first one.
+So, the caution to take away: "the cache got smaller" and "the kernel got faster" are separate claims, and this table only earns the first.
 
 Post 12 covers DeepSeek's MLA, which attacks the same problem differently — compressing K and V into a shared low-rank latent and caching that instead.
 
@@ -487,9 +493,13 @@ The clean way to see why is arithmetic intensity — FLOPs performed per byte of
 
 #### Where "100–300 FLOP/byte" comes from
 
-That threshold gets quoted a lot, usually with no source attached, so it's worth not leaving it as folklore. It isn't a rule of thumb — it's the **ridge point** of the roofline model: peak arithmetic throughput divided by memory bandwidth. Below it, a kernel cannot saturate the arithmetic units however well it's written, because the bytes can't arrive fast enough to feed them.
+That threshold gets quoted a lot, usually with no source attached, so let's not leave it as folklore. It isn't really a rule of thumb at all — it's a property of the chip, and you can divide it out yourself.
 
-Divide one datasheet number by the other and you get it directly:
+Think about the two ceilings any kernel runs into. One is arithmetic: the chip can only perform so many multiplies per second. The other is memory: it can only fetch so many bytes per second. Which ceiling you hit depends on how much arithmetic you do per byte you fetch. Do very little, and you spend your time waiting for bytes. Do a lot, and the bytes keep up and the multipliers become the limit.
+
+Plot achievable speed against arithmetic-per-byte and you get a line that climbs while memory is the constraint, then goes flat once arithmetic is. That shape is the **roofline**, and the corner where it flattens is the **ridge point** — the arithmetic-per-byte at which the two ceilings meet. It sits at exactly peak throughput divided by bandwidth. Below the ridge, no kernel can keep the arithmetic units busy however well it's written, because the bytes cannot arrive fast enough to feed them.
+
+So divide one datasheet number by the other and you have it:
 
 ```text
   accelerator     dense fp16  HBM bandwidth    ridge point
@@ -502,7 +512,7 @@ Divide one datasheet number by the other and you get it directly:
   ridge point, across these four     153-295 FLOP/byte
 ```
 
-These are vendor peak figures, not anything I measured — the one table here that comes off a spec sheet rather than out of my laptop, and labelled as such. But the spread is the interesting part: **153 to 295**, across two architectures and a 3× jump in raw FLOP/s. Bandwidth and arithmetic have grown closely enough in step that the ridge point barely moved, which is why a rule of thumb this crude has survived the hardware it was coined for. Note also that H100 → H200 is a pure bandwidth upgrade at identical FLOP/s, and it *lowers* the ridge — more workloads land on the compute-bound side of it.
+These are vendor peak figures, not anything I measured — the one table here that comes off a spec sheet rather than out of my laptop, and labelled as such. But look at how little the spread moves: **153 to 295**, across two architectures and a 3× jump in raw FLOP/s. Bandwidth and arithmetic have grown closely enough in step that the ridge stayed put, which is why a rule of thumb this crude has outlived the hardware it was coined for. Notice too that H100 → H200 buys bandwidth at identical FLOP/s, and so *lowers* the ridge — more workloads end up on the compute-bound side of it.
 
 Now place the two phases against the narrowest of those ridges:
 
@@ -572,7 +582,7 @@ The free lunch is gone: 16.1× throughput becomes **4.3×**.
 ![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-light.png){: .light width="1000" height="540" }
 ![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-dark.png){: .dark width="1000" height="540" }
 
-The reason is the formula from §4. **Weights are shared across the batch; the KV cache is not.** Every sequence brings its own cache, so KV traffic scales with batch while weight traffic stays flat. Which is a claim about two numbers, so here are the two numbers, per decode step, at the 512-token prefix:
+The reason is the formula from §4. **Weights are shared across the batch; the KV cache is not.** Every sequence brings its own cache, so KV traffic scales with batch while weight traffic stays flat. That's a claim about two numbers, so here are the two numbers, per decode step, at the 512-token prefix:
 
 ```text
   batch  weight bytes   KV bytes      total  KV share  bound by
