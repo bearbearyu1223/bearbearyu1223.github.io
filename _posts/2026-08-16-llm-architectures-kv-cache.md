@@ -155,7 +155,9 @@ Which gets at what a cache is actually for. It saves work that would otherwise b
 
 **And the premise above would be false anyway.** Fact 1 said $K_j$ and $V_j$ depend on the token, its position, *and the weights*. Training changes the weights on every optimizer step, so a key cached at step $t$ is wrong at step $t+1$ — not stale, wrong. Frozen weights are what make the whole scheme legal, and only inference has them.
 
-One line to remember it by: **training looks like prefill, generation looks like decode.** Training and prefill both push a known sequence through in a single parallel pass, which is why [§6](#prefill-vs-decode-the-whole-ballgame) finds prefill compute-bound in the same regime training lives in. Only decode has the step-by-step structure a cache exists to exploit.
+A word on the two halves of inference first, since the comparison needs them and [§6](#prefill-vs-decode-the-whole-ballgame) is where they get taken apart properly. **Prefill** is the pass that reads your prompt: every token is known before it starts, so they all go through together, and it comes out with the cache filled and the first token generated. **Decode** is everything after, producing one token per pass, because each new token depends on the one just before it.
+
+That gives a line to remember this section by: **training looks like prefill, generation looks like decode.** Training and prefill both push an already-known sequence through in a single parallel pass, which is why §6 finds prefill compute-bound in the same regime training lives in. Only decode has the step-by-step structure a cache exists to exploit.
 
 Three places the line does blur, though:
 
@@ -241,7 +243,7 @@ torch.equal(with_cache, without)
   first 8 new tokens (uncached)      [228, 432, 131, 158, 24, 111, 281, 506]
 ```
 
-Identical token ids. This is the same category of claim as [post 1](/posts/llm-architectures-attention-and-rope/)'s check against the fused kernel, and it's worth stating plainly because it's the thing people get uneasy about: **the KV cache is memoization, not approximation.** If your cached and uncached outputs diverge, you have a bug — most often a position-offset error where the new token is rotated as though it were at position 0.
+Identical token ids. This is the same category of claim as [post 1](/posts/llm-architectures-attention-and-rope/)'s check against the fused kernel, and it's worth stating plainly because it's the thing people get uneasy about: **the KV cache is memoization, not approximation** — it hands back numbers it already worked out, rather than estimating them. If your cached and uncached outputs diverge, you have a bug — most often a position-offset error where the new token is rotated as though it were at position 0.
 
 ### 3. Without a cache, generation is quadratic {#generation-is-quadratic}
 
@@ -495,7 +497,7 @@ The clean way to see why is arithmetic intensity — FLOPs performed per byte of
 
 That threshold gets quoted a lot, usually with no source attached, so let's not leave it as folklore. It isn't really a rule of thumb at all — it's a property of the chip, and you can divide it out yourself.
 
-Think about the two ceilings any kernel runs into. One is arithmetic: the chip can only perform so many multiplies per second. The other is memory: it can only fetch so many bytes per second. Which ceiling you hit depends on how much arithmetic you do per byte you fetch. Do very little, and you spend your time waiting for bytes. Do a lot, and the bytes keep up and the multipliers become the limit.
+Think about the two ceilings any kernel runs into. One is arithmetic: the chip can only perform so many multiplies per second. The other is memory: it can only fetch so many bytes per second out of **HBM**, the bank of high-bandwidth memory sitting beside the processor — the "80 GB" a spec sheet quotes. Which ceiling you hit depends on how much arithmetic you do per byte you fetch. Do very little, and you spend your time waiting for bytes. Do a lot, and the bytes keep up and the multipliers become the limit.
 
 Plot achievable speed against arithmetic-per-byte and you get a line that climbs while memory is the constraint, then goes flat once arithmetic is. That shape is the **roofline**, and the corner where it flattens is the **ridge point** — the arithmetic-per-byte at which the two ceilings meet. It sits at exactly peak throughput divided by bandwidth. Below the ridge, no kernel can keep the arithmetic units busy however well it's written, because the bytes cannot arrive fast enough to feed them.
 
