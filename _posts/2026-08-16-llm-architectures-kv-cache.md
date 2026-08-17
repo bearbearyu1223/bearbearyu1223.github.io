@@ -268,7 +268,34 @@ Identical token ids. This is the same category of claim as [post 1](/posts/llm-a
 
 ### 3. Without a cache, generation is quadratic {#generation-is-quadratic}
 
-Now the cost. Generate from a 64-token prompt, with and without the cache:
+Now the cost. Before the numbers, what "with and without the cache" actually means, because the entire experiment is one branch inside the generation loop:
+
+```python
+for _ in range(max_new_tokens):
+    next_token = logits[:, -1].argmax(-1, keepdim=True)   # greedy: take the top token
+    idx = torch.cat([idx, next_token], dim=1)             # append it to the sequence
+
+    if use_cache:
+        logits = self(next_token, start=pos, cache=cache)  # one token, against the stored prefix
+        pos += 1
+    else:
+        logits = self(idx, start=0, cache=None)            # the whole sequence, from scratch
+```
+
+Read the two calls. The cached path hands the model **one** token and points it at a cache holding everything before it. The uncached path hands over **the entire sequence so far**, every step, and computes every key and value again from position 0. Everything else — same weights, same greedy `argmax`, same tokens out — is identical, which is what [§2](#the-cache-is-exact) just checked. The only variable is how much work each step is asked to redo.
+
+Then time both at growing output lengths, from a deliberately short prompt:
+
+```python
+prompt_len = 64                       # short on purpose — see the note at the end
+prompt = torch.randint(0, cfg.vocab_size, (1, prompt_len))
+
+for n_new in (64, 128, 256, 512):
+    cached   = benchmark_ms(lambda: model.generate(prompt, n_new, use_cache=True))
+    uncached = benchmark_ms(lambda: model.generate(prompt, n_new, use_cache=False))
+```
+
+`benchmark_ms` warms up, synchronizes the GPU, then takes the **median** of several runs — a median rather than an average, so one scheduling hiccup on a laptop can't move a row. That produces:
 
 ```text
   prompt: 64 tokens; model: 7.8M params
@@ -290,13 +317,36 @@ Now the cost. Generate from a 64-token prompt, with and without the cache:
 ![Cached vs uncached generation time](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-vs-nocache-light.png){: .light width="1000" height="682" }
 ![Cached vs uncached generation time](/assets/picture/2026-08-02-llm-architectures-kv-cache/cache-vs-nocache-dark.png){: .dark width="1000" height="682" }
 
-The bottom rows are the clearest statement of it. To produce 512 tokens, the cached path embeds 576 tokens total. The uncached path embeds **163,584** — a 284× multiplier of pure repeated work, because step $i$ re-processes all $64 + i$ preceding tokens:
+The two growth lines are the four rows divided end to end — 512 tokens against 64, hence "8× more tokens":
+
+```python
+growth_cached   = rows[-1]["cached_ms"]   / rows[0]["cached_ms"]     # 302.62 / 53.28
+growth_uncached = rows[-1]["uncached_ms"] / rows[0]["uncached_ms"]   # 1941.41 / 97.31
+```
+
+8× the output costs roughly 5–6× with a cache and about **20×** without. Wall-clock numbers wobble between runs, so don't read the digits too closely; the contrast between "grows a bit faster than linear" and "grows like the square" is the part that holds.
+
+#### The bottom three lines aren't measurements
+
+They're counted, and the distinction matters — it's the difference between a claim about my laptop and a claim about the algorithm. Nothing here is timed:
+
+```python
+naive_tokens = sum(prompt_len + i for i in range(n_new))   # 64+0, 64+1, ... 64+511
+```
+
+Step $i$ of the uncached path re-processes all $64 + i$ tokens before it, so add those up across every step. To produce 512 tokens the cached path pushes $64 + 512 = 576$ tokens through the model — each one embedded exactly once. The uncached path pushes:
+
+$$
+\sum_{i=0}^{511} (64 + i) \;=\; \underbrace{512 \times 64}_{32{,}768} + \underbrace{\frac{511 \times 512}{2}}_{130{,}816} \;=\; \mathbf{163{,}584}
+$$
+
+which is a **284×** multiplier of pure repeated work. In general, for a prompt of $p$ tokens and $n$ generated:
 
 $$
 \sum_{i=0}^{n-1} (p + i) \;=\; np + \frac{n(n-1)}{2}
 $$
 
-Quadratic in the number of generated tokens, and the measured growth reflects it: 8× more tokens costs roughly 5–6× with a cache and about **20×** without. Those are wall-clock numbers so they wobble a little between runs; the contrast between "grows a bit faster than linear" and "grows like the square" is the part that holds.
+The first term is linear in what you generate; the second is the one that hurts. **That is the whole claim of this section**, and because it's arithmetic rather than a benchmark, it comes out the same on your machine as on mine — the four timing columns will not.
 
 One honest note about this measurement. I used a *short* prompt on purpose. With a long prompt the $np$ term dominates at these values of $n$ and the curve looks straight — you'd still see a big absolute saving, but not the shape. A short prompt isolates the $n^2/2$ term. Real serving has both: long prompts *and* long generations.
 
