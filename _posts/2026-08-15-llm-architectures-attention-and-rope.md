@@ -1560,9 +1560,12 @@ Both are drafted and will go up shortly.
 | $L$ | blocks stacked | 32 |
 | $n_{vocab}$ | vocabulary size — how many distinct tokens exist | 128256 |
 | $x$ | the input, one vector per token | $(n, 4096)$ |
-| $W_q, W_k, W_v$ | projections producing $Q$, $K$, $V$ | $(4096, 4096)$ |
-| $Q, K, V$ | queries, keys, values **before** the head split | $(n, 4096)$ |
-| $Q, K, V$ | the same tensors **after** the head split | $(32, n, 128)$ |
+| $W_q$ | projection producing $Q$ | $(4096, 4096)$ |
+| $W_k$, $W_v$ | projections producing $K$ and $V$ — a quarter as wide, because [GQA](#what-changes-with-grouped-query-attention) | $(4096, 1024)$ |
+| $Q$ | queries **before** the head split | $(n, 4096)$ |
+| $K$, $V$ | keys and values **before** the head split | $(n, 1024)$ |
+| $Q$ | the same tensor **after** the head split | $(32, n, 128)$ |
+| $K$, $V$ | the same tensors after the split — 8 heads, broadcast back to 32 for the matmul | $(8, n, 128)$ |
 | $W_o$ | output projection | $(4096, 4096)$ |
 | $\oplus$ | residual addition | — |
 | $\odot$ | elementwise multiply (SwiGLU's gate) | — |
@@ -1575,7 +1578,9 @@ Both are drafted and will go up shortly.
 | MHA | multi-head attention — one key/value head per query head | 32 of each |
 | GQA | grouped-query attention — several query heads share one key/value head | 32 query, 8 kv |
 
-$Q$, $K$ and $V$ get two rows because they have two shapes — full width leaving the projection, regrouped into heads immediately after. Nothing is added or discarded between them ($32 \times 128 = 4096$); papers write $Q$ for both and leave you to infer which is meant.
+$Q$, $K$ and $V$ each get two rows because they have two shapes — full width leaving the projection, regrouped into heads immediately after. Nothing is added or discarded between them ($32 \times 128 = 4096$ for queries, $8 \times 128 = 1024$ for keys and values); papers write $Q$ for both shapes and leave you to infer which is meant.
+
+**The right-hand column is Llama-3-8B as it actually is** — grouped-query, so $K$ and $V$ are a quarter the width of $Q$ and the block holds 41.9M attention parameters rather than 67.1M. [§5](#what-attention-costs) works in the classic multi-head shapes, where all four projections are $(4096, 4096)$, because that is the arrangement the arithmetic is easiest to see in; [§14](#what-changes-with-grouped-query-attention) makes the swap explicit. Both are correct for what they describe — just don't carry §5's $4d^2$ over to this model unchanged. Here $W_k$ and $W_v$ are a quarter of that width, 4.2M parameters each instead of 16.8M, which is exactly where 67.1M becomes 41.9M.
 
 Two naming traps, because papers are inconsistent about both:
 
