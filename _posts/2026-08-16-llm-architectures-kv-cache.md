@@ -59,6 +59,8 @@ Skip to [the short version](#the-short-version) for the findings without the der
 8. [What follows from all this](#what-follows-from-all-this)
 9. [Sidebar: the probe](#sidebar-the-probe)
 
+Plus an [appendix of all notation](#appendix-all-notation) at the end, if a symbol ever goes by without introduction.
+
 ---
 
 ### 1. Why a cache exists at all {#why-a-cache-exists-at-all}
@@ -710,6 +712,40 @@ The difference is that the second answer names the bottleneck resource and predi
 ### What's next {#whats-next}
 
 Post 3 is **Flash Attention** — the other half of the memory-traffic story. We've been treating attention itself as cheap, but at long context the $n \times n$ score matrix is the problem, and the fix is the same insight as this post applied one level down: don't move bytes you don't have to. We'll implement online softmax from scratch and confirm it's exact to floating-point noise.
+
+### Appendix: all notation {#appendix-all-notation}
+
+Every symbol this post uses, in one place. [Post 1's appendix](/posts/llm-architectures-attention-and-rope/#appendix-all-notation) covers the ones inherited from attention itself in more depth.
+
+| Symbol | Means | Llama-3-8B |
+| --- | --- | --- |
+| $Q$, $K$, $V$ | a token's **query**, **key**, and **value** — the three vectors attention works with | — |
+| $Q_i$, $K_j$, $V_j$ | the query of token $i$; the key and value of token $j$ | — |
+| $j$ | index over tokens already present, $j \le i$ | — |
+| $w_{ij}$ | how heavily token $i$ weights token $j$ when averaging | — |
+| $W_k$, $W_v$ | the learned projections turning a token's vector into its key and value | $(4096, 1024)$ each |
+| $QK^\top$ | every query scored against every key — the $n \times n$ grid of scores | — |
+| $L$ | transformer blocks stacked | 32 |
+| $H_{kv}$ | key/value heads per block — **the only head count in the cache formula** | 8 |
+| $d_{head}$ | numbers in one key or one value vector | 128 |
+| $S$ | tokens in the sequence so far — prompt plus everything generated | grows every step |
+| $B$ | conversations served at once (the batch size) | your choice |
+| $p$ | tokens in the prompt | varies |
+| $n$ | tokens generated after the prompt | varies |
+| $i$ | step index while generating, $0 \ldots n-1$ | — |
+| $N$ | a token position, when discussing what a change at that position invalidates | — |
+| $k$ | draft tokens verified in one pass, in speculative decoding | — |
+| $t$ | a training step — the one place this post talks about training | — |
+| KiB, MiB, GiB | 1024, $1024^2$, $1024^3$ bytes — what an allocator reports | — |
+| FLOP | one floating-point add or multiply | — |
+| FLOP/byte | **arithmetic intensity** — arithmetic done per byte fetched from memory | prefill 256, decode 0.5 |
+| MHA / GQA / MQA | multi-head / grouped-query / multi-query attention — one key/value head per query head, per group of them, or one shared by all | 32 / 8 / 1 kv heads |
+
+Three things worth keeping straight, because the post uses all of them and they are easy to blur:
+
+- **$S$ against $p$ and $n$.** $S$ is how long the sequence is *right now*; $p$ and $n$ split it into what you were given and what you have written so far. The cache grows with $S$; the *quadratic* in [§3](#generation-is-quadratic) is about $n$ specifically, which is why a short prompt makes that shape visible and a long one hides it.
+- **There is no symbol for the number of query heads.** That absence is the whole lever [§5](#gqa-mqa-and-what-you-give-up) pulls: the cache is sized by $H_{kv}$ alone, so query heads can stay at full width for free.
+- **GiB, not GB.** Powers of 1024 throughout, because that is what an allocator reports. Mixing the two is how "the weights are 15 GiB" and "the weights are 16 GB" end up describing the same model.
 
 ### References
 
