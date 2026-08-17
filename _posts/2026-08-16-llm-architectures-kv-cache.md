@@ -9,7 +9,6 @@ description: >-
   memory-bandwidth-bound while prefill is compute-bound.
 math: true
 pin: true
-published: false
 ---
 
 ## The number that decides what you can serve
@@ -705,7 +704,7 @@ The difference is that the second answer names the bottleneck resource and predi
 
 ### What's next {#whats-next}
 
-[Post 3](/posts/llm-architectures-flash-attention/) is **Flash Attention** — the other half of the memory-traffic story. We've been treating attention itself as cheap, but at long context the $n \times n$ score matrix is the problem, and the fix is the same insight as this post applied one level down: don't move bytes you don't have to. We'll implement online softmax from scratch and confirm it's exact to floating-point noise.
+Post 3 is **Flash Attention** — the other half of the memory-traffic story. We've been treating attention itself as cheap, but at long context the $n \times n$ score matrix is the problem, and the fix is the same insight as this post applied one level down: don't move bytes you don't have to. We'll implement online softmax from scratch and confirm it's exact to floating-point noise.
 
 ### References
 
