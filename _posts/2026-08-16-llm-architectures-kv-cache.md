@@ -555,7 +555,21 @@ This single fact explains a startling amount:
 
 ### 7. The batch sweep, and where it stops working {#the-batch-sweep}
 
-If decode is really memory-bound, batching should buy throughput almost for free. The sweep fills a cache for `batch` sequences, then times a single decode step across all of them at once:
+First, what a batch is, since everything below turns on it. **A batch is a set of separate, unrelated conversations that the model runs through in the same forward pass.** "Batch 32" means thirty-two different users, each part-way through their own conversation, each about to be handed their next token — not thirty-two tokens of one conversation. The batch axis runs across *users*; sequence length is the other axis entirely, and you can see both sitting in the cache shape from §1:
+
+```python
+(n_layers, batch, n_kv_heads, max_seq_len, head_dim)
+#           ↑                      ↑
+#     how many conversations   how long each one is
+```
+
+Every batch slot carries its own private cache. Hold that thought — it's the whole of what happens later in this section.
+
+(In training the word means something related but different: many examples per gradient update. Here there is no gradient. A batch is just independent users sharing one trip through the weights.)
+
+Why share a trip at all? Think of the weights as a large reference book. To produce even a single token, the model has to pull the whole book out of memory and through the chip — that read *is* the cost of decoding, which is what [§6](#prefill-vs-decode-the-whole-ballgame) just established. Read it for one waiting user and you get one token out of it. Read it with thirty-two users waiting and you answer all thirty-two on the way through, for a read that was going to happen regardless.
+
+So if decode is really memory-bound, batching should buy throughput almost for free. The sweep fills a cache for `batch` sequences, then times a single decode step across all of them at once:
 
 ```python
 for batch in (1, 2, 4, 8, 16, 32):
@@ -581,6 +595,10 @@ With a short (32-token) prefix:
 
 32× the work for **1.99×** the time — 16.1× the throughput. The GPU was idling on memory, so the extra sequences rode along inside a weight read that was happening anyway. That is what memory-bound looks like, and it's why every serving stack batches aggressively.
 
+Read the two ratio columns against each other before moving on, because they are measuring opposite things and the gap between them is the deal you're making. Latency went up 1.99×: **every one of those users now waits about twice as long for each token** as they would with the machine to themselves. Throughput went up 16.1×: you are producing sixteen times more text per second across all of them.
+
+Batching makes nothing faster for anybody. It makes the *machine* far more productive, and each individual user pays for that in patience. You take the trade because you are serving thirty-two people with it instead of one — and it's why picking a batch size is a scheduling decision about who waits how long, not a throughput setting you turn up.
+
 Now the same sweep with a **512-token** prefix:
 
 ```text
@@ -599,7 +617,11 @@ The free lunch is gone: 16.1× throughput becomes **4.3×**.
 ![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-light.png){: .light width="1000" height="540" }
 ![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-dark.png){: .dark width="1000" height="540" }
 
-The reason is the formula from §4. **Weights are shared across the batch; the KV cache is not.** Every sequence brings its own cache, so KV traffic scales with batch while weight traffic stays flat. That's a claim about two numbers, so here are the two numbers, per decode step, at the 512-token prefix:
+The reason is the formula from §4. **Weights are shared across the batch; the KV cache is not.** Every sequence brings its own cache, so KV traffic scales with batch while weight traffic stays flat.
+
+Back to the reference book. Alongside it, each user has a notebook of their own — their KV cache — and the model has to read that too. With one user the notebook is nothing next to the book, so sharing the book is nearly the whole cost and extra readers are nearly free. But notebooks don't get shared. Thirty-two users bring thirty-two notebooks, and at some point you are spending longer on notebooks than on the book, whereupon another reader is no bargain at all.
+
+That's a claim about two numbers, so here are the two numbers, per decode step, at the 512-token prefix:
 
 ```text
   batch  weight bytes   KV bytes      total  KV share  bound by
@@ -621,7 +643,7 @@ Line that up against the throughput column above and the two tell one story. Thr
 
 The last two rows are the same crossover stated as a batch size, and the gap between them is the point: with a 32-token prefix you'd need batch **478** before the cache matters, with a 512-token prefix you need batch **30**. Sixteen times the context, sixteen times sooner. The context length you support and the batch size you can profitably run are the same decision.
 
-I find this the most useful thing in the post, because the textbook version ("decode is memory-bound, so batch it") is only half the story. Batching amortizes one term. The other term grows with exactly the thing you were batching. That crossover is why production serving is a scheduling problem — continuous batching, prefix sharing for common system prompts, paged caches to stop reserving worst-case memory, and KV-cache quantization to shrink the term that doesn't amortize.
+I find this the most useful thing in the post, because the textbook version ("decode is memory-bound, so batch it") is only half the story. Batching amortizes one term. The other term grows with exactly the thing you were batching. That crossover is why production serving is a scheduling problem — continuous batching to refill a slot the moment any sequence finishes, rather than making everyone wait on the longest one; prefix sharing for common system prompts; paged caches to stop reserving worst-case memory; and KV-cache quantization to shrink the term that doesn't amortize.
 
 *(These are laptop numbers on Apple Silicon with a small model, so the absolute values reflect a modest bandwidth budget and some kernel-launch overhead. The shape of both curves, and the crossover between them, is what transfers — that's arithmetic, not hardware.)*
 
