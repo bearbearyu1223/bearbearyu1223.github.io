@@ -813,11 +813,64 @@ Start where [§4](#how-big-does-the-cache-actually-get) left off. One token of c
   H200 SXM       141 GB        101 GiB        6.3          159              38
 ```
 
-Roughly **320 H100s**, and the "usable" column is why the number is so unforgiving: an 80 GB card gives up about 50 GiB once you take 90% for reachable memory, subtract the weights, and leave activation headroom. That's **three users per card**.
+Roughly **320 H100s** — three users per card. Which is worth not taking on trust, since it's the number that decides the budget.
+
+#### Where those three columns come from
+
+They're three chained formulas, each feeding the next:
+
+```python
+usable         = hbm * 0.90 - weight_bytes - 2 GiB   # what's left for cache
+per_gpu        = usable / kv_per_user                # users/GPU
+n_gpus         = ceil(total_users / per_gpu)         # GPUs needed
+bytes_per_step = kv_per_user * per_gpu + weight_bytes
+step_s         = bytes_per_step / bandwidth
+tok_s_per_user = 1 / step_s                          # tok/s per user
+```
+
+Worked through for the H100 row:
+
+```text
+  column                          arithmetic     result
+  -------------------------------------------------------
+  usable for KV   80e9 x 0.90 - 14.96 - 2.00  50.10 GiB
+  users/GPU                    50.10 / 16.00       3.13
+  GPUs needed             ceil(1,000 / 3.13)        320
+  bytes per step           16 x 3.13 + 14.96  65.06 GiB
+  step time           65.06 GiB / 3,350 GB/s   20.85 ms
+  tok/s per user                1 / 20.85 ms       48.0
+```
+
+**The first row is three subtractions from the sticker number.** 90% is what a serving stack can actually reach once you allow for allocator overhead and fragmentation; 14.96 GiB is one copy of the weights, on every card; 2 GiB is activation working space. An 80 GB card is left with **50 GiB**, and a single 128k conversation wants 16 of them.
+
+**The last three rows rest on two facts**, and they're the ones to hold onto:
+
+- **Every decode step re-reads each resident user's *entire* cache.** Attention at any step attends over every earlier position, so all 128k of them get read again, for every user, for every token. That's the multiplication by `per_gpu` — and it's why the step is 65 GiB rather than 15.
+- **One step emits one token for every resident user at once.** So a single user sees `1/step` — 48 tokens a second — while the card as a whole sees `per_gpu/step`, about 150. Per-user speed is a property of one card's loop, not of the fleet: those 320 GPUs each run their own 20.85 ms cycle.
 
 The last two columns answer different questions, and conflating them is how sizing goes wrong. **Capacity sets the fleet size** — the A100 and the H100 need the same 320 cards because they hold the same 80 GB. **Bandwidth sets the token rate**, and there the H100 is worth 1.6× the A100 for an identical bill of materials.
 
-The H200 row is the one worth sitting with. Twice the capacity halves the fleet, and each user gets **slower** — because a card holding twice as many caches must re-read twice as much of them on every step. Capacity buys density; only bandwidth buys speed.
+The H200 row is the one worth sitting with, and now the formulas make it legible. Twice the capacity halves the fleet, and each user gets **slower**:
+
+```text
+  card         bytes per step           =   bandwidth      step  tok/s
+  ----------------------------------------------------------------------
+  H100 SXM  16 x 3.13 + 14.96   65.06 GiB  3,350 GB/s  20.85 ms     48
+  H200 SXM  16 x 6.33 + 14.96  116.18 GiB  4,800 GB/s  25.99 ms     38
+```
+
+Because `per_gpu` isn't only an output of the first formula — it's a **multiplier inside the second**. More resident users means more cache to re-read every step. Follow the four growth rates and the whole thing falls out:
+
+```text
+  raw HBM, H100 -> H200              +76%
+  usable for KV                      +102%
+  bytes moved per step               +79%
+  bandwidth                          +43%
+```
+
+Usable capacity **outruns** raw capacity (+102% against +76%), because the weights and the headroom come off once regardless of card size — a bigger card gives disproportionately more of its extra memory to cache. Bytes per step then **lags** usable capacity (+79%), because the weight read is shared across everyone on the card. And bandwidth grows slowest of all, at +43%.
+
+That last mismatch is the whole story: 79% more to move, 43% more speed to move it with, so the step stretches from 20.85 ms to 25.99 ms. The H200 is better at everything and still hands each user fewer tokens per second. **Capacity buys density; only bandwidth buys speed** — and buying the first without the second makes every user wait longer.
 
 #### Is it fast enough, and what is it doing?
 
