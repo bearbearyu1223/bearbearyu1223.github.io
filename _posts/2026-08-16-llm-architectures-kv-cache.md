@@ -216,13 +216,13 @@ Now the cost. Generate from a 64-token prompt, with and without the cache:
 
   tokens generated  cached (ms)  uncached (ms)  speedup
   -------------------------------------------------------
-  64                    54.1744        95.6451    1.77x
-  128                  108.0281       225.1538    2.08x
-  256                  160.2089       614.7870    3.84x
-  512                  312.1989      1927.7645    6.17x
+  64                    53.2800        97.3100    1.83x
+  128                   90.7372       227.4362    2.51x
+  256                  148.4558       611.9815    4.12x
+  512                  302.6207      1941.4126    6.42x
 
-  8x more tokens costs (cached)      5.8x
-  8x more tokens costs (uncached)    20.2x
+  8x more tokens costs (cached)      5.7x
+  8x more tokens costs (uncached)    20.0x
   tokens processed at n=512 (cached) 576
   tokens processed at n=512 (uncached) 163584
   wasted work multiplier             284x
@@ -404,14 +404,16 @@ That's two claims — the cache shrinks, the computation doesn't — so here the
 ```text
   variant  kv heads  q per kv  params  cache @512       vs MHA  ms/decode step
   ------------------------------------------------------------------------------
-  MHA            12         1   68.9M    24.0 MiB            —          4.3953
-  GQA             4         3   62.6M     8.0 MiB   3x smaller          5.3112
-  MQA             1        12   60.3M     2.0 MiB  12x smaller          5.4696
+  MHA            12         1   68.9M    24.0 MiB            —          4.5366
+  GQA             4         3   62.6M     8.0 MiB   3x smaller          5.9625
+  MQA             1        12   60.3M     2.0 MiB  12x smaller          5.1851
 ```
 
-The cache column tracks `n_kv_heads` exactly — 24 → 8 → 2 MiB, no approximation in it. The time column barely moves. That asymmetry is the whole reason GQA is worth doing: **it's a storage decision the compute side hardly notices.** (The toy shares 3 query heads per KV head where Llama-3-8B shares 4; the ratio is whatever `n_kv_heads` says it is.)
+Read the two right-hand columns against each other, because that contrast is the point. The cache column tracks `n_kv_heads` exactly — 24 → 8 → 2 MiB, a **12× swing** with no approximation in it. The time column stays inside a **1.3× band**. That asymmetry is the whole reason GQA is worth doing: **it's a storage decision the compute side hardly notices.** (The toy shares 3 query heads per KV head where Llama-3-8B shares 4; the ratio is whatever `n_kv_heads` says it is.)
 
-One thing in that table is worth not glossing over, because it points at something real. MQA has *fewer* parameters than MHA and still takes slightly *longer* per step. The cause is the `repeat_interleave` above: it allocates the widened tensor rather than viewing it, and the fewer K/V heads you store, the more there is to expand. Production kernels take the shared K/V directly and never build that tensor — PyTorch exposes it as `scaled_dot_product_attention`'s `enable_gqa` flag. So the small penalty here is my implementation's, not GQA's, and it's a good reminder that "the cache got smaller" and "the kernel got faster" are separate claims that have to be measured separately.
+Don't read the *ordering* within that time column, though. Those three numbers sit close enough together that which one comes last shuffles between runs on this laptop — I've had GQA slowest and MQA slowest on consecutive runs. What survives every run is the thing worth having: **fewer K/V heads never bought a faster decode step.** If anything it costs a little, and the reason is the `repeat_interleave` above — it allocates the widened tensor rather than viewing it, so work you removed from storage comes back as a copy. Production kernels take the shared K/V directly and never build that tensor; PyTorch exposes this as `scaled_dot_product_attention`'s `enable_gqa` flag.
+
+Which is the useful caution here: "the cache got smaller" and "the kernel got faster" are separate claims, and this table only earns the first one.
 
 Post 12 covers DeepSeek's MLA, which attacks the same problem differently — compressing K and V into a shared low-rank latent and caching that instead.
 
@@ -434,10 +436,10 @@ Timing both on the same 62.6M-parameter model:
 ```text
   phase    tokens/pass  ms/pass  ms/token    tokens/s
   -----------------------------------------------------
-  prefill          512  32.8005    0.0641  15609.4982
-  decode             1   5.5220    5.5220    181.0925
+  prefill          512  33.6026    0.0656  15236.9235
+  decode             1   5.4777    5.4777    182.5581
 
-  per-token cost, decode / prefill   86.2x
+  per-token cost, decode / prefill   83.5x
 ```
 
 **A token costs roughly two orders of magnitude more to generate than to read.** Both passes stream the same weights through the chip's arithmetic units (ALUs — the circuits that actually do the multiplying). Prefill amortizes that read across 512 tokens; decode pays it in full for one.
@@ -512,30 +514,30 @@ With a short (32-token) prefix:
 ```text
   batch  ms/step  latency vs b=1  tokens/s  throughput vs b=1
   -------------------------------------------------------------
-  1       4.1567           1.00x       241               1.0x
-  2       5.4191           1.30x       369               1.5x
-  4       5.0820           1.22x       787               3.3x
-  8       5.8200           1.40x      1375               5.7x
-  16      6.8876           1.66x      2323               9.7x
-  32      9.1050           2.19x      3515              14.6x
+  1       4.0566           1.00x       247               1.0x
+  2       4.2638           1.05x       469               1.9x
+  4       5.1109           1.26x       783               3.2x
+  8       5.7412           1.42x      1393               5.7x
+  16      6.6779           1.65x      2396               9.7x
+  32      8.0730           1.99x      3964              16.1x
 ```
 
-32× the work for **2.19×** the time — 14.6× the throughput. The GPU was idling on memory, so the extra sequences rode along inside a weight read that was happening anyway. That is what memory-bound looks like, and it's why every serving stack batches aggressively.
+32× the work for **1.99×** the time — 16.1× the throughput. The GPU was idling on memory, so the extra sequences rode along inside a weight read that was happening anyway. That is what memory-bound looks like, and it's why every serving stack batches aggressively.
 
 Now the same sweep with a **512-token** prefix:
 
 ```text
   batch  ms/step  latency vs b=1  tokens/s  throughput vs b=1
   -------------------------------------------------------------
-  1       5.6198           1.00x       178               1.0x
-  2       7.3265           1.30x       273               1.5x
-  4       9.6397           1.72x       415               2.3x
-  8      14.8361           2.64x       539               3.0x
-  16     23.1560           4.12x       691               3.9x
-  32     40.5192           7.21x       790               4.4x
+  1       5.3091           1.00x       188               1.0x
+  2       7.1850           1.35x       278               1.5x
+  4       9.0274           1.70x       443               2.4x
+  8      14.2632           2.69x       561               3.0x
+  16     22.6502           4.27x       706               3.8x
+  32     39.7221           7.48x       806               4.3x
 ```
 
-The free lunch is gone: 14.6× throughput becomes **4.4×**.
+The free lunch is gone: 16.1× throughput becomes **4.3×**.
 
 ![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-light.png){: .light width="1000" height="540" }
 ![Batch sweep at two prefix lengths](/assets/picture/2026-08-02-llm-architectures-kv-cache/batch-sweep-dark.png){: .dark width="1000" height="540" }
