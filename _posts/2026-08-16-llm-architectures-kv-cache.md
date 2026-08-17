@@ -26,7 +26,7 @@ If you read nothing else, these are the things this post establishes — each on
 - **It is a bargain, not free money.** You hold roughly 10× the memory to save 200–2000× the compute. What makes the trade worth taking is that the two sides scale differently: the memory cost grows *linearly* with context, the compute saving *quadratically*.
 - **At long context the cache outgrows the model.** One 128k-token conversation on Llama-3-8B needs 16 GiB of cache against 15 GiB of weights. One copy of the weights serves everybody, but every conversation brings its own cache — so thirty-two concurrent users at that length need **half a terabyte**, about six 80 GiB accelerators, for a model that fits on one. "How many users can I serve?" is a KV-cache question, not a model-size question.
 - **Sharing key/value heads is a storage decision the compute side barely notices.** Going from 12 K/V heads down to 1 shrinks the cache **12×** while time per decode step stays inside a **1.3× band**. That asymmetry is the whole case for grouped-query attention.
-- **Generating a token costs about two orders of magnitude more than reading one** — 83× per token here. Both phases stream the same weights through the chip. Prefill spreads that read across 512 tokens and lands at 256 FLOPs per byte, past the point where the hardware saturates, so it is compute-bound. Decode pays the same read for a single token and lands at **0.5**, roughly 306× short of that mark, so it sits waiting on memory. No kernel fixes a gap that size.
+- **Generating a token costs about two orders of magnitude more than reading one** — 83× per token here. Both phases stream the same weights through the chip. Prefill spreads that read across 512 tokens and lands at 256 FLOPs per byte, past the point where the hardware saturates, so it is compute-bound. Decode pays the same read for a single token and lands at **0.5**, roughly 306× short of that mark, so it sits waiting on memory. No kernel fixes a gap that size — and it's why every LLM API bills output tokens above input ones, at a flat 5× across every Claude tier.
 - **Batching is nearly free, until abruptly it isn't.** With a short prompt, 32 sequences at once cost 2× the time of one — 16× the throughput. With a 512-token prompt the same batch costs 7.5× the time for only 4.3×. Weight traffic is flat in batch while KV traffic is linear in it, so past a crossover — batch 30 here — the term batching *cannot* amortize is the majority of memory traffic.
 
 Every one of those has a **receipt** behind it — a small program that prints the number, so you can check it rather than take my word. The code lives in a companion repo, [`llm-architectures-refresher`](https://github.com/bearbearyu1223/llm-architectures-refresher), and runs unchanged on Apple Silicon or a Linux + NVIDIA box:
@@ -552,6 +552,39 @@ This single fact explains a startling amount:
 - **Quantization speeds up decode** even when the arithmetic isn't faster, because there are simply fewer bytes to move.
 - **[Speculative decoding](https://arxiv.org/abs/2211.17192) wins** because verifying $k$ draft tokens in one pass costs about the same as generating one — you were bandwidth-bound, not compute-bound.
 - **Bigger GPUs don't help decode much** unless their *bandwidth* went up.
+
+#### The same asymmetry, on an invoice
+
+Everything above is measured on my laptop, which is a fine way to see a mechanism and a poor way to believe it matters. So here is the same split priced by someone who serves this workload for a living. Every major LLM API bills **input tokens** and **output tokens** at different rates, and those are exactly our two phases: input tokens are the ones you prefill, output tokens are the ones you decode.
+
+Claude's published rates, per million tokens:
+
+| Model | Input | Output | Output ÷ input |
+| --- | --- | --- | --- |
+| Claude Haiku 4.5 | \$1 | \$5 | **5×** |
+| Claude Sonnet 5 | \$3 | \$15 | **5×** |
+| Claude Opus 5 | \$5 | \$25 | **5×** |
+| Claude Fable 5 | \$10 | \$50 | **5×** |
+
+Read the last column. A tenfold spread in price from the cheapest model to the most capable, and **the ratio never moves**. Whatever else changes between a small model and a large one, the fact that a generated token costs more than a read one — and by how much — does not. That's the shape of the workload, not a property of any one model, which is exactly what §6 has been arguing from the FLOP/byte side.
+
+Now the honest part, because 5× is not 83×. My measurement was one sequence with the whole machine to itself, and [§7](#the-batch-sweep) is about to show what changes when it isn't. Batching amortizes the weight read across many concurrent users — and the weight read is precisely what makes decode expensive. Divide the unbatched 83× by the 16× throughput gain §7 measures at batch 32 and you land near 5. **I'd treat that as the right order of magnitude rather than a derivation**: published prices reflect hardware, utilization, competition, and margin, not a cost pass-through, and no vendor owes us the arithmetic. What transfers is the direction. Decode costs more, output tokens cost more, and the gap on the invoice is much narrower than the gap on my laptop because production serving does the one thing my measurement didn't — it batches.
+
+#### And the cache itself is a line item
+
+The API also sells you the thing this whole post is about. [Prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) reuses the computed state of a prompt prefix across requests, so a conversation's shared preamble is prefilled once rather than on every turn:
+
+| | Multiple of the base input rate |
+| --- | --- |
+| Cache **read** | ~0.1× |
+| Cache **write**, 5-minute lifetime | 1.25× |
+| Cache **write**, 1-hour lifetime | 2× |
+
+Reading back a prefix costs about **a tenth** of computing it — pay 1.25× once, then 0.1× forever after, so the 5-minute tier breaks even on the second request — 1.25 + 0.1 = 1.35 against the 2.0 you'd pay for two uncached passes. That is [§4](#how-big-does-the-cache-actually-get)'s time-memory trade with the memory side rented rather than owned, and it prices the cache-versus-recompute question we've been answering in milliseconds.
+
+The rule governing what you can cache is where this gets satisfying, because we derived it back in [§1](#why-a-cache-exists-at-all) without knowing it had a price attached. Caching is a **prefix** match: change one byte anywhere in the prompt, and everything from that byte onward is invalidated — while everything before it stays valid and stays cheap.
+
+That is causal masking, sold by the token. A token cannot influence anything that came before it, so an edit at position $N$ leaves positions $1 \ldots N-1$ untouched and their keys and values still correct. It can influence everything after it, so positions past $N$ must be built again. The same two facts that made a KV cache *sound* in §1 are what make a prompt cache *billable* here — which is also why the practical advice for keeping costs down ("put your stable system prompt first, put the volatile per-request bits last") isn't a vendor quirk. It's the triangle from §1, arranged so the reusable part comes first.
 
 ### 7. The batch sweep, and where it stops working {#the-batch-sweep}
 
