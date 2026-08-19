@@ -573,6 +573,15 @@ Think about the two ceilings any kernel runs into. One is arithmetic: the chip c
 
 Plot achievable speed against arithmetic-per-byte and you get a line that climbs while memory is the constraint, then goes flat once arithmetic is. That shape is the **roofline**, and the corner where it flattens is the **ridge point** — the arithmetic-per-byte at which the two ceilings meet. It sits at exactly peak throughput divided by bandwidth. Below the ridge, no kernel can keep the arithmetic units busy however well it's written, because the bytes cannot arrive fast enough to feed them.
 
+Drawn, with this post's two phases placed on it:
+
+![The roofline, with prefill and decode on it](/assets/picture/2026-08-02-llm-architectures-kv-cache/roofline-light.png){: .light width="1142" height="794" }
+![The roofline, with prefill and decode on it](/assets/picture/2026-08-02-llm-architectures-kv-cache/roofline-dark.png){: .dark width="1142" height="794" }
+
+Both dots sit **on** the roof, and that placement is the point. A memory-bound kernel isn't failing to reach its ceiling — the sloped stretch *is* its ceiling. Decode is doing as well as it possibly can, and as well as it possibly can is **1.0 of the chip's 312 TFLOP/s**. Prefill, one flat stretch away, gets all 312.
+
+Note also what the picture makes obvious and the numbers hide: 0.5 and 256 look like "small and large" written down, but on the axis they are three orders of magnitude apart, and the corner sits between them.
+
 So divide one datasheet number by the other and you have it:
 
 ```text
