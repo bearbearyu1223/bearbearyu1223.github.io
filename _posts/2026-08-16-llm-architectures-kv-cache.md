@@ -736,6 +736,15 @@ That's a claim about two numbers, so here are the two numbers, per decode step, 
   KV overtakes weights at batch (512-tok prefix) 30
 ```
 
+Two lines and where they cross, drawn:
+
+![Weight traffic is flat in batch; KV traffic is not](/assets/picture/2026-08-02-llm-architectures-kv-cache/traffic-crossover-light.png){: .light width="1123" height="769" }
+![Weight traffic is flat in batch; KV traffic is not](/assets/picture/2026-08-02-llm-architectures-kv-cache/traffic-crossover-dark.png){: .dark width="1123" height="769" }
+
+The weight line is horizontal because one copy of the weights serves everybody. The KV lines are diagonal because every conversation brings its own cache. Everything in this section is those two facts and the point where the diagonal overtakes the horizontal.
+
+And the shaded band explains the two sweeps above. With a **512-token prompt the crossing is at batch 30 — inside the range I measured**, which is exactly why that sweep flattened out in front of us. With a **32-token prompt it's at batch 478**, far off the right of anything I ran, which is why that sweep still looked like a free lunch all the way to 32. Same model, same hardware, same argument; sixteen times the context moves the crossing sixteen times earlier.
+
 Read the weight column: it never changes. Read the KV column: it doubles every row. Somewhere between batch 16 and 32 they cross, and the KV share goes from a rounding error at 3% to the **majority** of memory traffic at 52%.
 
 Line that up against the throughput column above and the two tell one story. Throughput is still climbing steeply while KV share is under 20%; it flattens as the share passes half. Batching amortizes one term and multiplies the other, and the shape of the curve is just which term is winning.
