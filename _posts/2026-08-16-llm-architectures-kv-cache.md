@@ -162,9 +162,10 @@ If you've come at this from the training side, the first thing to wonder is whet
 **There would be nothing to reuse.** [Teacher forcing](/posts/llm-architectures-attention-and-rope/#training-and-inference) hands the model the entire real sequence before the pass begins, so a training step is *one* forward pass that computes $K_1 \ldots K_n$ once and lets the causal mask do the rest. Run this section's count against a training step and there is nothing left to save:
 
 ```text
-                        K vectors computed  of them, redundant
-  generation, 3 steps                   12                   7
-  training, 1 pass                       5                   0
+                       K vectors computed  of them, redundant
+  -------------------------------------------------------------
+  generation, 3 steps                  12                   7
+  training, 1 pass                      5                   0
 ```
 
 Over the same five token positions, an uncached generation run computes twelve key vectors, seven of which redo work it has already done. A training pass computes five and redoes nothing.
