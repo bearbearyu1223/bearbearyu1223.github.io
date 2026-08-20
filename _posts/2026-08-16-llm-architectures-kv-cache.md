@@ -860,9 +860,17 @@ Worked through for the H100 row:
   tok/s per user                     1 / 20.85 ms       48.0
 ```
 
-**The first row is a conversion and then three subtractions.** The sticker "80 GB" is decimal, and everything else here is binary, so it converts to **74.51 GiB** before anything is taken off it — mixing the two families is the classic way to get a plausible number that nobody else can reproduce. Then: 90% is what a serving stack can actually reach once you allow for allocator overhead and fragmentation; 14.96 GiB is one copy of the weights, on every card; 2 GiB is activation working space. An 80 GB card is left with **50 GiB**, and a single 128k conversation wants 16 of them.
+**The first row is a conversion and then three subtractions.** Vendors quote capacity and bandwidth in decimal units, and everything this post computes is binary, so both get divided by $1024^3$ before they meet anything else:
 
-Bandwidth gets the same treatment. The H100's 3,350 GB/s is a decimal figure too, so it is quoted as **3,120 GiB/s** where it has to divide a GiB — every row here is meant to come out right on a calculator, using only the numbers printed beside it.
+$$
+\frac{80 \times 10^{9}\ \text{B}}{1024^3} = 74.51\ \text{GiB},
+\qquad
+\frac{3{,}350 \times 10^{9}\ \text{B/s}}{1024^3} = 3{,}120\ \text{GiB/s}
+$$
+
+That is the whole of why the table says 74.51 where the box says 80, and 3,120 where the datasheet says 3,350. Mixing the two families is the classic way to land a plausible number nobody else can reproduce — subtract GiB from bytes and you are out by a factor of a billion; divide GiB by GB/s and the step time comes out 19.42 ms instead of 20.85.
+
+Then the three subtractions: 90% is what a serving stack can actually reach once you allow for allocator overhead and fragmentation; 14.96 GiB is one copy of the weights, on every card; 2 GiB is activation working space. An 80 GB card is left with **50 GiB**, and a single 128k conversation wants 16 of them.
 
 **The last three rows rest on two facts**, and they're the ones to hold onto:
 
