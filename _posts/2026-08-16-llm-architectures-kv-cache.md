@@ -849,17 +849,19 @@ tok_s_per_user = 1 / step_s                          # tok/s per user
 Worked through for the H100 row:
 
 ```text
-  column                          arithmetic     result
-  -------------------------------------------------------
-  usable for KV   80e9 x 0.90 - 14.96 - 2.00  50.10 GiB
-  users/GPU                    50.10 / 16.00       3.13
-  GPUs needed             ceil(1,000 / 3.13)        320
-  bytes per step           16 x 3.13 + 14.96  65.06 GiB
-  step time           65.06 GiB / 3,350 GB/s   20.85 ms
-  tok/s per user                1 / 20.85 ms       48.0
+  column                               arithmetic     result
+  ------------------------------------------------------------
+  usable for KV   74.51 GiB x 0.90 - 14.96 - 2.00  50.10 GiB
+  users/GPU                         50.10 / 16.00      3.131
+  GPUs needed                 ceil(1,000 / 3.131)        320
+  bytes per step            16.00 x 3.131 + 14.96  65.06 GiB
+  step time               65.06 GiB / 3,120 GiB/s   20.85 ms
+  tok/s per user                     1 / 20.85 ms       48.0
 ```
 
-**The first row is three subtractions from the sticker number.** 90% is what a serving stack can actually reach once you allow for allocator overhead and fragmentation; 14.96 GiB is one copy of the weights, on every card; 2 GiB is activation working space. An 80 GB card is left with **50 GiB**, and a single 128k conversation wants 16 of them.
+**The first row is a conversion and then three subtractions.** The sticker "80 GB" is decimal, and everything else here is binary, so it converts to **74.51 GiB** before anything is taken off it — mixing the two families is the classic way to get a plausible number that nobody else can reproduce. Then: 90% is what a serving stack can actually reach once you allow for allocator overhead and fragmentation; 14.96 GiB is one copy of the weights, on every card; 2 GiB is activation working space. An 80 GB card is left with **50 GiB**, and a single 128k conversation wants 16 of them.
+
+Bandwidth gets the same treatment. The H100's 3,350 GB/s is a decimal figure too, so it is quoted as **3,120 GiB/s** where it has to divide a GiB — every row here is meant to come out right on a calculator, using only the numbers printed beside it.
 
 **The last three rows rest on two facts**, and they're the ones to hold onto:
 
@@ -871,10 +873,10 @@ The last two columns answer different questions, and conflating them is how sizi
 The H200 row is the one worth sitting with, and now the formulas make it legible. Twice the capacity halves the fleet, and each user gets **slower**:
 
 ```text
-  card         bytes per step           =   bandwidth      step  tok/s
-  ----------------------------------------------------------------------
-  H100 SXM  16 x 3.13 + 14.96   65.06 GiB  3,350 GB/s  20.85 ms     48
-  H200 SXM  16 x 6.33 + 14.96  116.18 GiB  4,800 GB/s  25.99 ms     38
+  card             bytes per step           =    bandwidth      step  tok/s
+  ---------------------------------------------------------------------------
+  H100 SXM  16.00 x 3.131 + 14.96   65.06 GiB  3,120 GiB/s  20.85 ms     48
+  H200 SXM  16.00 x 6.327 + 14.96  116.19 GiB  4,470 GiB/s  25.99 ms     38
 ```
 
 Because `per_gpu` isn't only an output of the first formula — it's a **multiplier inside the second**. More resident users means more cache to re-read every step. Follow the four growth rates and the whole thing falls out:
