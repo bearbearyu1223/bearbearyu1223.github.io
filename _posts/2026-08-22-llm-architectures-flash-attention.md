@@ -95,7 +95,21 @@ And a single tile's share is smaller still: one SM's 192 KB is **0.009%** of tha
 
 The fix is the standard one for memory-bound problems: **fuse the steps so intermediates never leave fast memory**. Compute a **tile** of $S$ (a small rectangular block of it, not the whole matrix), softmax that, multiply by $V$, accumulate, discard, all without the tile ever leaving the chip. Fusing means putting all of that in one **kernel**: a single program the GPU runs start to finish, so nothing in the middle has to be written out to HBM and read back.
 
-That "nothing" needs pinning down, because it is easy to over-read. What stays on-chip is the **intermediates** — the score tile, the softmaxed tile, the running statistics, the accumulator. Those are what the naive path was hauling to HBM and back, and they never make the trip. What still crosses HBM is the **data itself**: $Q$, $K$ and $V$ are read in, and the output $O$ is written back out. SRAM is a scratchpad, not storage; nothing survives there between kernels. [§8](#where-the-speed-actually-comes-from) counts both halves, and the difference is about 4× rather than the infinity that "no intermediate traffic" might suggest.
+Put the two side by side and the difference is one line in the inventory:
+
+```text
+  naive attention                    tiled attention
+  ---------------------------------  ---------------------------------
+  HBM:  Q                            HBM:  Q
+        K                                  K
+        V                                  V
+        O  (output)                        O  (output)
+        S  (n x n scores)  <-- 2 GiB
+        P  (n x n weights) <-- 2 GiB
+                                     SRAM: one tile at a time  <-- 0.5 MiB
+```
+
+Everything in the left column is still there on the right, except the two quadratic ones. That is the entire structural change, and its limits need stating precisely. What stays on-chip is the **intermediates** — the score tile, the softmaxed tile, the running statistics, the accumulator. Those are what the naive path was hauling to HBM and back, and they never make the trip. What still crosses HBM is the **data itself**: $Q$, $K$ and $V$ are read in, and the output $O$ is written back out. SRAM is a scratchpad, not storage; nothing survives there between kernels. [§8](#where-the-speed-actually-comes-from) counts both halves, and the difference is about 4× rather than the infinity that "no intermediate traffic" might suggest.
 
 (Strictly, the arithmetic happens in **registers** rather than in SRAM — tiles are staged in SRAM and their operands move into registers from there, and the accumulator lives in registers for the whole inner loop. "Stays in SRAM" is the useful abstraction; "never leaves the chip" is the accurate one.)
 
@@ -103,13 +117,26 @@ There's an obvious objection, and it's the interesting part. Softmax has a denom
 
 ### 2. Online softmax: the one idea {#online-softmax-the-one-idea}
 
+Start somewhere easier than softmax. Add up $1 + 2 + \cdots + 8$.
+
+One way is to write all eight numbers down and then add them. The other is to carry a single running total:
+
+```text
+  running total:  1 → 3 → 6 → 10 → 15 → 21 → 28 → 36
+  kept in memory: one number, never eight
+```
+
+Same answer, and the second way never holds more than one number at a time. That is exactly the move Flash Attention needs — process a stream, keep a small working set, throw the rest away — and the only reason it isn't obvious for attention is that softmax appears not to allow it.
+
 Recall the numerically stable softmax subtracts the row max first:
 
 $$
 \text{softmax}(x_i) = \frac{e^{x_i - m}}{\sum_j e^{x_j - m}}, \qquad m = \max_j x_j
 $$
 
-You need $m$ before you can exponentiate anything, and $m$ depends on the whole row. That's the blocker.
+You need $m$ before you can exponentiate anything, and $m$ depends on the whole row. That's the blocker: a running total works for addition because nothing you add later invalidates what you already have, and softmax breaks that condition. A large value arriving in the last block changes $m$, and therefore changes every term computed before it.
+
+The fix is to allow the running total to be **retroactively corrected**.
 
 The trick predates Flash Attention by four years: Milakov & Gimelshein, [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867) (2018), showed you can compute the normalizer in a single streaming pass instead of two. Keep *running* statistics and retroactively correct them. Carry a running max $m$ and a running sum $\ell$. When a new block arrives with a larger max, every term you've already accumulated was rebased against the old max — so rescale it:
 
@@ -312,6 +339,20 @@ Extrapolating past what my laptop can hold — the same $H \cdot n^2 \cdot 4$ by
 
 Half a terabyte for one attention layer's intermediate at 128k context. **This is why long context was infeasible before 2022** — not because the FLOPs were unaffordable, but because you could not allocate the intermediate. $O(n^2) \to O(n)$ memory is the entire unlock, and Rabe & Staats, [Self-attention Does Not Need $O(n^2)$ Memory](https://arxiv.org/abs/2112.05682) (2021), had made the same point a year earlier from the memory side alone, without the IO-aware kernel that turned it into a speedup.
 
+#### This is not the KV cache
+
+A warning, because the two big memory numbers in this series look alike and are not. [Post 2](/posts/llm-architectures-kv-cache/) measured a **KV cache** of 16 GiB per user at 128k context. This post measures a **score matrix** of 512 GiB at 128k. Same context length, wildly different numbers, and they are different memory doing different jobs:
+
+| | KV cache (post 2) | Score matrix (this post) |
+| --- | --- | --- |
+| What it holds | keys and values for every token so far | every query scored against every key |
+| Lives for | the whole conversation | one layer, one forward pass |
+| Grows with | tokens, linearly | tokens, *quadratically* |
+| Per user? | yes, one cache each | no, transient scratch |
+| Fixed by | GQA, quantization, paging | Flash Attention |
+
+Flash Attention removes the second and does nothing whatsoever to the first. If you are sizing a deployment, the cache is still the line item that decides how many users fit on a card — that was post 2's whole §8. What this post buys you is that attention no longer needs a quadratic scratch buffer *on top of* the cache, which is what made 128k context feasible to run at all.
+
 ### 7. Causal masking gets a bonus {#causal-masking-gets-a-bonus}
 
 Once you're looping over tiles, causal masking stops being a `masked_fill` and becomes a scheduling decision. If a key block starts after the query block ends, every score in that tile would be $-\infty$. So don't compute it:
@@ -395,6 +436,8 @@ Counted the same way as the FLOPs, one line inside the loop, so skipped tiles co
 counters["hbm_bytes"] += 2 * batch * heads * kj.shape[2] * dim * elem
 ```
 
+If it helps to have a picture for the whole thing: a cook making a thousand sandwiches, with the fridge down the hall. The slow version fetches bread, walks back, puts it away, fetches cheese, walks back. The cook is quick; almost all the elapsed time is corridor. The fix is to carry a tray of ingredients to the counter and finish several sandwiches before going back. **Not less cooking — less walking.** Flash Attention is the tray.
+
 **About 4×, not infinity.** What Flash Attention removes is the quadratic *intermediate*; what it pays back is re-reading $K$ and $V$ once per query block, which is why the reduction settles near 4× instead of growing without bound. That is also why block size is a real tuning knob rather than a detail: a bigger query block means fewer re-reads of $K$ and $V$, and a bigger tile to keep resident in a scratchpad that has 192 KB to spare.
 
 Both figures matter, and they answer different questions. The score column is why the *memory* goes from $O(n^2)$ to $O(n)$ — [§6](#receipt-3-the-memory-that-never-gets-allocated)'s result, and the reason long context became possible at all. This column is why the *time* improves by the factor the timing table below shows rather than by a factor of a thousand.
@@ -455,6 +498,22 @@ A note on versions, since interviews like the specifics. Two more pieces of voca
 **[FlashAttention-2](https://arxiv.org/abs/2307.08691)** (2023) improved how work is partitioned across warps and cut the number of *non-matmul* FLOPs. That sounds like a strange thing to optimize until you see the gap it exploits: on an A100 the tensor cores do 312 TFLOP/s of FP16 matmul against 19.5 TFLOP/s of non-matmul FP32, so as the paper puts it, "each non-matmul FLOP is 16× more expensive than a matmul FLOP." Rescalings and sums are exactly the non-matmul work online softmax adds, which is why trimming them mattered.
 
 **[FlashAttention-3](https://arxiv.org/abs/2407.08608)** (2024) targets Hopper hardware: asynchronous memory copies through the TMA (Tensor Memory Accelerator, a unit that moves tiles between HBM and SRAM without occupying the compute threads), warp specialization so different warps handle copying and computing, and FP8.
+
+#### Everything this post measured, in one table
+
+All at $n = 4096$, 8 heads, fp32, from the run above:
+
+| | Naive | Tiled / fused | Change |
+| --- | --- | --- | --- |
+| Function computed | attention | the same attention | agree to **1.4e-6** |
+| FLOPs, causal off | 34.4 G | 34.4 G | **1.00×** — none saved |
+| FLOPs, causal on | 34.4 G | 17.7 G | 0.52×, a bonus from tiling |
+| Peak score memory | 512 MiB | 0.5 MiB | $O(n^2) \to$ constant |
+| Score traffic to HBM | 2048 MiB | 0 MiB | eliminated |
+| *Total* HBM traffic | 2080 MiB | 528 MiB | **3.9×** |
+| Wall clock | 55.3 ms | 7.4 ms | **7.5×** |
+
+Read down the rows and the shape of the thing is obvious: the top row is unchanged, the FLOPs row is unchanged, and everything about *memory* moves. If you keep one sentence from this post, that is the one — **Flash Attention doesn't compute less, it moves less**, and on hardware where attention spends its time waiting on memory, moving less is what being faster means.
 
 ### 9. Sidebar: the probe {#sidebar-the-probe}
 
