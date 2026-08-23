@@ -29,7 +29,7 @@ The middle step is the problem. It needs a matrix with a row and a column for ev
 - **Memory drops from quadratic to constant.** The score matrix is 512 MiB at 4,096 tokens and **512 GiB at 128k**, per layer. The tiled path's peak is one $128 \times 128$ tile — **0.5 MiB, identical at every sequence length**. That is what made long context possible; the arithmetic was never what stood in the way.
 - **It does not save a single multiply.** Counted rather than timed, with causal masking off, the naive and tiled FLOP totals match **to the digit** at every length — 34.4 G apiece at 4,096 tokens. What vanishes is the score matrix's 2,048 MiB of round-trips to main memory. Traffic is the mechanism; arithmetic is untouched.
 - **Causal masking then hands back half the work, free.** Once the loop walks tiles, a tile whose keys all lie in the future gets skipped rather than computed and masked — **47%** of them at 2,048 tokens with 128-wide blocks. That fraction is exactly $\frac{B-1}{2B}$ for $B$ blocks a side, climbing toward one half and never reaching it.
-- **Tiling buys memory; fusing buys time.** A tiled loop written in Python is *slower* than naive attention, because every tile still round-trips to memory. The speedup needs the loop compiled into a single kernel — and against one, naive attention runs **almost 4× slower at 512 tokens and nearly 8× at 4,096**, a gap that widens as the sequence grows.
+- **Tiling buys memory; fusing buys time.** A tiled loop written in Python is *slower* than naive attention, because every tile still round-trips to memory. The speedup needs the loop compiled into a single kernel — and against one, naive attention runs **about 3.4× slower at 512 tokens and about 7.5× at 4,096**, a gap that widens as the sequence grows.
 - **Training gets the same trick backwards.** The backward pass normally wants the attention probabilities it just declined to store, so instead it recomputes them from $Q$, $K$, $V$ and the saved running statistics. Redoing arithmetic to avoid storing and re-reading a result is a good trade whenever memory is the binding constraint — at long context, it is.
 
 Every one of those has a **receipt** behind it — a small program that prints the number, so you can check it rather than take my word. The code lives in the companion repo [`llm-architectures-refresher`](https://github.com/bearbearyu1223/llm-architectures-refresher):
@@ -70,20 +70,34 @@ Standard attention does this:
 2. Read it back. Compute $P = \text{softmax}(S)$. **Write it to HBM.**
 3. Read it back. Compute $O = PV$. Write the output.
 
-Three round-trips through main memory for a matrix that grows quadratically with sequence length. At $n = 8192$ with 8 heads in **fp32** (32-bit floating point, four bytes a number), that intermediate is **2 GiB**, per layer, per forward pass.
+Three steps, and the $n \times n$ matrix crosses main memory four times along the way: written, read, written, read. All for a matrix that grows quadratically with sequence length. At $n = 8192$ with 8 heads in **fp32** (32-bit floating point, four bytes a number), that intermediate is **2 GiB**, per layer, per forward pass.
 
-Now the hardware, and the two numbers that matter. These are the A100 figures from the FlashAttention paper's own §2.1, which is where the design pressure came from:
+Now the hardware. Each kind of memory has two properties that matter, and they pull in opposite directions:
 
-| | Bandwidth | How much of it |
+- **How fast** you can move data in and out of it, its **bandwidth**, measured in bytes per second. TB/s is terabytes per second.
+- **How much** it holds at once, its **capacity**.
+
+These are the A100 figures, taken from §2.1 of the [FlashAttention paper](https://arxiv.org/abs/2205.14135) itself, since that comparison is where the whole design came from:
+
+| Memory | Bandwidth — how fast | Capacity — how much fits |
 | --- | --- | --- |
-| **HBM** — main memory | 1.5–2.0 TB/s | 40–80 GB |
-| **SRAM** — on-chip | ~19 TB/s | ~20 MB |
+| **HBM** — the GPU's main memory | 1.5–2.0 TB/s | 40–80 GB |
+| **SRAM** — the on-chip scratchpad | ~19 TB/s | ~20 MB |
+| | SRAM is **~10× faster** | SRAM is **~2,000–4,000× smaller** |
+
+Read the two columns against each other, because that tension is the whole problem. SRAM is the memory you want to compute out of, and there is almost none of it. HBM is where your data has to live, and reaching it costs roughly ten times as long per byte.
+
+Put the $n = 8192$ score matrix against those figures and the bind is concrete. It is 2 GiB; all of SRAM, on the entire chip, holds **under 1% of it** at once. So the naive path has no choice but to keep it in HBM and stream it back and forth — and at 2.0 TB/s, one pass over 2 GiB costs about **1.1 ms**, which the three-step recipe above pays four times over (write $S$, read it, write $P$, read it).
 
 That SRAM figure is worth unpacking, because "20 MB" sounds like a strange amount of memory for a chip to have. It isn't one pool: it's 192 KB on each of the A100's 108 **streaming multiprocessors**, the independent processor blocks a GPU is built out of, each with its own private scratchpad and its own share of the work. And $108 \times 192\ \text{KB} \approx 20\ \text{MB}$ only if you add every SM's scratchpad together. No single tile ever gets to use 20 MB — it gets 192 KB.
 
-Roughly an order of magnitude apart in speed, and four orders apart in size. That combination is the entire problem: SRAM is fast enough to keep the arithmetic units fed, and far too small to hold an $n \times n$ score matrix. So attention at long context isn't waiting on arithmetic. It's waiting on the trip to HBM and back, exactly like decode in [post 2](/posts/llm-architectures-kv-cache/).
+And a single tile's share is smaller still: one SM's 192 KB is **0.009%** of that matrix. So attention at long context isn't waiting on arithmetic. It's waiting on the trip to HBM and back, exactly like decode in [post 2](/posts/llm-architectures-kv-cache/).
 
-The fix is the standard one for memory-bound problems: **fuse the steps so intermediates never leave fast memory**. Compute a **tile** of $S$ (a small rectangular block of it, not the whole matrix), softmax that, multiply by $V$, accumulate, discard, all while the tile sits in SRAM. Fusing means putting all of that in one **kernel**: a single program the GPU runs start to finish, so nothing in the middle has to be written out to HBM and read back.
+The fix is the standard one for memory-bound problems: **fuse the steps so intermediates never leave fast memory**. Compute a **tile** of $S$ (a small rectangular block of it, not the whole matrix), softmax that, multiply by $V$, accumulate, discard, all without the tile ever leaving the chip. Fusing means putting all of that in one **kernel**: a single program the GPU runs start to finish, so nothing in the middle has to be written out to HBM and read back.
+
+That "nothing" needs pinning down, because it is easy to over-read. What stays on-chip is the **intermediates** — the score tile, the softmaxed tile, the running statistics, the accumulator. Those are what the naive path was hauling to HBM and back, and they never make the trip. What still crosses HBM is the **data itself**: $Q$, $K$ and $V$ are read in, and the output $O$ is written back out. SRAM is a scratchpad, not storage; nothing survives there between kernels. [§8](#where-the-speed-actually-comes-from) counts both halves, and the difference is about 4× rather than the infinity that "no intermediate traffic" might suggest.
+
+(Strictly, the arithmetic happens in **registers** rather than in SRAM — tiles are staged in SRAM and their operands move into registers from there, and the accumulator lives in registers for the whole inner loop. "Stays in SRAM" is the useful abstraction; "never leaves the chip" is the accurate one.)
 
 There's an obvious objection, and it's the interesting part. Softmax has a denominator that sums over the *entire* row. How can you normalize a tile before you've seen all the tiles?
 
@@ -362,6 +376,29 @@ Both columns are counted, not timed; they reproduce exactly on any machine. With
 
 That is the trade in one line, and it explains the shape of everything else in this post: FLOPs and score traffic both grow as $n^2$, but after tiling only one of them is still being paid.
 
+#### The traffic that doesn't go away
+
+That `0 MiB` column is **score** traffic, and reading it as *all* traffic overstates the case. The tiled path still reads $Q$, $K$ and $V$ in from HBM and writes $O$ back out — and because the inner loop streams the whole of $K$ and $V$ past every query block, **$K$ and $V$ get re-read once per query block**. Count every tensor that crosses HBM rather than only the score matrix:
+
+```text
+  seq   naive: all tensors  tiled: all tensors  reduction  K/V re-reads
+  -----------------------------------------------------------------------
+  512               36 MiB              10 MiB       3.6x            4x
+  1024             136 MiB              36 MiB       3.8x            8x
+  2048             528 MiB             136 MiB       3.9x           16x
+  4096            2080 MiB             528 MiB       3.9x           32x
+```
+
+Counted the same way as the FLOPs, one line inside the loop, so skipped tiles cost nothing:
+
+```python
+counters["hbm_bytes"] += 2 * batch * heads * kj.shape[2] * dim * elem
+```
+
+**About 4×, not infinity.** What Flash Attention removes is the quadratic *intermediate*; what it pays back is re-reading $K$ and $V$ once per query block, which is why the reduction settles near 4× instead of growing without bound. That is also why block size is a real tuning knob rather than a detail: a bigger query block means fewer re-reads of $K$ and $V$, and a bigger tile to keep resident in a scratchpad that has 192 KB to spare.
+
+Both figures matter, and they answer different questions. The score column is why the *memory* goes from $O(n^2)$ to $O(n)$ — [§6](#receipt-3-the-memory-that-never-gets-allocated)'s result, and the reason long context became possible at all. This column is why the *time* improves by the factor the timing table below shows rather than by a factor of a thousand.
+
 ![Arithmetic against score traffic, naive vs tiled](/assets/picture/2026-08-02-llm-architectures-flash-attention/flops-vs-traffic-light.png){: .light width="1000" height="438" }
 ![Arithmetic against score traffic, naive vs tiled](/assets/picture/2026-08-02-llm-architectures-flash-attention/flops-vs-traffic-dark.png){: .dark width="1000" height="438" }
 
@@ -400,16 +437,16 @@ Unlike every other table in this post, this one is **wall-clock on my laptop** �
 ```text
   seq   naive (ms)  fused SDPA (ms)  speedup
   --------------------------------------------
-  512       1.2697           0.3402    3.73x
-  1024      3.9000           0.7573    5.15x
-  2048     13.3890           2.0275    6.60x
-  4096     55.4718           7.0307    7.89x
+  512       1.2357           0.3674    3.36x
+  1024      3.5953           0.7668    4.69x
+  2048     13.0723           2.0333    6.43x
+  4096     55.3056           7.4157    7.46x
 ```
 
 ![Naive vs fused attention timing](/assets/picture/2026-08-02-llm-architectures-flash-attention/timing-light.png){: .light width="1000" height="684" }
 ![Naive vs fused attention timing](/assets/picture/2026-08-02-llm-architectures-flash-attention/timing-dark.png){: .dark width="1000" height="684" }
 
-The speedup **grows with sequence length** — not quite 4× at 512, nearly 8× at 4,096 — because the naive path's memory traffic grows quadratically while the fused path's grows linearly. Extrapolate and it keeps widening. (Wall-clock again, so the exact multiples move a little between runs; the widening is the part that holds.)
+The speedup **grows with sequence length** — about 3.4× at 512, about 7.5× at 4,096 — because the naive path's memory traffic grows quadratically while the fused path's grows linearly. Extrapolate and it keeps widening. (Wall-clock again, so the exact multiples move a little between runs; the widening is the part that holds.)
 
 One more piece: the backward pass. Training normally stores the attention probabilities for the backward pass, which is the $O(n^2)$ tensor you just avoided allocating. Flash Attention instead **recomputes** the tiles during the backward pass from $Q$, $K$, $V$ and the saved statistics. Recomputation sounds expensive, but it's arithmetic — and arithmetic is the resource you have in surplus. It's cheaper to redo the FLOPs than to have stored and re-read the result.
 
