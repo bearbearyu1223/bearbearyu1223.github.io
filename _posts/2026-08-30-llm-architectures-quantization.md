@@ -1,6 +1,6 @@
 ---
 title: "LLM Architecture Refresh [4]: Quantization, and Why Perplexity Won't Tell You It Broke"
-date: 2026-08-29 01:00:00 -0700
+date: 2026-08-30 02:00:00 -0700
 categories: [LLM Architecture Refresh, Inference]
 tags: [quantization, int8, nf4, qlora, outlier-features, perplexity, pytorch]
 description: >-
@@ -14,28 +14,36 @@ published: false
 
 ## The first tradeoff that is actually a tradeoff
 
-The last three posts were, underneath, all the same reassurance. Attention does what it says. The KV cache returns exactly the numbers it stored. Flash Attention computes the same function in a better order. Every time, the answer to "does this change my model's output?" was *no*, and the only work was proving it.
+[Post 1](/posts/llm-architectures-attention-and-rope/) took a transformer block apart and put a cost on every piece, including the one that matters most here: the feed-forward network holds more of a model's parameters than attention does. Those parameters are what this post is about to start rounding off.
+
+[Post 2](/posts/llm-architectures-kv-cache/) and [post 3](/posts/llm-architectures-flash-attention/) then each removed a cost. They are worth separating, because they spend different currencies.
+
+The **KV cache** removes work that would otherwise be *repeated*. Every generation step needs a key and a value for each earlier token, and without a cache it recomputes all of them — a **284×** multiplier of pure repeated work on post 2's run. Storing them makes that linear instead of quadratic, at a cost of **10.7× more memory held**. The cache spends memory to save compute.
+
+**Flash Attention** removes work that would otherwise be *written down and fetched back*: the $n \times n$ table of every token scored against every other, 2 GiB for one layer at 8k tokens, built in memory only to be normalized and thrown away. Computing it one tile at a time takes that memory from quadratic to constant and moves **3.9× fewer bytes** between the GPU's main memory and the small fast memory beside the arithmetic units. What it does not do is less arithmetic — [the FLOP totals are identical to the digit](/posts/llm-architectures-flash-attention/#where-the-speed-actually-comes-from). It is faster only because attention at long context waits on memory rather than on multiplies.
+
+Different trades, one thing in common: neither alters a stored number, and both proved it. Cached and uncached generation write identical text, token for token; tiled attention and PyTorch's own kernel [agree to about **1.4e-6**](/posts/llm-architectures-flash-attention/#exact-and-what-exact-is-worth), the noise of adding the same numbers in a different order.
 
 **Quantization is where that ends.** Storing a weight in eight bits instead of sixteen throws information away. There is no clever reordering that gets it back. So the question stops being *is it exact* and becomes two harder ones: what exactly gets damaged, and how would you know if it were?
 
-The second question turns out to be the interesting one, because the metric almost everyone reaches for, perplexity, is structurally incapable of answering it.
+The second question is the interesting one, because the metric almost everyone reaches for cannot answer it. **Perplexity** is one number for how surprised a model is by text it did not train on, lower being better. It is also an *average*, and §7 builds it up from scratch to show why that single fact is what blinds it.
 
 ### The short version {#the-short-version}
 
-**First, what quantization is**, because the word is heavier than the idea. A trained model is a large pile of numbers, and by default each is stored in 16 bits. Quantization stores each one in fewer — 8 bits, or 4 — by picking a small set of allowed values and rounding every weight to the nearest one. That is the whole mechanism: a **grid** of permitted values, and rounding.
+**First, what quantization is**, because the word is heavier than the idea. A trained model is a large pile of numbers, and by default each is stored in 16 bits. Quantization stores each one in fewer — 8 bits, or 4 — by picking a small set of allowed values and rounding every weight to the nearest one. That is the mechanism: a **grid** of permitted values, and rounding.
 
 Why bother: [post 2](/posts/llm-architectures-kv-cache/) established that generating a token is bound by *memory bandwidth*, not arithmetic. The chip spends its time hauling weights in from memory and waiting. Halve the bytes and you halve the haul, so the model both fits in less memory and runs faster — for exactly the same reason, which is that there is less of it to move.
 
 What it costs is precision, and these are the things this post establishes about that cost:
 
 - **Rounding error is half a grid step, and the step is set by the largest value sharing the grid.** On a real weight matrix, `absmax/127/2` predicts `2.414e-03` and the measured worst error is `2.414e-03`. Nothing about quantization damage is mysterious once you see it as one division — every result below is a consequence of who is forced to share a divisor with whom.
-- **The outliers are in the activations, not the weights.** Weight channels sit within 4–7× of their median; the activations flowing into the MLP run **10–85×**. This is the single most useful fact here, and it is why essentially every shipped quantization scheme leaves activations alone and touches only weights.
+- **The outliers are in the activations, not the weights.** Two words there. A **channel** is one of the model's internal feature dimensions — one row of a weight matrix, or one column of the numbers flowing between layers. Those flowing numbers are the **activations**: the weights are fixed once training ends, the activations are computed fresh for every input. Weight channels sit within 4–7× of their median; the activations flowing into the MLP run **10–85×**. That gap is why essentially every shipped quantization scheme leaves activations alone and touches only weights.
 - **So where you put the scale matters more than how many bits you keep.** The same 8-bit format, with one divisor per tensor rather than one per row, costs **3.8% relative error on weights but 58% on activations**. Same bits, same spacing, two orders of magnitude apart in damage.
 - **The textbook story about outliers is only half true at this scale.** The received account says a few fixed dimensions are extreme everywhere. Measured here: 2 of the top 10 channels persist across five unrelated inputs — including Python source and Spanish — but **0 of 10 are shared between adjacent layers**. Stable enough to matter, not stable enough to hard-code.
 - **NF4's codebook is derived, not designed.** Its 16 levels are the equal-probability quantiles of a normal distribution, and deriving them reproduces the constants bitsandbytes ships to **6e-08**. Against uniform 4-bit at the same width it cuts error by about a fifth. It does not beat 8-bit and never could — 16 levels against 256.
 - **"4-bit" does not mean four times smaller.** NF4 carries a 32-bit scale per 64 weights, so it is really 4.5 bits, and the embedding table nobody quantizes is 28% of this model. Actual shrink: **2.09×**, not 4×.
 - **Perplexity moves +0.21% while the worst token moves 68× the average.** INT8 weight-only looks free by any perplexity gate you would set. In the same run, one token's predicted distribution shifted by 0.176 nats against a mean of 0.0026. A mean over thousands of tokens is exactly the statistic that cannot see a tail.
-- **One line decides more than the format does.** In this model `lm_head.weight` *is* `embed_tokens.weight` (tied, sharing storage), so quantizing "every linear layer" silently quantizes the embedding table too. That one decision costs **11 points of perplexity**, more than the gap between 8-bit and 4-bit.
+- **One line decides more than the format does.** Many models save space by making the table that turns tokens into vectors on the way in and the layer that turns vectors back into token scores on the way out *the same numbers*, stored once. They are called **tied**. In this model they are, so quantizing "every linear layer" silently quantizes the embedding table too. That one decision costs **11 points of perplexity**, more than the gap between 8-bit and 4-bit.
 
 Every one of those has a **receipt** behind it — a program that prints the number, so you can check it rather than take my word:
 
@@ -69,9 +77,11 @@ Plus an [appendix of all notation](#appendix-all-notation) at the end, if a symb
 
 ### 1. What rounding to a grid costs {#what-rounding-to-a-grid-costs}
 
-Take one real weight matrix, layer 11's `down_proj` of shape $(896, 4864)$, and quantize it to **INT8**: 8 bits per weight, which allows 256 distinct values.
+Take one real weight matrix and quantize it to **INT8**: 8 bits per weight, which allows 256 distinct values.
 
-The simplest scheme is *absmax symmetric*. Find the largest magnitude in the tensor, spread the available levels evenly from $-\text{absmax}$ to $+\text{absmax}$, and round:
+The matrix is layer 11's `down_proj`, of shape $(896, 4864)$. Every transformer block ends with a small two-layer network applied to each token on its own — [post 1](/posts/llm-architectures-attention-and-rope/) calls it the **FFN**, and the code calls it the **MLP**. It widens each token's vector, applies a nonlinearity, then narrows it back; `down_proj` is that narrowing step, and its partner at the end of the attention half of the block is `o_proj`; those two names carry most of this post.
+
+The simplest scheme is *absmax symmetric*. **Absmax** is just the largest magnitude in the tensor, ignoring sign. Find it, spread the available levels evenly from $-\text{absmax}$ to $+\text{absmax}$, and round:
 
 ```python
 def int8_per_tensor(w):
@@ -79,7 +89,9 @@ def int8_per_tensor(w):
     return torch.round(w / scale).clamp(-127, 127) * scale
 ```
 
-That is all quantization is. One division, one rounding, one multiplication back. The **scale**, meaning the divisor, is the only design decision in the whole thing, and the rest of this post is about where to put it.
+That is all quantization is: one division, one rounding, one multiplication back. The **scale**, meaning the divisor, is the only design decision in the whole thing, and the rest of this post is about where to put it.
+
+[`what_rounding_costs`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d04_quantization.py) applies that to the matrix and prints what it cost:
 
 ```text
   absmax |w|                         0.6133
@@ -99,9 +111,11 @@ That observation has two possible fixes, and this post measures both. Either **n
 
 ### 2. Where the outliers actually live {#where-the-outliers-actually-live}
 
-Before fixing anything, find out where the wide dynamic range actually is. A **channel** here is one row of a weight matrix, or one column of an activation tensor — one of the model's internal feature dimensions. For each, take its largest magnitude, and express it as a multiple of the median channel's.
+Before fixing anything, find out where the trouble is. §1 showed that the damage is set by the ratio between the biggest value on a grid and the typical one, the **dynamic range** of whatever shares that grid. So the question is which tensors have a wide one.
 
-Weights first:
+The measurement: for each channel, take its largest magnitude and express it as a multiple of the median channel's. A channel, from [the short version](#the-short-version), is one row of a weight matrix or one column of an activation tensor.
+
+[`where_the_outliers_are`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d04_quantization.py) measures both. Weights first:
 
 ```text
   tensor                max / median  channels > 5x  channels
@@ -113,7 +127,7 @@ Weights first:
   L23 down_proj.weight          7.3x              1       896
 ```
 
-Tame. No channel is more than about 7× its median neighbour, and at most 4 of 896 exceed 5×. Now the **activations** — the values flowing *into* those same layers, captured with a forward hook during a real forward pass:
+Tame. No channel is more than about 7× its median neighbour, and at most 4 of 896 exceed 5×. Now the activations. The same function captures the values flowing *into* those same layers during a real forward pass, using a **forward hook**, which is PyTorch's way of asking to be handed a layer's inputs as they go past, without changing what the model computes:
 
 ```text
   tensor         max / median  channels > 5x  channels
@@ -130,20 +144,20 @@ Tame. No channel is more than about 7× its median neighbour, and at most 4 of 8
   L23 down_proj         19.1x             97      4864
 ```
 
-Two things jump out. The `down_proj` inputs run to **85×** their median channel, an order of magnitude worse than any weight tensor. And it is specifically `down_proj`, the projection at the *end* of the MLP, after the nonlinearity, while `o_proj` at the end of attention stays in the same mild range the weights do.
+The `down_proj` inputs run to **85×** their median channel, an order of magnitude worse than any weight tensor. And it is specifically `down_proj`, the narrowing step at the end of the MLP, which sees the widened vector after the nonlinearity. `o_proj`, at the end of the attention half, stays in the same mild range the weights do.
 
 ![Per-channel spread: weights against activations](/assets/picture/2026-08-02-llm-architectures-quantization/outlier-channels-light.png){: .light width="1000" height="654" }
 ![Per-channel spread: weights against activations](/assets/picture/2026-08-02-llm-architectures-quantization/outlier-channels-dark.png){: .dark width="1000" height="654" }
 
 Both axes are logarithmic, and the two curves are not the same shape. The weights descend gently from a low peak. The activations start two orders of magnitude up and fall off a cliff — a small number of channels carrying magnitudes nothing else comes close to. These are the **outlier features** described in Dettmers et al., [LLM.int8()](https://arxiv.org/abs/2208.07339) (2022).
 
-This is the most practically useful fact in the post. **Weight-only quantization is what essentially everyone ships** (GPTQ, AWQ, bitsandbytes' NF4), and the reason is right here: weights are well behaved and activations are not. Quantizing activations means confronting an 85× dynamic range on every forward pass; quantizing weights means confronting a 7× one, once, offline.
+**Weight-only quantization is what essentially everyone ships** (GPTQ, AWQ, bitsandbytes' NF4), and the reason is the two tables above: weights are well behaved and activations are not. Quantizing activations means confronting an 85× dynamic range on every forward pass; quantizing weights means confronting a 7× one, once, offline.
 
 ### 3. Are they the same channels every time? {#are-they-the-same-channels-every-time}
 
-Here the received account and this model part company, which is worth a section of its own.
+Here the received account and this model part company.
 
-The standard story is that outlier features are *systematic*: a few specific dimensions are extreme regardless of input, which is what would let you handle them specially. That is a checkable claim, so check it. Take one layer, run five unrelated inputs through it — English prose, popular science, economics, Python source, Spanish — and compare which channels land in the top ten:
+The standard story is that outlier features are *systematic*: a few specific dimensions are extreme regardless of input, which is what would let you handle them specially. That is a checkable claim, so check it. [`outlier_persistence`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d04_quantization.py) takes one layer, runs five unrelated inputs through it — English prose, popular science, economics, Python source, Spanish — and compares which channels land in the top ten:
 
 ```text
   input pair                  shared of top-10
@@ -161,7 +175,7 @@ The standard story is that outlier features are *systematic*: a few specific dim
 
 So: **partly**. Two channels are in the top ten for all five inputs — including Python source and Spanish, which is not something you get by coincidence, and is real evidence of a persistent core. But 41 distinct channels appear across just five inputs, so most of the outlier set moves with what you feed it. And across layers there is **no overlap at all**: each layer has its own outlier channels, and knowing layer 5's tells you nothing about layer 11's.
 
-Worth being careful about what this does and doesn't say. The strong systematic version is documented at 6.7B parameters and above; this is a 0.5B model, and whether the effect sharpens with scale is **not measured here** — I have no 7B result to offer, and the literature says it would look different. What the measurement does establish is that at this scale you cannot pick the outlier channels once and hard-code them.
+Be careful about what this does and doesn't say. The strong systematic version is documented at 6.7B parameters and above; this is a 0.5B model, and whether the effect sharpens with scale is **not measured here** — I have no 7B result to offer, and the literature says it would look different. What the measurement does establish is that at this scale you cannot pick the outlier channels once and hard-code them.
 
 Which is fine, because the fix doesn't require knowing which channels they are. It only requires never letting a whole tensor share one divisor.
 
@@ -177,7 +191,7 @@ def int8_per_channel(w):
 
 One line different, `amax(dim=-1, keepdim=True)` instead of `max()`, and it confines each outlier to the row it lives in. The overhead is one float per row against `in_features` weights per row, a fraction of a percent.
 
-Error is reported as **relative RMSE**: root-mean-square error divided by the root-mean-square of the original, so it reads as a percentage of typical magnitude rather than as an absolute number whose scale you'd have to remember.
+Error is reported as **relative RMSE**. Root-mean-square is the ordinary way to average a set of numbers when you want their size and not their sign: square each one, take the mean, take the square root. Do that to the errors, divide by the same quantity computed on the original weights, and the result reads as a percentage of typical magnitude rather than an absolute number whose scale you'd have to remember. [`scale_placement`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d04_quantization.py) reports it for both scopes:
 
 ```text
   tensor                      per-tensor  per-row  ratio
@@ -188,17 +202,17 @@ Error is reported as **relative RMSE**: root-mean-square error divided by the ro
   L5 down_proj (activations)      58.10%    6.10%   9.5x
 ```
 
-For weights, splitting the scale is worth 3–6× less error. Useful, not dramatic.
+For weights, splitting the scale is worth 3–6× less error, which is useful without being dramatic.
 
 For the activation tensor it is the difference between a number you can use and one you can't. **58% relative error** means the quantized tensor barely resembles the original — and the cause is the row from §2: that tensor has a channel 85× its median, and per-tensor scaling makes every other channel share a grid built to survive it.
 
-This is the section to remember when someone asks whether 8 bits is "enough". The bit width was identical in both columns. What changed was how much dynamic range was forced through a single divisor.
+So "is 8 bits enough?" is not a question about 8 bits. The bit width was identical in both columns; what changed was how much dynamic range was forced through a single divisor.
 
 ### 5. NF4: a grid shaped like the data {#nf4-a-grid-shaped-like-the-data}
 
 The other fix attacks the grid instead of the scale. Evenly spaced levels are optimal only if the values are evenly spread, and §1 already showed they aren't: weights are roughly normal, clustered hard around zero, with an absmax 33 standard deviations out.
 
-**NF4**, NormalFloat-4 from Dettmers et al.'s [QLoRA](https://arxiv.org/abs/2305.14314) (2023), puts its 16 levels at the *equal-probability quantiles* of a standard normal instead, so each level claims about the same share of the weights. Crucially that codebook is derived, not chosen:
+**NF4**, NormalFloat-4 from Dettmers et al.'s [QLoRA](https://arxiv.org/abs/2305.14314) (2023), puts its 16 levels at the *equal-probability quantiles* of a standard normal instead, so each level claims about the same share of the weights. The set of levels a format rounds to is its **codebook**, and NF4's is derived rather than chosen. [`nf4_codebook`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/quantizers.py) is the derivation, and `icdf` is what does the work: it is the inverse of the normal distribution's cumulative function, so handing it a probability returns the value with that much of the distribution below it. Ask for sixteen evenly spaced probabilities and you get back sixteen levels that each cover an equal share:
 
 ```python
 def nf4_codebook():
@@ -210,6 +224,8 @@ def nf4_codebook():
     return levels / levels.abs().max()
 ```
 
+[`nf4_derivation`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d04_quantization.py) runs that and compares the result against the table bitsandbytes — the library most 4-bit models are loaded with — actually ships:
+
 ```text
   levels derived                     16
   max |derived - bitsandbytes|       5.96e-08
@@ -219,7 +235,7 @@ def nf4_codebook():
   ratio                              3.82x
 ```
 
-Deriving it from the normal distribution reproduces the constants bitsandbytes actually ships to **6e-08** — float noise. The table in the library is not a magic set of tuned numbers; it is what falls out of asking where to put 16 levels if the data is normal.
+They agree to **6e-08**, which is float noise. The table in the library is not a magic set of tuned numbers; it is what falls out of asking where to put 16 levels if the data is normal.
 
 The last three lines are the point. NF4's levels are **3.82× closer together near zero** than at the extremes, which is exactly where the weights are.
 
@@ -228,7 +244,7 @@ The last three lines are the point. NF4's levels are **3.82× closer together ne
 
 That figure is drawn on **block-normalized** weights, which is not a cosmetic choice. NF4 is applied blockwise: every 64 weights are divided by their own absmax before meeting the codebook. On a raw axis the 33× ratio from §1 pushes every level of both grids out into empty tails and the comparison shows nothing. Divided by their block's absmax, the weights form the bell the codebook was designed for, and you can see the dashed NF4 levels crowding the middle where the mass is while the solid uniform levels ignore it. (The spikes at $\pm 1$ are an artifact of the normalization: each block contributes exactly one weight at its own absmax.)
 
-Now measure all of it on the same matrix, at real stored cost:
+Now measure all of it on the same matrix, at real stored cost. The same function quantizes the matrix five ways and reports error against storage:
 
 ```text
   format                  rel RMSE  bits/weight incl. scales
@@ -248,7 +264,7 @@ Note the bits column too. NF4 at `block=64` carries a 32-bit scale per 64 weight
 
 ### 6. What it actually saves {#what-it-actually-saves}
 
-Quantization is sold in multiples: "4-bit means 4× smaller". It does not.
+Quantization is sold in multiples: "4-bit means 4× smaller". It does not. [`memory_cost`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d04_quantization.py) counts what is actually there:
 
 ```text
   parameters                         494.0M
@@ -273,22 +289,41 @@ These are **analytic** figures — parameter counts times bits per weight, not a
 
 Now the question that matters: does the model still work?
 
-The standard answer is **perplexity** — roughly, how surprised the model is by real text, with lower being better. Evaluating it needs text, so the demo ships a fixed 550-token passage covering six unrelated topics. That choice is load-bearing in a way worth admitting: my first attempt repeated one paragraph a dozen times, which is *far* easier to predict, and it reported NF4 costing 2.5% when honest non-repeating prose reports 15.5%. **Repetitive eval text flatters a quantized model.**
+The standard answer is **perplexity**, and it is worth building up rather than quoting, because its blind spot follows directly from how it is made.
 
-Alongside perplexity, measure something perplexity can't see. For each token, compute the **KL divergence** — a measure, in nats, of how far the quantized model's predicted probability distribution has moved from the original's. Zero means identical; larger means the model now expects something different.
+Run some real text through the model. At each position the model has produced a probability for every token in its vocabulary, and one of those tokens is the one that actually came next. Pull out the probability it gave that correct token. A confident, well-fitted model gives it a high probability; a damaged one gives it a lower one.
+
+Now turn that into a score. Take the logarithm of each of those probabilities and negate it, so a probability of 1 scores 0 and anything less scores positive — that is how much the model was *surprised* at that position. Average the surprise over every position. Then exponentiate the average, which converts it out of log units back into a count. That count is perplexity, and it reads as: *the model was as uncertain as if it had been choosing uniformly among this many options at each step.* A perplexity of 20 means roughly a 20-way guess, and lower is better.
+
+That is four lines of the demo, and the third one is where the rest of this section comes from:
+
+```python
+def perplexity(lg):
+    logp = torch.log_softmax(lg[:, :-1], dim=-1)
+    nll = -logp.gather(-1, ids[:, 1:].unsqueeze(-1)).squeeze(-1)
+    return nll.mean().exp().item()
+```
+
+`nll.mean()` is an average over every token in the passage. **Every conclusion in this section falls out of that one call**: an average is a single number standing in for thousands, and it has no way to report that a few of them are far from the rest.
+
+Evaluating perplexity needs text, so the demo ships a fixed 550-token passage covering six unrelated topics. That choice is load-bearing, and my first attempt got it wrong: it repeated one paragraph a dozen times, which is *far* easier to predict, and it reported NF4 costing 2.5% where honest non-repeating prose reports 15.5%. **Repetitive eval text flatters a quantized model.**
+
+So alongside perplexity, measure something an average cannot see. Perplexity looked at one number per position, the probability of the token that actually came next. But the model produced a probability for *every* token in its vocabulary at that position, and quantizing shifts the whole shape of that distribution. **KL divergence** puts a single number on how far the shape moved: zero means the two distributions are identical, larger means the model now expects something different. It is reported per token, in **nats** — the unit you get when the logarithms are natural ones, as they were above. Here 0.18 nats is a small but real change of mind and 10 nats is a different model.
+
+[`quality`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d04_quantization.py) runs each scheme against the unquantized reference and reports both:
 
 ```text
-  scheme                  perplexity  vs fp32   mean KL    max KL  max/mean
-  ---------------------------------------------------------------------------
-  fp32 reference              20.869        —         —         —         —
-  INT8 per-channel            20.913   +0.21%  2.60e-03  1.76e-01       68x
-  NF4 block=64                24.104  +15.50%  1.57e-01  1.09e+01       69x
-  NF4 block=64, head too      26.486  +26.92%  2.44e-01  1.09e+01       45x
+  scheme                perplexity  vs fp32   mean KL    max KL  max/mean
+  -------------------------------------------------------------------------
+  fp32 reference            20.869        —         —         —         —
+  INT8 per-channel          20.913   +0.21%  2.60e-03  1.76e-01       68x
+  NF4 block=64              24.104  +15.50%  1.57e-01  1.09e+01       69x
+  NF4 block=64, + head      26.486  +26.92%  2.44e-01  1.09e+01       45x
 ```
 
 Read the INT8 row twice. **Perplexity moved 0.21%.** That would clear any ship/no-ship threshold anyone sets — you would call it lossless and move on. In the very same run, one token's predicted distribution moved **68× the average**.
 
-Both numbers are correct. Perplexity is a *mean* over hundreds of tokens, and a mean is precisely the statistic that cannot see a tail. Look at where INT8's damage actually sits:
+Both numbers are correct. Perplexity is a *mean* over hundreds of tokens, and a mean is precisely the statistic that cannot see a tail. The same function sorts every token's KL and reports where the damage sits. A **quantile** is the value below which that fraction of tokens falls, so quantile 0.99 is the level only the worst 1% exceed:
 
 ```text
   INT8 KL at quantile 0.5            1.730e-03
@@ -311,11 +346,13 @@ Whether that matters depends on what the changed tokens *are*. Perplexity treats
 
 The bottom row is a different lesson. In Qwen2.5-0.5B the embeddings are **tied**: `lm_head.weight` and `embed_tokens.weight` are the same tensor under two names, sharing storage.
 
-```python
-lm_head.weight.data_ptr() == embed_tokens.weight.data_ptr()   # True
+A **tensor** is one array of numbers, and two names can point at the same one. `data_ptr()` returns the address where a tensor's numbers actually live, so comparing the two addresses settles whether they are one tensor or two copies. [`memory_cost`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d04_quantization.py) runs that check:
+
+```text
+  lm_head.weight is embed_tokens.weight  yes
 ```
 
-So the natural-looking loop, "quantize every `nn.Linear`", also quantizes the embedding table, which every token in the sequence reads on the way in. Perplexity goes from +15.50% to **+26.92%**: that single decision costs 11 points, comparable to the entire gap between 8-bit and 4-bit. Real tools exclude the head and embeddings by default, and this is why.
+So the natural-looking loop, "quantize every `nn.Linear`" — every one of the model's matrix-multiply layers — also quantizes the embedding table, which every token in the sequence reads on the way in. Perplexity goes from +15.50% to **+26.92%**: that single decision costs 11 points, comparable to the entire gap between 8-bit and 4-bit. Real tools exclude the head and embeddings by default, and this is why.
 
 ### 8. What follows from all this {#what-follows-from-all-this}
 
@@ -328,7 +365,7 @@ So the natural-looking loop, "quantize every `nn.Linear`", also quantizes the em
 | Why is my 4-bit model only half the size? | Scales (4 → 4.5 bits) and the embedding table you correctly left alone (28% here). |
 | Why did quality collapse when I quantized everything? | Check whether your embeddings are tied. `lm_head` is often the same tensor as `embed_tokens`. |
 
-The through-line: **quantization damage is a dynamic-range problem, not a bit-width problem.** Every result here reduces to who was forced to share a divisor with whom — per-tensor against per-channel, block 64 against block 256, activations against weights. Bits set the ceiling on how good it can get; scale placement decides how much of that ceiling you reach.
+Underneath all of it, **quantization damage is a dynamic-range problem rather than a bit-width problem.** Every result here reduces to who was forced to share a divisor with whom — per-tensor against per-channel, block 64 against block 256, activations against weights. Bits set the ceiling on how good it can get; scale placement decides how much of that ceiling you reach.
 
 ### 9. Sidebar: the probe {#sidebar-the-probe}
 
