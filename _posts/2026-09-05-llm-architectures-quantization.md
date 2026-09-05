@@ -1,6 +1,6 @@
 ---
 title: "LLM Architecture Refresh [4]: Quantization, and Why Perplexity Won't Tell You It Broke"
-date: 2026-08-30 02:00:00 -0700
+date: 2026-09-05 02:00:00 -0700
 categories: [LLM Architecture Refresh, Inference]
 tags: [quantization, int8, nf4, qlora, outlier-features, perplexity, pytorch]
 description: >-
