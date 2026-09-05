@@ -9,7 +9,6 @@ description: >-
   the win is memory traffic, not arithmetic.
 math: true
 pin: true
-published: false
 ---
 
 ## The optimization that doesn't change the answer
