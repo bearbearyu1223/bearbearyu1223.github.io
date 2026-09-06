@@ -9,7 +9,6 @@ description: >-
   least able to see it.
 math: true
 pin: true
-published: false
 ---
 
 ## The first tradeoff that is actually a tradeoff
