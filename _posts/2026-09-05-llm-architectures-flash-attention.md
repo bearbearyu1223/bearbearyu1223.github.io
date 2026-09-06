@@ -601,6 +601,8 @@ Read down the rows and the pattern is plain enough: the function is unchanged, t
 
 ### 9. Sidebar: the probe {#sidebar-the-probe}
 
+One question to close on — the kind this material gets asked, and what separates an answer that sounds right from one that is.
+
 > **"Does Flash Attention change your model's output?"**
 
 **A weak answer:** "It's an approximation that trades a little accuracy for a big speedup on long sequences."
