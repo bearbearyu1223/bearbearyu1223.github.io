@@ -95,6 +95,8 @@ It is [post 1's block diagram](/posts/llm-architectures-attention-and-rope/) wit
 
 The band widths are equal but the shapes inside them are not, and that gap is the thing to carry forward. The MLP's matrices are 4864 wide where attention's are 896, which is **13.1M in the MLP against 1.8M in attention**, per block. (`k_proj` and `v_proj` are narrower still, 128 rather than 896, because grouped-query attention has several query heads share one set of keys and values — [post 2](/posts/llm-architectures-kv-cache/)'s subject.) Quantization is overwhelmingly something that happens to the MLP. The `+` nodes and their side rails have no parameters at all, so there is nothing in them to round — and because those rails carry each token's vector past both halves untouched, rounding the matrices degrades a model gradually rather than breaking it.
 
+[`what_gets_quantized`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d04_quantization.py) prints the same inventory as numbers, along with the dimensions every shape in the figure is built from:
+
 ```text
   blocks (layers)                    24
   d_model (vector per token)         896
