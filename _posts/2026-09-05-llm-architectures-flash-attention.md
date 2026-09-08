@@ -27,7 +27,7 @@ Two words appear throughout what follows. A **FLOP** is one floating-point opera
 
 - **It is exact, and that is checkable.** Tiled attention and PyTorch's own reference agree to **1.4e-6**, which is floating-point noise from summing the same numbers in a different order — not a different answer. Sliding-window attention, which genuinely is an approximation, differs by **0.60** on the same inputs, five orders of magnitude further off.
 - **One idea makes it work: online softmax.** A softmax needs the largest value in a row before it can start, and a tile has seen only part of the row. So carry a running max and a running sum, and rescale everything accumulated so far whenever a later block raises the max. On this run, 29 of 31 blocks raised nothing and cost nothing.
-- **Memory drops from quadratic to constant.** The score matrix is 512 MiB at 4,096 tokens and **512 GiB at 128k**, per layer. The tiled path's peak is one $128 \times 128$ tile — **0.5 MiB, identical at every sequence length**. That is what made long context possible, since the arithmetic was never the thing standing in the way.
+- **Memory drops from quadratic to constant.** The score matrix is 512 MiB at 4,096 tokens and **512 GiB at 128k**, per layer — twice that again in Llama 3.1 8B's shape. The tiled path's peak is one $128 \times 128$ tile — **0.5 MiB, identical at every sequence length**. That is what made long context possible, since the arithmetic was never the thing standing in the way.
 - **It does not save a single multiply.** Counted rather than timed, with causal masking off, the naive and tiled FLOP totals match **to the digit** at every length — 34.4 G apiece at 4,096 tokens. What vanishes is the score matrix's 2,048 MiB of round-trips to main memory. The saving is all in the traffic, and the arithmetic is left alone.
 - **Causal masking then hands back half the work, free.** Causal masking is the rule that a token may look only at itself and the tokens before it, never ahead. Once the loop walks tiles, a tile whose keys all lie in the future gets skipped rather than computed and masked — **47%** of them at 2,048 tokens with 128-wide blocks. That fraction is exactly $\frac{B-1}{2B}$ for $B$ blocks a side, climbing toward one half and never reaching it.
 - **Tiling buys memory; fusing buys time.** A tiled loop written in Python is *slower* than naive attention, because every tile still round-trips to memory. The speedup needs the loop compiled into a single **kernel**, one program the GPU runs start to finish without stopping to write anything out. Against one of those, naive attention runs **about 3.5× slower at 512 tokens and about 8× at 4,096**, a gap that widens as the sequence grows.
@@ -410,18 +410,24 @@ And that constant is where [§1](#the-problem-is-memory-traffic-not-flops)'s 192
 ![Attention memory scaling](/assets/picture/2026-08-02-llm-architectures-flash-attention/memory-scaling-light.png){: .light width="1000" height="684" }
 ![Attention memory scaling](/assets/picture/2026-08-02-llm-architectures-flash-attention/memory-scaling-dark.png){: .dark width="1000" height="684" }
 
-Extrapolating past what my laptop can hold — the same $H \cdot n^2 \cdot 4$ bytes, now with nothing measured, because none of these would fit:
+Extrapolating past what my laptop can hold — the same $H \cdot n^2 \cdot b$ bytes, now with nothing measured, because none of these would fit. The second column swaps the demo's shape for a real one: Llama 3.1 8B has 32 query heads against the demo's 8 and runs in bf16 rather than fp32, which is four times the heads against half the bytes, so twice the matrix.
 
 ```text
-  seq     score matrix, 8 heads fp32
-  ------------------------------------
-  8192                       2.0 GiB
-  16384                      8.0 GiB
-  32768                     32.0 GiB
-  131072                   512.0 GiB
+  seq     8 heads, fp32  Llama 3.1 8B: 32 heads, bf16
+  -----------------------------------------------------
+  8192          2.0 GiB                       4.0 GiB
+  16384         8.0 GiB                      16.0 GiB
+  32768        32.0 GiB                      64.0 GiB
+  131072      512.0 GiB                    1024.0 GiB
+
+  At 128k in Llama 3.1 8B's shape that is 1.0 TiB of scratch for a
+  single layer - enough to fill about 14 A100 80GB cards, holding a
+  matrix that is normalized and thrown away immediately.
 ```
 
-Half a terabyte for one attention layer's intermediate at 128k context. **This is why long context was infeasible before 2022** — not because the FLOPs were unaffordable, but because you could not allocate the intermediate. Getting memory from $O(n^2)$ down to $O(n)$ is what unlocked it, and Rabe & Staats, [Self-attention Does Not Need $O(n^2)$ Memory](https://arxiv.org/abs/2112.05682) (2021), had made the same point a year earlier from the memory side alone, without the **IO-aware** kernel that turned it into a speedup — IO-aware meaning written around the cost of moving data rather than the cost of arithmetic, which is the design stance this post has been describing.
+A terabyte, for one layer, for a matrix that exists only long enough to be normalized. And [post 2](/posts/llm-architectures-kv-cache/) measured that same model needing 16 GiB of KV cache per user at the same context length — so before Flash Attention, attention wanted sixty-four times a user's entire cache as transient scratch, on top of the cache itself.
+
+**This is why long context was infeasible before 2022** — not because the FLOPs were unaffordable, but because you could not allocate the intermediate. Getting memory from $O(n^2)$ down to $O(n)$ is what unlocked it, and Rabe & Staats, [Self-attention Does Not Need $O(n^2)$ Memory](https://arxiv.org/abs/2112.05682) (2021), had made the same point a year earlier from the memory side alone, without the **IO-aware** kernel that turned it into a speedup — IO-aware meaning written around the cost of moving data rather than the cost of arithmetic, which is the design stance this post has been describing.
 
 #### This is not the KV cache
 
