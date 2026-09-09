@@ -970,7 +970,7 @@ Counting attention against FFN in a single block, across three real models:
 
 Attention gets the name and the diagrams, but it's the **minority of the weights**. The classic two-thirds figure comes from the original shapes — attention $4d^2$, FFN $2 \cdot d \cdot 4d = 8d^2$. Modern decoders push further from both ends: GQA shrinks $K$/$V$ while SwiGLU adds a third FFN matrix.
 
-That's the parameter-count version of the same point: **routing lives in attention, knowledge lives in the FFN.** If the FFN is the model's memory, it needs to be big. It's also why LoRA on attention alone underperforms, and why Mixture-of-Experts replaces the *FFN* — both planned for later in this series (LoRA in post 5, MoE in post 9).
+That's the parameter-count version of the same point: **routing lives in attention, knowledge lives in the FFN.** If the FFN is the model's memory, it needs to be big. It's also why LoRA on attention alone underperforms, and why Mixture-of-Experts replaces the *FFN* — both taken up later in this series ([MoE in post 5](/posts/llm-architectures-mixture-of-experts/), LoRA in post 6).
 
 ### 10. The implementation, in five lines {#the-implementation-in-five-lines}
 
