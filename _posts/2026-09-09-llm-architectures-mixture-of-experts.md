@@ -21,11 +21,13 @@ The three posts since then all tried to make a model cheaper without changing wh
 
 Every one of those works on the model you already have. **Mixture-of-experts is a different kind of move: it changes what gets built.**
 
-Think of it as a firm with a hundred specialists on staff. A question about a contract does not go to all hundred people; a partner reads it, decides it is a tax matter, and hands it to the three who do tax. The other ninety-seven stay on the payroll, and the firm still pays for their desks. That is a mixture-of-experts model: many specialists, a small number consulted per question, and a wage bill that does not care how few you used.
+Think of it as a firm with a hundred specialists on staff. A question about a contract does not go to all hundred people; a partner reads it, decides it is a tax matter, and hands it to the three who do tax. Only those three bill any hours against that question. The other ninety-seven stay on the payroll, and the firm goes on renting desks for all hundred.
+
+So the firm pays two different bills, and only one of them got smaller. **The hours billed depend on how many specialists you consulted. The rent does not.** That is the trade a mixture-of-experts model makes, and the two bills have names: the hours are **compute**, and the desks are **memory**. Running a token multiplies through a handful of experts, while every expert has to be sitting in memory anyway, in case the next token is the one that wants it. [§5](#two-bills) puts measured numbers on both.
 
 The analogy is worth holding loosely, though, and [§4](#what-the-router-learns) is where it starts to strain. Real experts do not divide themselves into tidy human categories like "tax" and "litigation", and calling them experts was a naming decision, not a finding.
 
-The idea, in one sentence: instead of one FFN per block that every token goes through, build sixty-four of them and send each token to eight. Nothing is compressed and nothing is approximated. The model simply has far more capacity than it uses on any given token, and a small learned component decides which slice to use.
+The idea, in one sentence: instead of one FFN per block that every token goes through, build many narrower ones and send each token to a few of them. The model measured here builds sixty-four and uses eight, though those two numbers are its own choice rather than part of the definition — [§1](#why-sixty-four) is about where they come from. Nothing is compressed and nothing is approximated. The model simply has far more capacity than it uses on any given token, and a small learned component decides which slice to use.
 
 The arithmetic is genuinely strange the first time you meet it. The model in this post has **6.9 billion** parameters. Running it on a token multiplies through about **1.2 billion** of them. The other 5.7 billion sit in memory, doing nothing, waiting for a token that wants them.
 
@@ -76,7 +78,7 @@ A **mixture-of-experts** layer replaces one FFN with many copies of it, called *
 - **The router costs almost nothing.** One 64×2048 matrix per layer, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE does not renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
 - **The router does specialize, and it is measurable rather than folklore.** Two halves of the *same* passage route differently by 0.216; prose against code differs by 0.731, **2.56×** the noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
-- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.18×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
+- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.16×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
 - **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9** ([§6](#sparsity-and-batching)). This is the single most useful fact in the post, and it is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
 - **Nothing keeps the experts equally busy on its own.** The busiest expert in layer 0 takes **5.71×** an even share while four experts go completely unused ([§8](#load-balance)).
@@ -124,6 +126,40 @@ The **active** count is the same arithmetic with 8 experts in place of 64: 8 exp
 
 > **"1B active, 7B total"** is what the model's name means, and it is two different measurements of the same object. Neither is a lie and neither is sufficient on its own. Which one you should care about depends entirely on whether you are buying memory or buying time, which is [§5](#two-bills).
 {: .prompt-info }
+
+#### Why sixty-four? {#why-sixty-four}
+
+Nothing so far explains where 64 and 8 came from, and they are worth pulling apart, because they are neither arbitrary nor universal. They are OLMoE's choices. Mixtral used 8 experts and picked 2; Qwen3-30B-A3B uses 128 and picks 8; DeepSeek-V3 uses 256 routed experts and picks 8. The mechanism is the same in all of them; the two numbers are a design decision made per model.
+
+The useful way to read them is that they are not two independent knobs. What a token costs is $k$ multiplied by the width of one expert, and that product is the real budget (`why_this_many_experts`):
+
+```text
+  model width (hidden_size)          2048
+  one expert's width                 1024
+    as a multiple of the model width 0.50x
+  width actually used per token (8 x 1024) 8192
+    as a multiple of the model width 4.00x
+  width held in total (64 x 1024)    65536
+    as a multiple of the model width 32.00x
+  capacity over compute              8x
+```
+
+An ordinary dense FFN is conventionally about **4× the model width**, and the dense sibling from the same lab, [OLMo-2-1B](https://huggingface.co/allenai/OLMo-2-0425-1B), has exactly that: hidden 2,048, FFN width 8,192. OLMoE's eight chosen experts come to `8 × 1024 = 8192`, which is **the same number**. Per token it does precisely as much feed-forward arithmetic as the dense model of its shape. What it adds is the other 56 experts, which is why it holds **8×** the FFN capacity for the same per-token cost.
+
+So $k$ is set by the compute you are willing to spend, and the expert count is set by the capacity you want. That leaves one genuine question: given a fixed budget on both, do you want a few wide experts or many narrow ones?
+
+```text
+  experts  each of width  used per token  possible combinations
+  ---------------------------------------------------------------
+  8                 8192               1                      8
+  16                4096               2                    120
+  32                2048               4                 35,960
+  64                1024               8          4,426,165,368
+```
+
+Every row in that table stores the same number of parameters and runs the same arithmetic per token. What changes is how many distinct combinations of experts a token can be assigned to: **8** at the coarse end, **4.4 billion** at the fine end. A model with 8 experts picking 1 has eight possible behaviours at that layer. OLMoE has more than four billion.
+
+That is the argument for **fine-grained experts**, and it is the reason each of OLMoE's experts is *half* the model width rather than four times it. It is not free — more, smaller experts mean more routing decisions, more scattered memory access, and [§7](#across-gpus)'s communication problem gets worse as the experts multiply. Where to sit on that curve is exactly what differs between the models in the table above.
 
 ### 2. The router, which is smaller than you would guess {#the-router}
 
@@ -319,17 +355,17 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         425.9     1.00x
-  64                        927.3     2.18x
+  8                         429.1     1.00x
+  64                        928.7     2.16x
 
   expert FLOPs ratio (64/8)          8x
-  measured wall-clock ratio          2.18x
+  measured wall-clock ratio          2.16x
     below 8x because attention, norms and the LM head are unchanged
 ```
 
-Eight times the expert arithmetic costs 2.18× the wall clock, and zero extra bytes of weights.
+Eight times the expert arithmetic costs 2.16× the wall clock, and zero extra bytes of weights.
 
-Both halves of that deserve a note. The **2.18× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.18× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
+Both halves of that deserve a note. The **2.16× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.16× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
 
 Unlike every other number in this post, this one is a wall-clock measurement and it moves a little from run to run; the counts and ratios elsewhere do not. And the top-64 row is a measurement of **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes; it is a timing experiment, not a quality one.
 
@@ -495,7 +531,7 @@ Half of that is right, which is what makes it dangerous.
 
 **1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident — **12.9 GiB** in bf16 — because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
-**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.18×** the wall clock, because attention and the LM head do not scale with $k$. Which side of that you land on depends on sequence length and batch size.
+**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.16×** the wall clock, because attention and the LM head do not scale with $k$. Which side of that you land on depends on sequence length and batch size.
 
 **3. And say why the memory does not improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
