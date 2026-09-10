@@ -17,7 +17,7 @@ pin: true
 
 The three posts since then all tried to make a model cheaper without changing what it computes, or while admitting exactly what they changed.
 
-[Post 2](/posts/llm-architectures-kv-cache/) removed work that was being *repeated*, caching keys and values instead of recomputing them at every generation step: a **284×** cut in repeated compute, paid for with **10.7× more memory held**. [Post 3](/posts/llm-architectures-flash-attention/) removed work that was being *written down and fetched back*, computing attention one tile at a time to move **3.9× fewer bytes**, landing on the same answer to about **1e-6** — the size of disagreement you get from summing in a different order. [Post 4](/posts/llm-architectures-quantization/) stopped being exact on purpose, storing each weight in fewer bits for a **2.09×** shrink, and spent most of its length on the fact that the usual quality check cannot see what that breaks.
+[Post 2](/posts/llm-architectures-kv-cache/) removed work that was being *repeated*, caching keys and values instead of recomputing them at every generation step: a **284×** cut in repeated compute, paid for with **10.7× more memory held**. [Post 3](/posts/llm-architectures-flash-attention/) removed work that was being *written down and fetched back*, computing attention one tile at a time to move **3.9× fewer bytes**, landing on the same answer to about **1e-6** — the size of disagreement you get from summing in a different order. [Post 4](/posts/llm-architectures-quantization/) stopped being exact on purpose, storing each weight in fewer bits for a **2.16×** shrink, and spent most of its length on the fact that the usual quality check cannot see what that breaks.
 
 Every one of those works on the model you already have. **Mixture-of-experts is a different kind of move: it changes what gets built.**
 
@@ -77,7 +77,7 @@ A **mixture-of-experts** layer replaces one FFN with many copies of it, called *
 - **The experts are essentially the model.** 93.1% of OLMoE's parameters are experts, against 3.9% for attention. A token activates 17.0% of the total ([§1](#where-the-parameters-actually-are)).
 - **The router costs almost nothing.** One 64×2048 matrix per layer, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE does not renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
-- **The router does specialize, and it is measurable rather than folklore.** Two halves of the *same* passage route differently by 0.216; prose against code differs by 0.731, **2.56×** the noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
+- **The router does specialize, and it is measurable rather than folklore.** Two halves of the *same* passage route differently by 0.216; prose against code differs by 0.731, **2.16×** the noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
 - **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.16×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
 - **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9** ([§6](#sparsity-and-batching)). This is the single most useful fact in the post, and it is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
@@ -174,7 +174,7 @@ Something has to choose the eight. That something is the **router** (also called
   everything else (bf16)             12.88 GiB
 ```
 
-From `the_router_is_tiny`. Sixteen matrices of 64×2048, 2.10M parameters, **4.0 MiB** in bf16 against **12.88 GiB** for everything else. Three hundredths of one percent of the model decides how the rest of it is spent, on every token, at every layer.
+From `the_router_is_tiny`. Sixteen matrices, one per layer. Each has **64 rows, one per expert, and each row is 2,048 numbers wide** — the same width as a token's vector, because scoring an expert is a dot product against the token. That is 2.10M parameters in total, **4.0 MiB** in bf16 against **12.88 GiB** for everything else. Three hundredths of one percent of the model decides how the rest of it is spent, on every token, at every layer.
 
 That asymmetry is where the risk in this architecture lives. A router that chooses badly does not merely lose a little accuracy; it wastes the capacity the other 93% of the parameters represent. [§8](#load-balance) is about what happens when it chooses lopsidedly, and why training has to actively push against that.
 
@@ -305,7 +305,7 @@ So the demo splits each passage in half and measures the distance between the tw
   cross-domain over noise floor      2.56x
 ```
 
-The specialization is real. Two halves of one passage differ by 0.216; two different kinds of text differ by 0.554, **2.56×** as much.
+The specialization is real. Two halves of one passage differ by 0.216; two different kinds of text differ by 0.554, **2.16×** as much.
 
 The more interesting structure is in the columns. Averaging the three cross-domain rows at each depth and setting them against the floor:
 
@@ -355,8 +355,8 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         429.1     1.00x
-  64                        928.7     2.16x
+  8                         430.0     1.00x
+  64                        930.3     2.16x
 
   expert FLOPs ratio (64/8)          8x
   measured wall-clock ratio          2.16x
