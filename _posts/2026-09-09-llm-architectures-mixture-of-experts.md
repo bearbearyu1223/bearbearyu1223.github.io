@@ -19,7 +19,7 @@ The feed-forward network, or **FFN**, is the per-token stack of matrix multiplie
 
 The three posts since then each attacked one of three costs of running a trained model: **how much arithmetic** it does, **how much memory** it occupies, and **how many bytes** it has to move through the hardware while doing that arithmetic.
 
-[Post 2](/posts/llm-architectures-kv-cache/) removed work that was being *repeated*. Instead of recomputing keys and values at every generation step, it stores them in a **KV cache**. For a 64-token prompt followed by 512 generated tokens, that is a **284× reduction in repeated compute**. The price is memory: for a 128k-token conversation in Llama 3.1 8B's shape, keeping the cache holds **10.7× more memory** than recomputing would.
+[Post 2](/posts/llm-architectures-kv-cache/) removed work that was being *repeated*. Instead of recomputing keys and values at every generation step, it stores them in a **KV cache**. For a 64-token prompt followed by 512 generated tokens, running without the cache pushes **284× as many tokens** through the model: 163,584 against 576. The price is memory: for a 128k-token conversation in Llama 3.1 8B's shape, keeping the cache holds up to **10.7× more memory** than recomputing would. Both numbers are worked through step by step, including what the second one leaves out, in [the appendix](#appendix-kv-cache-numbers).
 
 [Post 3](/posts/llm-architectures-flash-attention/) removed work that was being *written down only to be fetched back*. FlashAttention computes attention one tile at a time, so the GPU moves **3.9× fewer bytes** between its large main memory and the small, fast memory close to its arithmetic units. It also needs a fixed amount of scratch space instead of an amount that grows with the square of the sequence length. Its output differs from standard attention by about **1e-6**, and post 3 showed that this is floating-point rounding from the reordered computation rather than a different answer. Sliding-window attention, a genuine approximation of attention, differed by **0.6** on the same test.
 
@@ -82,7 +82,7 @@ Skip to [the short version](#the-short-version) for the findings without the der
 10. [What follows from all this](#what-follows)
 11. [Sidebar: the probe](#sidebar-the-probe)
 
-Plus an [appendix of all notation](#appendix-all-notation) at the end, if a symbol ever goes by without introduction.
+Plus two appendices at the end: [all notation](#appendix-all-notation), if a symbol ever goes by without introduction, and [where the KV cache numbers come from](#appendix-kv-cache-numbers), which works through the two numbers the opening section borrows from post 2.
 
 ### The short version {#the-short-version}
 
@@ -590,6 +590,65 @@ Three things worth keeping straight:
 - **"Active" and "total" are not two estimates of one quantity.** They are exact counts of two different things, and they bill to two different budgets. Total sets your memory; active sets your arithmetic.
 - **Sparse does not mean small.** A sparse model is one that declines to use most of itself per token. It is still all there, and it is still all in RAM.
 - **The router is not a classifier over topics.** It is a learned scoring matrix whose behaviour correlates with input distribution ([§4](#what-the-router-learns)). Reading it as "expert 17 handles code" is a story laid over a measurement, and one the literature actively disputes.
+
+### Appendix: where the KV cache numbers come from {#appendix-kv-cache-numbers}
+
+The opening section quotes two numbers from [post 2](/posts/llm-architectures-kv-cache/). Neither is measured on OLMoE, and both are arithmetic rather than benchmarks, so they come out the same on any machine. The blocks below are post 2's own demo output, printed by [`d02_kv_cache.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d02_kv_cache.py).
+
+#### 284×: how many tokens go through the model
+
+The setup is a 64-token prompt, after which the model writes 512 new tokens one at a time.
+
+**With a cache**, every token goes through the model exactly once: the 64 prompt tokens, then each new token as it is written. The keys and values of earlier tokens are read back from the cache rather than recomputed, so the total is $64 + 512 = 576$ tokens.
+
+**Without a cache**, nothing from earlier steps is kept, so writing each new token means running the whole sequence so far back through the model. Number the generation steps $i = 0, 1, \dots, 511$. Step $i$ processes the 64 prompt tokens plus the $i$ tokens already written, which is $64 + i$ tokens: 64 at the first step, 65 at the second, and 575 at the last. The symbol $\sum_{i=0}^{511}$ below means "add this up for every step from 0 to 511":
+
+$$\sum_{i=0}^{511} (64 + i) \;=\; \underbrace{512 \times 64}_{\text{the prompt, redone 512 times}} + \underbrace{(0 + 1 + \dots + 511)}_{\text{the tokens written so far}} \;=\; 32{,}768 + 130{,}816 \;=\; 163{,}584$$
+
+The second term uses the fact that $0 + 1 + \dots + 511 = \frac{511 \times 512}{2}$. Dividing, $163{,}584 \div 576 = 284$ (`quadratic_growth`):
+
+```text
+  tokens processed at n=512 (cached) 576
+  tokens processed at n=512 (uncached) 163584
+  wasted work multiplier             284x
+```
+
+This is a count of tokens processed, not a measurement of speed. Post 2 also timed the same run, on its small test model, and generating 512 tokens was 6.42× faster with the cache. [Post 2's section 3](/posts/llm-architectures-kv-cache/#generation-is-quadratic) gives the general form: for a prompt of $p$ tokens and $n$ generated, the uncached path processes $np + \frac{n(n-1)}{2}$ tokens, and the second term, which grows with the square of $n$, is the one that hurts.
+
+#### 10.7×: how much memory is held
+
+This one uses Llama 3.1 8B's shape: **32 layers**, **8 key/value heads** per layer, each key and each value **128 numbers** long, and **2 bytes** per number. "128k tokens" is 131,072 tokens exactly, which is $2^{17}$.
+
+**One token's cache** is one key and one value for every head in every layer (`cache_arithmetic`):
+
+```text
+  what                      count   running total
+  -------------------------------------------------
+  one key vector      128 numbers             128
+  + one value vector  128 numbers             256
+  x 8 KV heads                              2,048
+  x 32 layers                      65,536 numbers
+  x 2 bytes (fp16)                        128 KiB
+```
+
+**With a cache**, that is kept for every token in the conversation, for all 32 layers at once: $128 \text{ KiB} \times 131{,}072 = 16.00$ GiB.
+
+**Without a cache**, the same keys and values are still computed at every step, but each layer's are thrown away as soon as the layer finishes. So at most one layer's worth exists at a time, which is $16.00 \div 32 = 0.50$ GiB. Alongside it sit the tokens' hidden states: one vector per token, each as long as the model is wide (4,096 numbers for this model), so $131{,}072 \times 4{,}096 \times 2$ bytes $= 1.00$ GiB. The comparison divides one by the other (`cache_arithmetic`):
+
+```text
+  approach             K/V memory held                           for how long
+  -----------------------------------------------------------------------------
+  with a cache               16.00 GiB  all 32 layers, the whole conversation
+  without a cache             0.50 GiB  one layer, freed as the pass moves on
+    + its activations         1.00 GiB                         also transient
+
+  memory held, cached vs not         10.7x more
+```
+
+$16.00 \div (0.50 + 1.00) = 10.67$, which rounds to 10.7.
+
+> **What the 10.7× leaves out.** The uncached side counts one layer's keys and values and one hidden-state vector per token, and nothing else. A real forward pass holds more than that while it runs. The FFN's two intermediate vectors are 14,336 numbers wide in this model, so at 131,072 tokens each one is $131{,}072 \times 14{,}336 \times 2$ bytes $= 3.50$ GiB, and both exist during the recomputation. Counted in, they bring the uncached peak well above 1.50 GiB and the ratio well below 10.7×. The direction of the trade holds, since the cache still holds more memory, but read 10.7× as an upper bound under a simplified accounting rather than as the ratio a real system would show. [Post 2's memory comparison](/posts/llm-architectures-kv-cache/#so-caching-costs-memory) and its [per-token walk-up](/posts/llm-architectures-kv-cache/#what-one-token-costs) are the source of both blocks.
+{: .prompt-warning }
 
 ### References
 
