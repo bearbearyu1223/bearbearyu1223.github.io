@@ -60,11 +60,29 @@ cd llm-architectures-refresher
 uv sync && uv run demo05
 ```
 
-The code is in [`demos/d05_moe.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py). Each receipt below names the function that prints it.
+The code is in [`demos/d05_moe.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py). Every number in this post is printed by that program, and each block of its output, which I call a **receipt**, names the function that printed it.
 
-The model is **OLMoE-1B-7B** from the Allen Institute for AI: [the paper](https://arxiv.org/abs/2409.02060), [the weights](https://huggingface.co/allenai/OLMoE-1B-7B-0924), and [the training code and data](https://github.com/allenai/OLMoE). The name decodes piece by piece: **OLMo** is Ai2's family of fully open language models (*Open Language Model*), the **E** is for *experts*, and **1B-7B** means about 1 billion parameters active per token out of about 7 billion in total. The full release name adds **0924**, for September 2024. Both counts are rounded, and [§1](#where-the-parameters-actually-are) measures them exactly: 6.92B in total, and 1.18B active, or 1.28B if you also count the embedding table a token is looked up in. The choice of model was not casual. Like [post 4](/posts/llm-architectures-quantization/), this post needs a *trained* checkpoint, because a router with random weights routes nothing in particular — the specialization in §4 is a product of training and does not exist before it. OLMoE is the smallest fully open MoE that fits on a 24 GB laptop ("fully open" meaning its weights, training data, code and logs are all published, per [Muennighoff et al.](https://arxiv.org/abs/2409.02060)), and its layers are the plain form of the mechanism: 64 experts, top-8, and neither of the two common variations. It has no **shared expert** (an extra FFN that every token goes through in addition to its chosen few), and it was not **upcycled** (built by copying a finished dense model's FFN into many experts and continuing training). It was trained sparse from scratch, which turns out to matter for [§4](#what-the-router-learns), for reasons [§9](#how-its-trained) gives. Most open MoE models are tens of billions of parameters in total even when only two or three billion are active, and it is the total that has to fit in memory.
+The model is **OLMoE-1B-7B** from the Allen Institute for AI (Ai2): [the paper](https://arxiv.org/abs/2409.02060), [the weights](https://huggingface.co/allenai/OLMoE-1B-7B-0924), and [the training code and data](https://github.com/allenai/OLMoE).
 
-One break from post 4: this demo runs in **bfloat16**, not fp32. 6.92B parameters is 25.8 GiB in fp32 and does not fit in 24 GB; in bf16 it is 12.9 GiB and does. Every claim here is a count or a ratio, both of which survive that change.
+Its name carries the central idea of this post. **OLMo** is Ai2's family of fully open language models (*Open Language Model*), the **E** stands for *experts*, and **1B-7B** means that about 1 billion parameters are active for each token even though the model holds about 7 billion in total. The full checkpoint name adds **0924**, for its September 2024 release.
+
+Both numbers are rounded, and [§1](#where-the-parameters-actually-are) measures them exactly: 6.92B parameters exist, and 1.18B of them are active for a token, or 1.28B if you also count the embedding table the token is looked up in. That gap, between the parameters that exist and the parameters that run, is what this post is about.
+
+#### Why this model?
+
+The choice was not casual. Like [post 4](/posts/llm-architectures-quantization/), this post needs a trained checkpoint. A router with random weights has learned nothing about where to send tokens, so the routing behaviour [§4](#what-the-router-learns) examines only exists after training; the architecture alone does not produce it.
+
+OLMoE suits the experiment for two reasons. The first is that it is **fully open**: its weights, training data, code and training logs are all published ([Muennighoff et al.](https://arxiv.org/abs/2409.02060)), along with intermediate checkpoints saved partway through training. That makes it possible to study how its routing developed and not only where it ended up, although this post measures only the finished model.
+
+The second is that it is a clean version of the mechanism. Each layer has 64 experts and sends each token to 8 of them, with neither of the two common variations. There is no **shared expert**, an extra FFN that every token passes through regardless of routing, and the model was not **upcycled**, which means built by copying a trained dense model's FFN into many experts and continuing training from there. OLMoE was trained sparse from scratch. That turns out to matter for what its router learned in §4, and [§9](#how-its-trained) comes back to why.
+
+There is also a practical reason: it fits on the machine running these experiments. Many open MoE models hold tens of billions of parameters even when only two or three billion are active per token. Sparse activation reduces the computation each token needs, but it does not remove the inactive parameters from memory, so for inference the whole model still has to fit somewhere.
+
+#### Why bfloat16?
+
+That leads to one deliberate break from post 4: this demo loads the model in **bfloat16** (bf16), which stores each number in 2 bytes, rather than fp32, which uses 4. At 6.92B parameters the weights alone come to 25.8 GiB in fp32, more than this laptop's 24 GiB of memory, and to 12.9 GiB in bf16, which fits.
+
+This is less of a compromise than it sounds, because bf16 is the precision OLMoE was released in. Its published configuration lists `bfloat16`, so the demo runs the model as its authors ship it rather than a reduced copy. The two kinds of number in this post are affected differently, though. Parameter counts, and everything derived from them, do not depend on precision at all. Routing measurements, such as which experts a token picks and with what weights, come from a forward pass run in bf16, so an fp32 run could move their last digits. The fp32 model does not fit on this machine, so that comparison is not made here.
 
 ### Table of Contents
 
