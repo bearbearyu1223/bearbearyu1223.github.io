@@ -13,7 +13,7 @@ pin: true
 
 ## A model that mostly declines to run
 
-[Post 1](/posts/llm-architectures-attention-and-rope/) took a transformer block apart and put a cost on every piece. One finding from it matters more here than anything else: the **feed-forward network** holds more of a model's parameters than attention does. (The feed-forward network, or FFN, is the per-token stack of two or three matrix multiplies that sits after attention in every block. Attention is where tokens look at each other; the FFN is where each token is transformed on its own. You will also see it called the **MLP**, which is the same thing under a different name; OLMoE's own code calls it `mlp`.)
+[Post 1](/posts/llm-architectures-attention-and-rope/) took a transformer block apart and put a cost on every piece. One finding from it matters more here than anything else: the **feed-forward network** holds more of a model's parameters than attention does. (The feed-forward network, or FFN, is the per-token stack of two or three matrix multiplies that sits after attention in every block. Attention is where tokens look at each other; the FFN is where each token is transformed on its own. You will also see it called the **MLP**, short for *multi-layer perceptron*. A perceptron is the earliest artificial neuron, a weighted sum followed by a threshold; a multi-layer one stacks layers of weights with a nonlinearity between them, which is exactly the shape of this block. The original transformer paper named it a feed-forward network, while most model code, OLMoE's included, names it `mlp`. They are the same component, and this post calls it the FFN.)
 
 The three posts since then each cut one of three costs of running a trained model: **how much arithmetic** it does, **how much memory** it holds, and **how many bytes** it has to move around inside the hardware while doing that arithmetic. Two of them did it without changing the model's output. The third changed the output on purpose, and measured by how much.
 
@@ -78,7 +78,7 @@ A **mixture-of-experts** layer replaces one FFN with many smaller ones, called *
 - **The router costs almost nothing.** One matrix per layer, 64 rows each 2,048 wide, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE does not renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
 - **The router does specialize, and it is measurable rather than folklore.** Two halves of the *same* passage route differently by 0.216; the three pairs of different text average 0.554, **2.56×** that noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
-- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.16×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
+- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.23×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
 - **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9** ([§6](#sparsity-and-batching)). That is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
 - **Nothing keeps the experts equally busy on its own.** The busiest expert in layer 0 takes **5.71×** an even share, and four experts in the last layer go unused by the test passage ([§8](#load-balance)).
@@ -92,8 +92,8 @@ Start with the question [post 4](/posts/llm-architectures-quantization/) opened 
 
 For quantization the answer was "nearly all of it, a bit at a time." For mixture-of-experts the answer is that it touches exactly one component, the FFN, and replaces it with sixty-four smaller ones.
 
-![A dense block against an MoE block: one MLP becomes 64 experts with a router in front, and 8 are lit for this token](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/moe-block-light.png){: .light width="1000" height="539" }
-![A dense block against an MoE block: one MLP becomes 64 experts with a router in front, and 8 are lit for this token](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/moe-block-dark.png){: .dark width="1000" height="539" }
+![A dense block against an MoE block: one FFN becomes 64 experts with a router in front, and 8 are lit for this token](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/moe-block-light.png){: .light width="1000" height="539" }
+![A dense block against an MoE block: one FFN becomes 64 experts with a router in front, and 8 are lit for this token](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/moe-block-dark.png){: .dark width="1000" height="539" }
 
 Attention is untouched. The eight filled squares are the experts this post's own demo routed the word `' harbour'` to in layer 0, so the picture and [§3](#one-token-routed)'s table are the same measurement.
 
@@ -355,17 +355,17 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         430.8     1.00x
-  64                        931.6     2.16x
+  8                         413.3     1.00x
+  64                        922.0     2.23x
 
   expert FLOPs ratio (64/8)          8x
-  measured wall-clock ratio          2.16x
+  measured wall-clock ratio          2.23x
     below 8x because attention, norms and the LM head are unchanged
 ```
 
-Eight times the expert arithmetic costs 2.16× the wall clock, and zero extra bytes of weights.
+Eight times the expert arithmetic costs 2.23× the wall clock, and zero extra bytes of weights.
 
-Both halves of that deserve a note. The **2.16× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.16× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
+Both halves of that deserve a note. The **2.23× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.23× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
 
 Unlike every other number in this post, this one is a wall-clock measurement and it moves a little from run to run; the counts and ratios elsewhere do not. And the top-64 row is a measurement of **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes; it is a timing experiment, not a quality one.
 
@@ -531,7 +531,7 @@ Half of that is right, which is what makes it dangerous.
 
 **1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident — **12.9 GiB** in bf16 — because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
-**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.16×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
+**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.23×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
 
 **3. And say why the memory does not improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
