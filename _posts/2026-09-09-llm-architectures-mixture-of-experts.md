@@ -129,7 +129,7 @@ For quantization the answer was "nearly all of it, a bit at a time." For mixture
 
 Attention is untouched. The eight filled squares are the experts this post's own demo routed the word `' harbour'` to in layer 0, so the picture and [§3](#one-token-routed)'s table are the same measurement.
 
-Counting the parameters by role (`where_the_parameters_are`):
+Counting the parameters by role ([`where_the_parameters_are`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   role          parameters   share
@@ -156,7 +156,7 @@ Counting the parameters by role (`where_the_parameters_are`):
 
 Every number in that table comes from multiplying out the shapes of the model's weights, and it is worth doing once by hand, because this is where "7B total, 1B active" stops being a slogan. A **parameter** is one learned number. A matrix of $R$ rows, each $W$ numbers wide, holds $R \times W$ of them, and a vector of length $W$ holds $W$.
 
-Start with a single layer. These are all of layer 0's weights, read straight from the checkpoint rather than from its configuration file, so the arithmetic is checked against what is actually stored (`derive_the_census`):
+Start with a single layer. These are all of layer 0's weights, read straight from the checkpoint rather than from its configuration file, so the arithmetic is checked against what is actually stored ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   tensor                             shape   parameters
@@ -177,7 +177,7 @@ Reading down it:
 - **The experts** are stored as two stacked tensors whose first dimension, 64, has one entry per expert. Each expert is a [SwiGLU](/posts/llm-architectures-attention-and-rope/) FFN with three matrices. Its *gate* and *up* projections are each 1,024 rows × 2,048 wide, and the checkpoint stores them together as `gate_up_proj`, so one expert's share is 2,048 rows × 2,048 wide. Its *down* projection, `down_proj`, is 2,048 rows × 1,024 wide. One expert therefore holds $2{,}048 \times 2{,}048 + 2{,}048 \times 1{,}024 = 6{,}291{,}456$ parameters, which is the **6.29M** in the table. The 1,024 is the expert's width, *half* the model's width, for reasons [below](#why-sixty-four).
 - **The norms** are two vectors of 2,048 numbers, one before attention and one before the FFN.
 
-Every one of the 16 layers is the same size, which the demo checks, so each role's total is its per-layer count times 16, plus anything that sits outside the layers:
+Every one of the 16 layers is the same size, which the demo checks, so each role's total is its per-layer count times 16, plus anything that sits outside the layers ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   role            per layer           x 16      outside          total
@@ -194,7 +194,7 @@ Every one of the 16 layers is the same size, which the demo checks, so each role
 
 Three pieces sit outside the layers. The **embedding table**, which turns each token into its first vector, is 50,304 rows × 2,048 wide: one row per word in the vocabulary. The **LM head**, which turns the last vector back into a score for every word, has the same shape. Some models tie these two into one shared table, but OLMoE keeps them separate, so both count, and together they are $2 \times 50{,}304 \times 2{,}048 = 206{,}045{,}184$. The **final norm** adds one more vector of 2,048. The roles sum to 6,919,161,856, which equals the checkpoint's own count. Each share in the first table is one role divided by that total; for the experts, $6{,}442{,}450{,}944 \div 6{,}919{,}161{,}856 = 93.1\%$.
 
-**Active** parameters are the ones a single token's arithmetic actually uses:
+**Active** parameters are the ones a single token's arithmetic actually uses ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   part                             parameters
@@ -219,7 +219,7 @@ Attention, the router and the norms run in full for every token. Of the experts,
 
 Nothing so far explains where 64 and 8 came from, and they are worth pulling apart, because they are neither arbitrary nor universal. They are OLMoE's choices. Mixtral used 8 experts and picked 2; Qwen3-30B-A3B uses 128 and picks 8; DeepSeek-V3 uses 256 routed experts and picks 8. The mechanism is the same in all of them; the two numbers are a design decision made per model.
 
-The useful way to read them is that they are not two independent knobs. What a token costs is $k$ multiplied by the width of one expert, and that product is the real budget (`why_this_many_experts`):
+The useful way to read them is that they are not two independent knobs. What a token costs is $k$ multiplied by the width of one expert, and that product is the real budget ([`why_this_many_experts`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   model width (hidden_size)          2048
@@ -234,7 +234,7 @@ The useful way to read them is that they are not two independent knobs. What a t
 
 An ordinary dense FFN is conventionally about **4× the model width**, and the dense sibling from the same lab, [OLMo-2-1B](https://huggingface.co/allenai/OLMo-2-0425-1B), has exactly that: hidden 2,048, FFN width 8,192. OLMoE's eight chosen experts come to `8 × 1024 = 8192`, which is **the same number**. Per token it does precisely as much feed-forward arithmetic as the dense model of its shape. What it adds is the other 56 experts, which is why it holds **8×** the FFN capacity for the same per-token cost.
 
-So $k$ is set by the compute you are willing to spend, and the expert count is set by the capacity you want. That leaves one genuine question: given a fixed budget on both, do you want a few wide experts or many narrow ones?
+So $k$ is set by the compute you are willing to spend, and the expert count is set by the capacity you want. That leaves one genuine question: given a fixed budget on both, do you want a few wide experts or many narrow ones? Holding both budgets fixed and varying only how finely they are cut ([`why_this_many_experts`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   experts  each of width  used per token  possible combinations
@@ -262,7 +262,7 @@ Something has to choose the eight. That something is the **router** (also called
   everything else (bf16)             12.88 GiB
 ```
 
-From `the_router_is_tiny`. Sixteen matrices, one per layer. Each has **64 rows, one per expert, and each row is 2,048 numbers wide** — the same width as a token's vector, because scoring an expert is a dot product against the token. That is 2.10M parameters in total, **4.0 MiB** in bf16 against **12.88 GiB** for everything else. Three hundredths of one percent of the model decides how the rest of it is spent, on every token, at every layer.
+From [`the_router_is_tiny`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py). Sixteen matrices, one per layer. Each has **64 rows, one per expert, and each row is 2,048 numbers wide** — the same width as a token's vector, because scoring an expert is a dot product against the token. That is 2.10M parameters in total, **4.0 MiB** in bf16 against **12.88 GiB** for everything else. Three hundredths of one percent of the model decides how the rest of it is spent, on every token, at every layer.
 
 That asymmetry is where the risk in this architecture lives. A router that chooses badly does not merely lose a little accuracy; it wastes the capacity the other 93% of the parameters represent. [§8](#load-balance) is about what happens when it chooses lopsidedly, and why training has to actively push against that.
 
@@ -289,7 +289,7 @@ $$z = W_r\,x \qquad p = \mathrm{softmax}(z) \qquad \mathcal{K} = \operatorname*{
 
 Read left to right: score every expert, turn the scores into probabilities, keep the eight highest, run only those eight, and add their outputs together weighted by how strongly the router wanted each one.
 
-Taking the word `' harbour'` at layer 0 (`one_token_routed`):
+Taking the word `' harbour'` at layer 0 ([`one_token_routed`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   token                              1 = ' harbour'
@@ -319,7 +319,7 @@ The last line is the part most explanations skip. The softmax runs over all 64 e
 
 This is a real design choice with a name in the config, `norm_topk_prob`, and models differ on it. Setting it true would divide the eight weights by their sum so they add to 1, making every token's expert mixture equally strong. Leaving it false, as here, lets the router express *confidence*: a token whose top eight experts are all strongly wanted gets a larger contribution from this layer than a token the router is ambivalent about.
 
-Routing happens independently at every layer, which is easy to miss (`routing_depth_profile`):
+Routing happens independently at every layer, which is easy to miss ([`routing_depth_profile`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   layer  top-1 expert  its weight  kept total  share
@@ -378,7 +378,7 @@ The honest way to ask is to route three passages of clearly different character 
 
 Here is where it would be easy to go wrong. Any two finite samples differ, even when drawn from the same source. A hundred tokens of prose will not use the experts in exactly the same proportions as another hundred tokens of the same prose, so a nonzero distance between prose and code proves nothing on its own. **The number needs a noise floor.**
 
-So the demo splits each passage in half and measures the distance between the two halves of the *same* text. That is what sampling noise looks like. Every other row is read against it (`what_the_router_learns`):
+So the demo splits each passage in half and measures the distance between the two halves of the *same* text. That is what sampling noise looks like. Every other row is read against it ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   comparison           layer 0  layer 8  layer 15   mean
@@ -395,7 +395,7 @@ So the demo splits each passage in half and measures the distance between the tw
 
 Expert choice clearly depends on the kind of text. Two halves of one passage differ by 0.216; two different kinds of text differ by 0.554, **2.56×** as much.
 
-The more interesting structure is in the columns. Averaging the three cross-domain rows at each depth and setting them against the floor:
+The more interesting structure is in the columns. Averaging the three cross-domain rows at each depth and setting them against the floor ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   noise floor, first layer           0.240
@@ -411,7 +411,7 @@ At layer 0 the cross-domain distance is 0.400 against a noise floor of 0.240, a 
 
 The top two rows are the same prose passage split in half; the bottom two are code and mathematics. The comparison to make by eye is row 1 against row 2 (noise) versus row 1 against row 3 (signal).
 
-Individual experts do lean hard (`what_the_router_learns`):
+Individual experts do lean hard ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   most code-leaning expert (layer 15) 17
@@ -438,7 +438,7 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 
 **Memory is billed on total parameters.** Every expert has to be resident, because the router decides at run time and any token might want any of them. There is no subset you could have left on disk. That is **12.89 GiB** in bf16 for a model whose name starts with "1B".
 
-**Time is billed on active parameters**, and the cleanest way to show it is to change nothing but $k$. (The output below says **FLOPs**, floating-point operations: a count of the individual multiplies and adds the model performs, independent of how fast any particular chip gets through them.) Same weights, same memory, same everything — route to all 64 experts instead of 8 and measure (`two_bills`):
+**Time is billed on active parameters**, and the cleanest way to show it is to change nothing but $k$. (The output below says **FLOPs**, floating-point operations: a count of the individual multiplies and adds the model performs, independent of how fast any particular chip gets through them.) Same weights, same memory, same everything — route to all 64 experts instead of 8 and measure ([`two_bills`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   experts per token  forward (ms)  vs top-8
@@ -466,7 +466,7 @@ Here is the result that reframes everything above, and the one I found least obv
 
 Every claim so far has been about *one token*. One token uses 8 of 64 experts. But nothing is served one token at a time — you process a prompt of hundreds of tokens at once, and you batch requests from many users together. So the question that decides real cost is: how many *distinct* experts does a group of tokens need between them?
 
-Each token picks its own 8. If two tokens pick differently, the hardware has to touch the union of their choices. Counting that union over every window of a given size in a 356-token passage (`batch_collapse`):
+Each token picks its own 8. If two tokens pick differently, the hardware has to touch the union of their choices. Counting that union over every window of a given size in a 356-token passage ([`batch_collapse`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   tokens together  experts needed  of 64  expert-slots used
@@ -501,7 +501,7 @@ There are two ways to split a transformer, and MoE makes the second one natural.
 
 The catch follows directly from [§6](#sparsity-and-batching). Routing is per token, and a token's eight experts are wherever the router says they are. If those eight live on five different GPUs, that token has to be sent to five GPUs and its results gathered back — for every layer, for every token. That exchange is the **all-to-all**, and it is one of the central engineering problems in serving MoE models.
 
-How much traffic that is depends entirely on how scattered the routing is, which is measurable from the routing indices alone (`experts_across_gpus`):
+How much traffic that is depends entirely on how scattered the routing is, which is measurable from the routing indices alone ([`experts_across_gpus`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   GPUs  experts each  GPUs per token  of all  tokens needing all
@@ -539,7 +539,7 @@ One more consequence of letting a learned component do the choosing: nothing mak
 
 There is a degenerate outcome sitting in this architecture. If the router slightly prefers a few experts early in training, those experts get more of the **gradient** — the signal that says which way to nudge each weight to reduce the error — so they improve faster, get preferred more strongly, and the rest starve. You would end up paying for 64 experts and effectively training a handful.
 
-Measuring the spread over 2848 routing slots per layer (`load_balance`). The last column is the **coefficient of variation**, the standard deviation of expert usage divided by its mean: a scale-free measure of unevenness where 0 is perfectly even and around 1.0 means the spread between experts is about as large as the average usage itself.
+Measuring the spread over 2848 routing slots per layer ([`load_balance`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)). The last column is the **coefficient of variation**, the standard deviation of expert usage divided by its mean: a scale-free measure of unevenness where 0 is perfectly even and around 1.0 means the spread between experts is about as large as the average usage itself.
 
 ```text
   layer  busiest  quietest  busiest vs even  coeff of var
@@ -679,7 +679,7 @@ The setup is a 64-token prompt, after which the model writes 512 new tokens one 
 
 $$\sum_{i=0}^{511} (64 + i) \;=\; \underbrace{512 \times 64}_{\text{the prompt, redone 512 times}} + \underbrace{(0 + 1 + \dots + 511)}_{\text{the tokens written so far}} \;=\; 32{,}768 + 130{,}816 \;=\; 163{,}584$$
 
-The second term uses the fact that $0 + 1 + \dots + 511 = \frac{511 \times 512}{2}$. Dividing, $163{,}584 \div 576 = 284$ (`quadratic_growth`):
+The second term uses the fact that $0 + 1 + \dots + 511 = \frac{511 \times 512}{2}$. Dividing, $163{,}584 \div 576 = 284$ ([`quadratic_growth`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d02_kv_cache.py)):
 
 ```text
   tokens processed at n=512 (cached) 576
@@ -693,7 +693,7 @@ This is a count of tokens processed, not a measurement of speed. Post 2 also tim
 
 This one uses Llama 3.1 8B's shape: **32 layers**, **8 key/value heads** per layer, each key and each value **128 numbers** long, and **2 bytes** per number. "128k tokens" is 131,072 tokens exactly, which is $2^{17}$.
 
-**One token's cache** is one key and one value for every head in every layer (`cache_arithmetic`):
+**One token's cache** is one key and one value for every head in every layer ([`cache_arithmetic`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d02_kv_cache.py)):
 
 ```text
   what                      count   running total
@@ -707,7 +707,7 @@ This one uses Llama 3.1 8B's shape: **32 layers**, **8 key/value heads** per lay
 
 **With a cache**, that is kept for every token in the conversation, for all 32 layers at once: $128 \text{ KiB} \times 131{,}072 = 16.00$ GiB.
 
-**Without a cache**, the same keys and values are still computed at every step, but each layer's are thrown away as soon as the layer finishes. So at most one layer's worth exists at a time, which is $16.00 \div 32 = 0.50$ GiB. Alongside it sit the tokens' hidden states: one vector per token, each as long as the model is wide (4,096 numbers for this model), so $131{,}072 \times 4{,}096 \times 2$ bytes $= 1.00$ GiB. The comparison divides one by the other (`cache_arithmetic`):
+**Without a cache**, the same keys and values are still computed at every step, but each layer's are thrown away as soon as the layer finishes. So at most one layer's worth exists at a time, which is $16.00 \div 32 = 0.50$ GiB. Alongside it sit the tokens' hidden states: one vector per token, each as long as the model is wide (4,096 numbers for this model), so $131{,}072 \times 4{,}096 \times 2$ bytes $= 1.00$ GiB. The comparison divides one by the other ([`cache_arithmetic`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d02_kv_cache.py)):
 
 ```text
   approach             K/V memory held                           for how long
