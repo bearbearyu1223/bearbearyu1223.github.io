@@ -145,16 +145,72 @@ Counting the parameters by role (`where_the_parameters_are`):
   experts used per token             8
   parameters in one expert           6.29M
   total parameters                   6.919B
-  active parameters per token        1.177B
+  active parameters per token        1.179B
   active share                       17.0%
 ```
 
 ![Where OLMoE-1B-7B's 6.9B parameters live: a single bar, 93.1% of it experts](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/weight-census-light.png){: .light width="1000" height="317" }
 ![Where OLMoE-1B-7B's 6.9B parameters live: a single bar, 93.1% of it experts](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/weight-census-dark.png){: .dark width="1000" height="317" }
 
-Those numbers are checkable from the model's published configuration without downloading a single weight, which is a good habit for any "model X has shape Y" claim. OLMoE has 16 layers, a model width of 2048, an expert width of 1024, and 64 experts per layer. Each expert is a [SwiGLU](/posts/llm-architectures-attention-and-rope/) FFN — the three-matrix form of feed-forward network post 1 pulled apart, where two matrices project the token into the expert's own width (1,024 here, which is *half* the model width, for reasons [below](#why-sixty-four)) and a third brings it back to 2,048 — so it holds $3 \times 2048 \times 1024 = 6{,}291{,}456$ parameters, which is the **6.29M** printed above. Multiply by 64 experts and 16 layers and you get 6.442B, and adding attention, embeddings and norms lands on 6.919B against the 6.92B the checkpoint reports.
+#### Where each of those numbers comes from {#deriving-the-census}
 
-The **active** count is the same arithmetic with 8 experts in place of 64: 8 experts × 6.29M × 16 layers is 0.805B, plus attention, the norms and the LM head, giving 1.177B. That ratio, **17.0%**, is the number the design exists to produce.
+Every number in that table comes from multiplying out the shapes of the model's weights, and it is worth doing once by hand, because this is where "7B total, 1B active" stops being a slogan. A **parameter** is one learned number. A matrix of $R$ rows, each $W$ numbers wide, holds $R \times W$ of them, and a vector of length $W$ holds $W$.
+
+Start with a single layer. These are all of layer 0's weights, read straight from the checkpoint rather than from its configuration file, so the arithmetic is checked against what is actually stored (`derive_the_census`):
+
+```text
+  tensor                             shape   parameters
+  -------------------------------------------------------
+  q, k, v, o projections  4 x (2048, 2048)   16,777,216
+  q_norm, k_norm                2 x (2048)        4,096
+  router                        (64, 2048)      131,072
+  experts: gate_up_proj   (64, 2048, 2048)  268,435,456
+  experts: down_proj      (64, 2048, 1024)  134,217,728
+  two layer norms               2 x (2048)        4,096
+  one layer                                 419,569,664
+```
+
+Reading down it:
+
+- **Attention** is four square matrices, each 2,048 rows × 2,048 wide: the query, key, value and output projections that [post 1](/posts/llm-architectures-attention-and-rope/) walked through, $4 \times 2{,}048 \times 2{,}048 = 16{,}777{,}216$. OLMoE also normalizes its queries and keys before comparing them, which adds two vectors of 2,048 numbers (`q_norm` and `k_norm`). Those 4,096 extra parameters per layer are why attention prints as 0.269B rather than the 0.268B that the four matrices alone would give.
+- **The router** is one matrix of 64 rows, one per expert, each 2,048 wide: $64 \times 2{,}048 = 131{,}072$.
+- **The experts** are stored as two stacked tensors whose first dimension, 64, has one entry per expert. Each expert is a [SwiGLU](/posts/llm-architectures-attention-and-rope/) FFN with three matrices. Its *gate* and *up* projections are each 1,024 rows × 2,048 wide, and the checkpoint stores them together as `gate_up_proj`, so one expert's share is 2,048 rows × 2,048 wide. Its *down* projection, `down_proj`, is 2,048 rows × 1,024 wide. One expert therefore holds $2{,}048 \times 2{,}048 + 2{,}048 \times 1{,}024 = 6{,}291{,}456$ parameters, which is the **6.29M** in the table. The 1,024 is the expert's width, *half* the model's width, for reasons [below](#why-sixty-four).
+- **The norms** are two vectors of 2,048 numbers, one before attention and one before the FFN.
+
+Every one of the 16 layers is the same size, which the demo checks, so each role's total is its per-layer count times 16, plus anything that sits outside the layers:
+
+```text
+  role            per layer           x 16      outside          total
+  ----------------------------------------------------------------------
+  experts       402,653,184  6,442,450,944               6,442,450,944
+  attention      16,781,312    268,500,992                 268,500,992
+  router            131,072      2,097,152                   2,097,152
+  norms               4,096         65,536        2,048         67,584
+  embed + head                              206,045,184    206,045,184
+  TOTAL                                                  6,919,161,856
+  embedding and LM head tied?        no
+  equals the checkpoint's count?     yes
+```
+
+Three pieces sit outside the layers. The **embedding table**, which turns each token into its first vector, is 50,304 rows × 2,048 wide: one row per word in the vocabulary. The **LM head**, which turns the last vector back into a score for every word, has the same shape. Some models tie these two into one shared table, but OLMoE keeps them separate, so both count, and together they are $2 \times 50{,}304 \times 2{,}048 = 206{,}045{,}184$. The **final norm** adds one more vector of 2,048. The roles sum to 6,919,161,856, which equals the checkpoint's own count. Each share in the first table is one role divided by that total; for the experts, $6{,}442{,}450{,}944 \div 6{,}919{,}161{,}856 = 93.1\%$.
+
+**Active** parameters are the ones a single token's arithmetic actually uses:
+
+```text
+  part                             parameters
+  ---------------------------------------------
+  8 of 64 experts, x 16 layers    805,306,368
+  attention, all of it            268,500,992
+  router, scores all experts        2,097,152
+  norms                                67,584
+  LM head, a full multiply        103,022,592
+  embedding table, a lookup       not counted
+  active total                  1,178,994,688
+  active share of total              17.04%
+  active if the lookup is counted    1.28B
+```
+
+Attention, the router and the norms run in full for every token. Of the experts, only 8 of 64 run in each layer, so the expert term is $8 \times 6{,}291{,}456 \times 16$. The LM head is a full matrix multiply, so it counts. The embedding table does not, because a token enters it by *lookup*: the model reads out one row by position, which multiplies nothing. Counting it anyway gives 1.28B. Either way, the result is the **17.0%** that the design exists to produce.
 
 > **"1B active, 7B total"** is what the model's name means, and it is two different measurements of the same object. Neither is a lie and neither is sufficient on its own. Which one you should care about depends entirely on whether you are buying memory or buying time, which is [§5](#two-bills).
 {: .prompt-info }
@@ -387,8 +443,8 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         422.1     1.00x
-  64                        918.0     2.17x
+  8                         428.5     1.00x
+  64                        927.8     2.17x
 
   expert FLOPs ratio (64/8)          8x
   measured wall-clock ratio          2.17x
@@ -590,7 +646,7 @@ Every symbol this post uses, in one place. [Post 1's appendix](/posts/llm-archit
 | $\mathcal{K}$ | the set of experts that survive the top-k cut | 8 of 64 |
 | $\text{FFN}_e$ | expert $e$ — an ordinary SwiGLU feed-forward network | 6.29M parameters |
 | total parameters | every weight in the model, all of which must be resident | 6.919B |
-| active parameters | the weights that multiply for one token | 1.177B (17.0%) |
+| active parameters | the weights one token's arithmetic uses | 1.179B (17.0%) |
 | `norm_topk_prob` | whether the kept weights are rescaled to sum to 1 | false in OLMoE |
 | TV distance | **total variation** — half the summed absolute difference between two distributions; 0 is identical, 1 is disjoint | floor 0.216, cross-domain 0.554 |
 | coeff of var | standard deviation over mean, a scale-free measure of unevenness | 0.88 to 1.07 |
