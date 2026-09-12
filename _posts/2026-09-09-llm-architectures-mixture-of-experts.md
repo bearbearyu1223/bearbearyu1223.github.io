@@ -17,7 +17,7 @@ pin: true
 
 The three posts since then all tried to make a model cheaper without changing what it computes, or while admitting exactly what they changed.
 
-[Post 2](/posts/llm-architectures-kv-cache/) removed work that was being *repeated*, caching keys and values instead of recomputing them at every generation step: a **284×** cut in repeated compute, paid for with **10.7× more memory held**. [Post 3](/posts/llm-architectures-flash-attention/) removed work that was being *written down and fetched back*, computing attention one tile at a time to move **3.9× fewer bytes**, landing on the same answer to about **1e-6** — the size of disagreement you get from summing in a different order. [Post 4](/posts/llm-architectures-quantization/) stopped being exact on purpose, storing each weight in fewer bits for a **2.17×** shrink, and spent most of its length on the fact that the usual quality check cannot see what that breaks.
+[Post 2](/posts/llm-architectures-kv-cache/) removed work that was being *repeated*, caching keys and values instead of recomputing them at every generation step: a **284×** cut in repeated compute, paid for with **10.7× more memory held**. [Post 3](/posts/llm-architectures-flash-attention/) removed work that was being *written down and fetched back*, computing attention one tile at a time to move **3.9× fewer bytes**, landing on the same answer to about **1e-6** — the size of disagreement you get from summing in a different order. [Post 4](/posts/llm-architectures-quantization/) stopped being exact on purpose, storing each weight in fewer bits for a **2.16×** shrink, and spent most of its length on the fact that the usual quality check cannot see what that breaks.
 
 Every one of those works on the model you already have. **Mixture-of-experts is a different kind of move: it changes what gets built.**
 
@@ -77,8 +77,8 @@ A **mixture-of-experts** layer replaces one FFN with many copies of it, called *
 - **The experts are essentially the model.** 93.1% of OLMoE's parameters are experts, against 3.9% for attention. A token activates 17.0% of the total ([§1](#where-the-parameters-actually-are)).
 - **The router costs almost nothing.** One 64×2048 matrix per layer, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE does not renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
-- **The router does specialize, and it is measurable rather than folklore.** Two halves of the *same* passage route differently by 0.216; prose against code differs by 0.731, **2.17×** the noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
-- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.17×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
+- **The router does specialize, and it is measurable rather than folklore.** Two halves of the *same* passage route differently by 0.216; prose against code differs by 0.731, **2.16×** the noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
+- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.16×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
 - **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9** ([§6](#sparsity-and-batching)). This is the single most useful fact in the post, and it is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
 - **Nothing keeps the experts equally busy on its own.** The busiest expert in layer 0 takes **5.71×** an even share while four experts go completely unused ([§8](#load-balance)).
@@ -286,7 +286,7 @@ Now the question everyone asks, and the one where it is easiest to fool yourself
 
 The folk story is that experts specialize — one handles code, one handles French, one handles punctuation. It is an appealing story, and it is the reason the word "expert" was chosen. So: is it true?
 
-The honest way to ask is to route three passages of clearly different character (English prose, Python, and a paragraph of group theory), then measure how differently they use the experts. The measure is **total variation distance**, which for two distributions over the same 64 experts is half the sum of the absolute differences between them. It runs from 0, meaning the two used the experts identically, to 1, meaning they shared no expert at all.
+The honest way to ask is to route three passages of clearly different character (English prose, Python, and a paragraph of group theory), then measure how differently they use the experts. Each token makes 8 expert picks per layer, and this post calls each pick a **routing slot**: a 94-token passage fills 752 slots at every layer, and a passage's *expert usage* is the share of those slots each expert received. The measure is **total variation distance**, which for two distributions over the same 64 experts is half the sum of the absolute differences between them. It runs from 0, meaning the two used the experts identically, to 1, meaning they shared no expert at all.
 
 Here is where it would be easy to go wrong. Any two finite samples differ, even when drawn from the same source. A hundred tokens of prose will not use the experts in exactly the same proportions as another hundred tokens of the same prose, so a nonzero distance between prose and code proves nothing on its own. **The number needs a noise floor.**
 
@@ -305,7 +305,7 @@ So the demo splits each passage in half and measures the distance between the tw
   cross-domain over noise floor      2.56x
 ```
 
-The specialization is real. Two halves of one passage differ by 0.216; two different kinds of text differ by 0.554, **2.17×** as much.
+The specialization is real. Two halves of one passage differ by 0.216; two different kinds of text differ by 0.554, **2.16×** as much.
 
 The more interesting structure is in the columns. Averaging the three cross-domain rows at each depth and setting them against the floor:
 
@@ -318,8 +318,8 @@ The more interesting structure is in the columns. Averaging the three cross-doma
 
 At layer 0 the cross-domain distance is 0.400 against a noise floor of 0.240, a ratio of only 1.7, so early routing is barely about content at all. By layer 15 it is 0.652 against a floor of 0.173, a ratio of 3.8. **The noise floor falls with depth while the cross-domain distance rises**, which is two separate signs of the same thing: deep routing is consistent within a kind of text and sharply different between kinds. Early layers route on something much closer to surface form.
 
-![The same 64 experts used differently by different text, with two halves of one passage on top as the noise floor](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/specialization-light.png){: .light width="1000" height="349" }
-![The same 64 experts used differently by different text, with two halves of one passage on top as the noise floor](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/specialization-dark.png){: .dark width="1000" height="349" }
+![The same 64 experts used differently by different text, with two halves of one passage on top as the noise floor](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/specialization-light.png){: .light width="1000" height="382" }
+![The same 64 experts used differently by different text, with two halves of one passage on top as the noise floor](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/specialization-dark.png){: .dark width="1000" height="382" }
 
 The top two rows are the same prose passage split in half; the bottom two are code and mathematics. The comparison the eye should make is row 1 against row 2 (noise) versus row 1 against row 3 (signal), which is why the noise pair is in the figure rather than described in a caption.
 
@@ -355,17 +355,17 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         430.1     1.00x
-  64                        932.1     2.17x
+  8                         430.8     1.00x
+  64                        931.6     2.16x
 
   expert FLOPs ratio (64/8)          8x
-  measured wall-clock ratio          2.17x
+  measured wall-clock ratio          2.16x
     below 8x because attention, norms and the LM head are unchanged
 ```
 
-Eight times the expert arithmetic costs 2.17× the wall clock, and zero extra bytes of weights.
+Eight times the expert arithmetic costs 2.16× the wall clock, and zero extra bytes of weights.
 
-Both halves of that deserve a note. The **2.17× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.17× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
+Both halves of that deserve a note. The **2.16× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.16× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
 
 Unlike every other number in this post, this one is a wall-clock measurement and it moves a little from run to run; the counts and ratios elsewhere do not. And the top-64 row is a measurement of **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes; it is a timing experiment, not a quality one.
 
@@ -399,7 +399,7 @@ Each token picks its own 8. If two tokens pick differently, the hardware has to 
 
 Eight tokens already need half the experts. Two hundred and fifty-six need **60.9 of 64**, which is 95%.
 
-So the sparsity that makes an MoE cheap is a property of a *token*, and it evaporates the moment you process tokens together. At any realistic batch size, essentially every expert is needed by somebody, which is exactly why all of them must be resident. The dotted line on the chart is the worst case where no two tokens ever agree; the measured curve sits below it, which is [§4](#what-the-router-learns)'s specialization showing up again as tokens genuinely sharing experts. It is not far enough below to change the conclusion.
+So the sparsity that makes an MoE cheap is a property of a *token*, and it evaporates the moment you process tokens together. At any realistic batch size, essentially every expert is needed by somebody, which is exactly why all of them must be resident. The dotted line on the chart is the worst case, where no two tokens ever share an expert; it reaches all 64 by eight tokens and stops there. It is not far enough below to change the conclusion.
 
 This resolves the apparent paradox in the name. **An MoE saves arithmetic, not memory.** Per token, 17% of the parameters multiply. Per batch, essentially 100% of them have to be in RAM and get read. Post 2's lesson is worth recalling here: generating a token is limited by memory bandwidth rather than arithmetic, which is precisely the resource an MoE does *not* economize on.
 
@@ -531,7 +531,7 @@ Half of that is right, which is what makes it dangerous.
 
 **1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident — **12.9 GiB** in bf16 — because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
-**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.17×** the wall clock, because attention and the LM head do not scale with $k$. Which side of that you land on depends on sequence length and batch size.
+**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.16×** the wall clock, because attention and the LM head do not scale with $k$. Which side of that you land on depends on sequence length and batch size.
 
 **3. And say why the memory does not improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
