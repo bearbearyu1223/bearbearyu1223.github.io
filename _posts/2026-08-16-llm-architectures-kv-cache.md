@@ -26,7 +26,7 @@ It turns out that box decides almost everything about what an LLM costs to run. 
 - **A cache exists because every generation step re-asks for what the last one built.** Producing the next token needs a key and a value for every token so far, so each step wants everything the previous one wanted, plus one more. With nowhere to keep them, wanting them again means building them again: three steps build twelve key vectors where only five are distinct. A query is the opposite — made, used once, never wanted again — which is why it's a KV cache, not a QKV cache.
 - **It changes nothing about what the model writes.** Generating with the cache and without it produce identical text, word for word — not merely similar. The cache hands back numbers it already worked out; it never estimates them. So if your cached and uncached output ever differ, that is a bug, not a tradeoff.
 - **Without it, the cost explodes as the text gets longer.** Every step would redo the work of every step before it, so the total grows with the *square* of the length. Writing 512 words after a 64-word prompt means processing 576 tokens with a cache and **163,584** without — a 284× multiplier, all of it work already done once.
-- **It is a bargain, not free money.** You hold roughly 10× the memory to save 200–2000× the compute. What makes the trade worth taking is that the two sides grow at different rates as a conversation gets longer: the memory you spend rises in step with the length, while the work you save rises with its *square*. The longer the conversation, the better the deal.
+- **It is a bargain, not free money.** You hold at most 2× the memory, and hold it for the whole conversation, to save 200–2000× the compute. What makes the trade worth taking is that the two sides grow at different rates as a conversation gets longer: the memory you spend rises in step with the length, while the work you save rises with its *square*. The longer the conversation, the better the deal.
 - **At long context the cache outgrows the model.** A single long conversation on Llama-3-8B needs 16 GiB of cache — against 15 GiB for the model's own learned parameters, its **weights**. One copy of the weights serves everybody, but every conversation brings its own cache — so thirty-two concurrent users at that length need **half a terabyte**, about six 80 GiB GPUs, for a model that fits comfortably on one. "How many users can I serve?" is a KV-cache question, not a model-size question.
 - **You can store far less without computing any less.** Attention runs in parallel lanes called **heads**, and several lanes can share one set of keys and values rather than each keeping its own. Going from 12 sets down to 1 shrinks the cache **12×** while the time per word stays inside a **1.3× band** — which is the entire case for grouped-query attention, now the default in new models.
 - **Generating a token costs about two orders of magnitude more than reading one** — 83× per token here. Reading a prompt and writing a reply both haul the model's entire weights through the chip, but reading spreads that one haul across every token of the prompt at once, while writing pays for it in full, one token at a time. Writing ends up **306× short** of the work-per-byte a chip needs to keep its arithmetic busy, so it spends nearly all its time waiting on memory. No amount of clever code closes a gap that size.
@@ -432,19 +432,27 @@ actually does), or a single one for all of them (**MQA**, multi-query attention)
 
 Yes — and it's worth being explicit about that, because everything so far has made the cache sound like free money. It isn't. **It's a time-memory trade.**
 
-Without a cache you still compute exactly the same keys and values every step. You just throw them away immediately, so they exist only *while that layer is running* — one layer's worth at a time, then freed. The cache keeps all of them, for all 32 layers, alive for the whole conversation:
+Without a cache you still compute exactly the same keys and values every step. You just throw them away immediately, so they exist only *while that layer is running* — one layer's worth at a time, then freed. The cache keeps all of them, for all 32 layers, alive for the whole conversation.
+
+But the keys and values are not the largest thing the uncached path holds. Recomputing them means running all 131,072 tokens back through each layer, and that pass needs working memory of its own. Its largest moment is the FFN, whose gate and up projections each produce 14,336 numbers for every token, and both have to exist at once to be multiplied together:
 
 ```text
-  approach             K/V memory held                           for how long
-  -----------------------------------------------------------------------------
-  with a cache               16.00 GiB  all 32 layers, the whole conversation
-  without a cache             0.50 GiB  one layer, freed as the pass moves on
-    + its activations         1.00 GiB                         also transient
+  approach                 memory held                 made of
+  --------------------------------------------------------------
+  with a cache               16.00 GiB    K/V, 32 layers, kept
+  without: attention step     3.50 GiB  residual, Q, K, V, out
+  without: FFN step           8.00 GiB      residual, gate, up
 
-  memory held, cached vs not         10.7x more
+  peak without a cache, at least     8.00 GiB
+  memory held, cached vs not         at most 2.0x
 ```
 
-So you hold roughly **an order of magnitude more memory** than you otherwise would. What does that buy?
+Each row is 131,072 tokens × a width × 2 bytes. The FFN step is the residual stream (4,096 wide, 1.00 GiB) plus the gate and up outputs (14,336 wide, 3.50 GiB each), 8.00 GiB in all. The attention step, which holds the residual stream, the queries, the keys, the values and attention's output, comes to 3.50 GiB. 8.00 GiB is a floor rather than a peak: it counts only tensors that every implementation must hold at the same moment, so a real run holds at least that much, whatever else it stores. That puts the cache at **at most 2.0×** the memory of recomputing.
+
+> **Correction (2026-09-12).** An earlier version of this section reported **10.7×**. It counted the uncached path as one layer's keys and values plus its hidden states, 1.50 GiB, and left out the FFN's working memory, which is the largest thing that path holds.
+{: .prompt-info }
+
+The ratio is smaller than it first looks, but the two sides differ in a way the ratio hides: the uncached peak is a moment that comes and goes at every step, while the cache is held for as long as the conversation lives. What does holding it buy?
 
 A request costs roughly in proportion to how many tokens the model has to push through itself. With a cache that's the prompt and the reply, once. Without one, it's the entire prefix again on every single step:
 
@@ -457,7 +465,7 @@ A request costs roughly in proportion to how many tokens the model has to push t
   32,768  2,048  34,816  69,204,992          1988x
 ```
 
-**Roughly 10× the memory, for 200–2000× the compute.** And the two sides scale differently: the memory cost grows *linearly* with context, while the compute saving grows *quadratically*. The longer the conversation, the better the bargain looks.
+**At most 2× the memory, for 200–2000× the compute.** And the two sides scale differently: the memory cost grows *linearly* with context, while the compute saving grows *quadratically*. The longer the conversation, the better the bargain looks.
 
 That's why no serving stack ships without a KV cache. It isn't a tuning option you enable for extra throughput — a 2,048-token prompt with a 512-token reply would cost 461× more to serve without it, which is the difference between a viable product and an impossible one.
 

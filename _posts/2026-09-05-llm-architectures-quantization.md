@@ -17,7 +17,7 @@ pin: true
 
 [Post 2](/posts/llm-architectures-kv-cache/) and [post 3](/posts/llm-architectures-flash-attention/) then each removed a cost. They are worth separating, because they spend different currencies.
 
-The **KV cache** removes work that would otherwise be *repeated*. Every generation step needs a key and a value for each earlier token, and without a cache it recomputes all of them — a **284×** multiplier of pure repeated work on post 2's run. Storing them makes that linear instead of quadratic, at a cost of **10.7× more memory held**. The cache spends memory to save compute.
+The **KV cache** removes work that would otherwise be *repeated*. Every generation step needs a key and a value for each earlier token, and without a cache it recomputes all of them — a **284×** multiplier of pure repeated work on post 2's run. Storing them makes that linear instead of quadratic, at a cost of holding **up to 2× more memory** at the peak, for as long as the conversation lasts. The cache spends memory to save compute.
 
 **Flash Attention** removes work that would otherwise be *written down and fetched back*: the $n \times n$ table of every token scored against every other, 2 GiB for one layer at 8k tokens, built in memory only to be normalized and thrown away. Computing it one tile at a time takes that memory from quadratic to constant and moves **3.9× fewer bytes** between the GPU's main memory and the small fast memory beside the arithmetic units. What it does not do is less arithmetic — [the FLOP totals are identical to the digit](/posts/llm-architectures-flash-attention/#where-the-speed-actually-comes-from). It is faster only because attention at long context waits on memory rather than on multiplies.
 
