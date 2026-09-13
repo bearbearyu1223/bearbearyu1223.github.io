@@ -243,7 +243,7 @@ Attention, the router and the norms run in full for every token. Of the experts,
 
 Nothing so far explains where 64 and 8 came from. They are neither arbitrary nor universal: they are OLMoE's choices, set in [its configuration](https://huggingface.co/allenai/OLMoE-1B-7B-0924/blob/main/config.json). Other models choose differently. [Mixtral 8x7B](https://arxiv.org/abs/2401.04088) has 8 experts per layer and picks 2 ([config](https://huggingface.co/mistralai/Mixtral-8x7B-v0.1/blob/main/config.json)). [Qwen3-30B-A3B](https://arxiv.org/abs/2505.09388) has 128 and picks 8 (the Qwen3 Technical Report's Table 2, and its [config](https://huggingface.co/Qwen/Qwen3-30B-A3B/blob/main/config.json)). [DeepSeek-V3](https://arxiv.org/abs/2412.19437) has 256 routed experts plus one shared expert, and picks 8 of the 256 (the DeepSeek-V3 report's §4.2, and its [config](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json)). The mechanism is the same in all of them; the two numbers are a design decision made per model.
 
-The useful way to read them is that they are not two independent knobs. What a token costs is $k$ multiplied by the width of one expert, and that product is the real budget ([`why_this_many_experts`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+The useful way to read them is that they are not two independent knobs. Call the number of experts each token is routed to $k$; for OLMoE, $k = 8$. What a token costs is $k$ multiplied by the width of one expert, and that product is the real budget ([`why_this_many_experts`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   model width (hidden_size)          2048
@@ -258,7 +258,7 @@ The useful way to read them is that they are not two independent knobs. What a t
 
 An ordinary dense FFN is conventionally about **4× the model width**, and the dense sibling from the same lab, [OLMo-2-1B](https://huggingface.co/allenai/OLMo-2-0425-1B), has exactly that: hidden 2,048, FFN width 8,192. OLMoE's eight chosen experts come to `8 × 1024 = 8192`, which is **the same number**. Per token it does precisely as much feed-forward arithmetic as the dense model of its shape. What it adds is the other 56 experts, which is why it holds **8×** the FFN capacity for the same per-token cost.
 
-So $k$ is set by the compute you are willing to spend, and the expert count is set by the capacity you want. That leaves one genuine question: given a fixed budget on both, do you want a few wide experts or many narrow ones? Holding both budgets fixed and varying only how finely they are cut ([`why_this_many_experts`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+So the number of experts per token, $k$, is set by the compute you are willing to spend, and the total number of experts is set by the capacity you want. That leaves one genuine question: given a fixed budget on both, do you want a few wide experts or many narrow ones? Holding both budgets fixed and varying only how finely they are cut ([`why_this_many_experts`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   experts  each of width  used per token  possible combinations
