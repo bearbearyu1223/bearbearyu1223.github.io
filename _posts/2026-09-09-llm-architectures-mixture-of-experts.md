@@ -179,18 +179,36 @@ Reading down it, one tensor at a time. Each tensor performs one operation, and i
 
 $$q = \mathrm{RMSNorm}_q(W_q\,x) \qquad k = \mathrm{RMSNorm}_k(W_k\,x) \qquad v = W_v\,x \qquad \text{output} = W_o\,(\text{the 16 heads' results, joined})$$
 
-Each of $$W_q$$, $$W_k$$, $$W_v$$ and $$W_o$$ is 2,048 rows × 2,048 wide, so the four together hold $4 \times 2{,}048 \times 2{,}048 = 16{,}777{,}216$ parameters. OLMoE also normalizes the whole query vector and the whole key vector before splitting them into 16 heads of 128 numbers, so `q_norm` and `k_norm` are RMSNorms with a vector of 2,048 learned scales each. Those 4,096 extra parameters per layer are why attention prints as 0.269B rather than the 0.268B the four matrices alone would give. The query path on a real token ([`each_tensor_step_by_step`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+Each of $$W_q$$, $$W_k$$, $$W_v$$ and $$W_o$$ is 2,048 rows × 2,048 wide, so the four together hold $4 \times 2{,}048 \times 2{,}048 = 16{,}777{,}216$ parameters. OLMoE also normalizes the whole query vector and the whole key vector before splitting them into 16 heads of 128 numbers, so `q_norm` and `k_norm` are RMSNorms with a vector of 2,048 learned scales each. Those 4,096 extra parameters per layer are why attention prints as 0.269B rather than the 0.268B the four matrices alone would give. Every weight attention owns, what each one computes, and a total checked against the census ([`each_tensor_step_by_step`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
-  step                          shape                 parameters
+  computes                     weight   rows x width  parameters
   ----------------------------------------------------------------
-  x = RMSNorm(h), the input   (2048,)
-  W_q x                       (2048,)  2,048 x 2,048 = 4,194,304
-  q_norm(W_q x)               (2048,)                      2,048
-  split into 16 heads        (16,128)                       none
-  same for keys (W_k, k_norm)        4,196,352 parameters
-  values (W_v) and output (W_o)      2 x 4,194,304 = 8,388,608
+  query = W_q x                   W_q  2,048 x 2,048   4,194,304
+  query = RMSNorm(query)       q_norm   2,048 scales       2,048
+  key = W_k x                     W_k  2,048 x 2,048   4,194,304
+  key = RMSNorm(key)           k_norm   2,048 scales       2,048
+  value = W_v x                   W_v  2,048 x 2,048   4,194,304
+  output = W_o (heads joined)     W_o  2,048 x 2,048   4,194,304
+  total                                               16,781,312
+  equals the census, per layer?      yes
 ```
+
+The two tables answer different questions, so they are separate. The one above is about storage: six weights, whose counts add up to the census's 16,781,312 per layer. The one below is about computation: one token's query, measured at each step, with no parameters in it at all ([`each_tensor_step_by_step`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  step                                 result
+  ---------------------------------------------
+  x, the normalized input       2,048 numbers
+  W_q x                         2,048 numbers
+  after q_norm                  2,048 numbers
+  split into heads             16 heads x 128
+  attention runs in each head
+  the heads' results, joined    2,048 numbers
+  after W_o                     2,048 numbers
+```
+
+The key follows the same path through $$W_k$$ and `k_norm`, and the value through $$W_v$$ without a norm. "Attention runs in each head" is the part [post 1](/posts/llm-architectures-attention-and-rope/) covers: each of the 16 heads compares its 128-number query with the keys, mixes the values, and hands back 128 numbers, and joining the 16 results restores 2,048 before $$W_o$$.
 
 **The router** multiplies the same normalized vector by one matrix to get one score per expert, $$z = W_r\,x$$. It is 64 rows × 2,048 wide, so $64 \times 2{,}048 = 131{,}072$ parameters.
 
@@ -203,15 +221,15 @@ The first step is two projections done as one multiply. `gate_up_proj[e]` is 2,0
 Counting them: `gate_up_proj` is $2{,}048 \times 2{,}048 = 4{,}194{,}304$ parameters per expert, which is the same as $2 \times 1{,}024 \times 2{,}048$ for the two projections it stacks, and `down_proj` is $2{,}048 \times 1{,}024 = 2{,}097{,}152$. One expert therefore holds $4{,}194{,}304 + 2{,}097{,}152 = 6{,}291{,}456$ parameters, the **6.29M** in the table. Across the 64 stacked experts, that is $64 \times 4{,}194{,}304 = 268{,}435{,}456$ for `gate_up_proj` and $64 \times 2{,}097{,}152 = 134{,}217{,}728$ for `down_proj`, the two rows above. The 1,024 is the expert's width, *half* the model's width, for reasons [below](#why-sixty-four). The router's first choice for the same token, run step by step ([`each_tensor_step_by_step`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
-  step                             shape                 parameters
+  step                            result                 parameters
   -------------------------------------------------------------------
-  x = RMSNorm(h_mid), the input  (2048,)
-  gate_up_proj[5] x              (2048,)  2,048 x 2,048 = 4,194,304
-    first half: gate             (1024,)
-    second half: up              (1024,)
-  SiLU(gate) * up                (1024,)                       none
-  down_proj[5] (that)            (2048,)  2,048 x 1,024 = 2,097,152
-  one expert                                              6,291,456
+  x, the normalized input  2,048 numbers
+  gate_up_proj[5] x        2,048 numbers  2,048 x 2,048 = 4,194,304
+    first half: gate       1,024 numbers
+    second half: up        1,024 numbers
+  x_mix = SiLU(gate) * up  1,024 numbers             0 (no weights)
+  down_proj[5] x_mix       2,048 numbers  2,048 x 1,024 = 2,097,152
+  one expert, total                                       6,291,456
   gate == first half of gate_up rows? yes
 ```
 
@@ -609,8 +627,8 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         420.8     1.00x
-  64                        923.2     2.19x
+  8                         420.2     1.00x
+  64                        919.7     2.19x
 
   expert FLOPs ratio (64/8)          8x
   measured wall-clock ratio          2.19x
