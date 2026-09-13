@@ -112,7 +112,7 @@ A **mixture-of-experts** layer replaces one FFN with many smaller ones, called *
 - **The router costs almost nothing.** One matrix per layer, 64 rows each 2,048 wide, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE does not renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
 - **The router does specialize, and it is measurable rather than folklore.** Two halves of the *same* passage route differently by 0.216; the three pairs of different text average 0.554, **2.56×** that noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
-- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.16×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
+- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.10×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
 - **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9** ([§6](#sparsity-and-batching)). That is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
 - **Nothing keeps the experts equally busy on its own.** The busiest expert in layer 0 takes **5.71×** an even share, and four experts in the last layer go unused by the test passage ([§8](#load-balance)).
@@ -165,11 +165,11 @@ Start with a single layer. These are all of layer 0's weights, read straight fro
   tensor                             shape   parameters
   -------------------------------------------------------
   q, k, v, o projections  4 x (2048, 2048)   16,777,216
-  q_norm, k_norm                2 x (2048)        4,096
+  q_norm, k_norm               2 x (2048,)        4,096
   router                        (64, 2048)      131,072
   experts: gate_up_proj   (64, 2048, 2048)  268,435,456
   experts: down_proj      (64, 2048, 1024)  134,217,728
-  two layer norms               2 x (2048)        4,096
+  two layer norms              2 x (2048,)        4,096
   one layer                                 419,569,664
 ```
 
@@ -187,7 +187,7 @@ Three more pieces sit outside the 16 layers, and two of them are large ([`derive
   ------------------------------------------
   embed_tokens  (50304, 2048)  103,022,592
   lm_head       (50304, 2048)  103,022,592
-  final norm           (2048)        2,048
+  final norm          (2048,)        2,048
 
   tokens the tokenizer defines       50,280
   rows in each table                 50,304
@@ -200,7 +200,33 @@ Three more pieces sit outside the 16 layers, and two of them are large ([`derive
 
 The row count has one wrinkle. OLMoE's tokenizer defines **50,280** tokens, with ids 0 to 50,279, but the table has **50,304** rows, so the last 24 rows can never be selected by any token. The table was padded up to the next multiple of 128, which is 393 × 128; Ai2's OLMo training code notes that [padding the embedding size to a multiple of 128 can improve throughput](https://github.com/allenai/OLMo/blob/main/olmo/config.py). The 24 spare rows are still stored and still counted, which is why the census uses 50,304 rather than 50,280.
 
-**The LM head** (`lm_head`) runs in the other direction. After the last layer, the token's 2,048-number vector is multiplied by this matrix to produce one score per row, and those scores become the next-token probabilities. Its rows have to line up one-for-one with the embedding table's, so it has the same shape and the same count, 103,022,592; [post 1](/posts/llm-architectures-attention-and-rope/#the-last-two-boxes-the-final-norm-and-the-lm-head) draws the two as one table read in two directions. Some models tie them, storing a single table and using it for both jobs. OLMoE does not, as the block's last line confirms, so both are stored and both count: $2 \times 103{,}022{,}592 = 206{,}045{,}184$, the **embed + head** row. The **final norm** adds one more vector of 2,048.
+**The LM head** (`lm_head`) runs in the other direction. After the last layer, the token's 2,048-number vector is multiplied by this matrix to produce one score per row, and those scores become the next-token probabilities. Its rows have to line up one-for-one with the embedding table's, so it has the same shape and the same count, 103,022,592; [post 1](/posts/llm-architectures-attention-and-rope/#the-last-two-boxes-the-final-norm-and-the-lm-head) draws the two as one table read in two directions. Some models tie them, storing a single table and using it for both jobs. OLMoE does not, as the block's last line confirms, so both are stored and both count: $2 \times 103{,}022{,}592 = 206{,}045{,}184$, the **embed + head** row. **The final norm** (`model.norm`) is the last step before the LM head, and its shape follows from what it does. It is an **RMSNorm**, the same operation OLMoE applies four times inside every layer (the two layer norms, `q_norm` and `k_norm`). For a token's vector $h$ of $d = 2{,}048$ numbers, the symbols first:
+
+| Symbol | Means |
+| --- | --- |
+| $h_i$ | the $i$-th of the vector's 2,048 numbers, as it leaves the last layer |
+| $\sqrt{\frac{1}{d}\sum_j h_j^2}$ | the vector's **root mean square** (RMS): its typical size |
+| $\epsilon$ | a tiny constant, $10^{-5}$, that keeps the division safe for an all-zero vector |
+| $\gamma_i$ | a learned scale for dimension $i$ |
+
+$$\mathrm{RMSNorm}(h)_i = \gamma_i \cdot \frac{h_i}{\sqrt{\frac{1}{d}\sum_{j=1}^{d} h_j^2 + \epsilon}}$$
+
+Dividing by the root mean square resets the vector to a standard size, and multiplying by $\gamma$ lets training decide how much each dimension should count. $\gamma$ is the only thing learned, one number per dimension and no bias, which is why the tensor has shape `(2048,)` and exactly 2,048 parameters. Applied by hand to a real token ([`what_the_final_norm_does`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  gamma, one scale per dimension     shape (2048,)
+  epsilon                            1e-05
+  RMS of the vector coming in        0.2170
+  after dividing by its RMS          0.9999
+  after multiplying by gamma         1.6627
+  gamma smallest / median / largest  0.1328 / 2.2344 / 2.6094
+  formula by hand == model's norm?   yes (fp32)
+
+  median token RMS entering layer 0  0.0045
+  median entering the final norm     0.2796
+```
+
+The formula matches the model's norm exactly. Dividing takes the vector from an RMS of 0.2170 to 0.9999, not quite 1 because of $\epsilon$, and $\gamma$ then scales individual dimensions by anywhere from 0.13 to 2.61. The last two lines are the reason the norm exists. Every sub-layer adds its output onto the residual stream, so a typical token's vector grows from an RMS of 0.0045 entering the first layer to 0.28 entering the final norm, about 60 times larger. The final norm hands the LM head a vector of the same scale no matter how much the layers added along the way. [Post 1](/posts/llm-architectures-attention-and-rope/#the-residual-and-what-pre-norm-means) covers where the norms inside each layer sit, and why they come before each sub-layer rather than after.
 
 Every one of the 16 layers is the same size, which the demo checks, so each role's total is its per-layer count times 16, plus the pieces outside the layers ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
@@ -408,7 +434,7 @@ The formula above stops at the MoE output $y$. Two more pieces finish the layer:
 | Symbol | Means | Shape here |
 | --- | --- | --- |
 | $h_{mid}$ | the **residual stream** after attention: the running vector every sub-layer reads from and adds its result back into | $(2048,)$ |
-| $\mathrm{RMSNorm}$ | the layer norm OLMoE uses: rescale a vector to unit root-mean-square, then multiply each number by a learned weight | — |
+| $\mathrm{RMSNorm}$ | the layer norm OLMoE uses: rescale a vector to unit root-mean-square, then multiply each number by a learned weight; its equation is in [§1](#deriving-the-census) | — |
 | $W_{gate}^{(e)}$, $W_{up}^{(e)}$ | expert $e$'s two input projections | 1,024 rows × 2,048 wide |
 | $W_{down}^{(e)}$ | expert $e$'s output projection | 2,048 rows × 1,024 wide |
 | $\mathrm{SiLU}(u)$ | the activation, $u \cdot \sigma(u)$ where $\sigma$ is the sigmoid, applied to each number separately | — |
@@ -544,17 +570,17 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         431.4     1.00x
-  64                        932.6     2.16x
+  8                         448.6     1.00x
+  64                        943.5     2.10x
 
   expert FLOPs ratio (64/8)          8x
-  measured wall-clock ratio          2.16x
+  measured wall-clock ratio          2.10x
     below 8x because attention, norms and the LM head are unchanged
 ```
 
-Eight times the expert arithmetic costs 2.16× the wall clock, and zero extra bytes of weights.
+Eight times the expert arithmetic costs 2.10× the wall clock, and zero extra bytes of weights.
 
-Both halves of that deserve a note. The **2.16× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.16× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
+Both halves of that deserve a note. The **2.10× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.10× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
 
 Unlike every other number in this post, this one is a wall-clock measurement and it moves a little from run to run; the counts and ratios elsewhere do not. And the top-64 row is a measurement of **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes; it is a timing experiment, not a quality one.
 
@@ -817,7 +843,7 @@ Half of that is right, which is what makes it dangerous.
 
 **1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident — **12.9 GiB** in bf16 — because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
-**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.16×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
+**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.10×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
 
 **3. And say why the memory does not improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
