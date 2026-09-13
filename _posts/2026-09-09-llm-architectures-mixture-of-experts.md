@@ -78,7 +78,7 @@ OLMoE suits the experiment for two reasons. The first is that it is **fully open
 
 The second is that it is a clean version of the mechanism. Each layer has 64 experts and sends each token to 8 of them, with neither of the two common variations. There is no **shared expert**, an extra FFN that every token passes through regardless of routing, and the model was not **upcycled**, which means built by copying a trained dense model's FFN into many experts and continuing training from there. OLMoE was trained sparse from scratch. That turns out to matter for what its router learned in §4, and [§9](#how-its-trained) comes back to why.
 
-#### Why bfloat16?
+#### Why bfloat16? {#why-bfloat16}
 
 It also has to fit on the laptop running these experiments, which leads to one deliberate break from post 4: this demo loads the model in **bfloat16** (bf16), which stores each number in 2 bytes, rather than fp32, which uses 4. At 6.92B parameters the weights alone come to 25.8 GiB in fp32 (a **GiB** is $2^{30}$ = 1,073,741,824 bytes), more than this laptop's 24 GiB of memory, and to 12.9 GiB in bf16, which fits.
 
@@ -110,7 +110,7 @@ A **mixture-of-experts** layer replaces one FFN with many smaller ones, called *
 - **The router costs almost nothing.** One matrix per layer, 64 rows each 2,048 wide, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE does not renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
 - **The router does specialize, and it can be measured.** Two halves of the *same* passage route differently by 0.216; the three pairs of different text average 0.554, **2.56×** that noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
-- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.15×** the elapsed time and zero extra bytes of weights ([§5](#two-bills)).
+- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.18×** the elapsed time and zero extra bytes of weights ([§5](#two-bills)).
 - **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9** ([§6](#sparsity-and-batching)). That is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
 - **Nothing keeps the experts equally busy on its own.** The busiest expert in layer 0 takes **5.71×** an even share, and four experts in the last layer go unused by the test passage ([§8](#load-balance)).
@@ -234,26 +234,36 @@ The share divides the router's 2,097,152 parameters by all 6,919,161,856, which 
 
 #### What a score is
 
-Each score is a **dot product**: multiply the token's vector and one router row together number by number, then add up the 2,048 products. The result is large when the two vectors point in similar directions, so an expert's score is high when the token's vector resembles that expert's row. It is the same operation [post 1](/posts/llm-architectures-attention-and-rope/) used to compare a query with a key.
+A score measures how well the token's vector matches one row of the router. Call the token's vector $x$ and expert $e$'s row $$w_e$$. Both are lists of 2,048 numbers, and $$x_i$$ and $$w_{e,i}$$ are their $i$-th entries. Expert $e$'s score is their **dot product**: multiply the two lists position by position, then add up the 2,048 products.
 
-The demo checks this on a real token. It captures the vector that actually enters layer 0's MoE block for the word `' harbour'`, which is the token after attention and the layer norm, and computes each expert's dot product by hand ([`the_router_is_tiny`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+$$z_e = w_e \cdot x = \sum_{i=1}^{2048} w_{e,i}\,x_i$$
+
+With three numbers instead of 2,048: a row $(1, 0, 2)$ and a token $(0.5, 3, 1)$ give a score of $1 \times 0.5 + 0 \times 3 + 2 \times 1 = 2.5$. The 3 in the token's middle position adds nothing, because the row has a 0 there. Each row therefore decides which positions of the token's vector count toward its expert, and how much. A token scores high for an expert when it has large values, with the same signs, in the positions where that expert's row has them. Rows also hold negative numbers, so a score can come out below zero. This is the same operation [post 1](/posts/llm-architectures-attention-and-rope/) used to compare a query with a key, and doing it for all 64 rows at once is the single matrix multiply $$z = W_r\,x$$ that [§3](#one-token-routed) starts from.
+
+The demo checks that the router does nothing more than this. It takes the vector the router receives for the word `' harbour'` in layer 0 (the token's vector after attention and the norm in front of the experts) and, for each of the 64 rows, adds up the 2,048 products by hand ([`the_router_is_tiny`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
-  expert  row . token vector, by hand  router score, from model
-  ---------------------------------------------------------------
-  5                           +1.8984                   +1.8984
-  14                          +1.6016                   +1.6016
-  41                          +1.3516                   +1.3516
+  expert  2,048 products added, by hand  score from the model
+  -------------------------------------------------------------
+  5                             +1.8984               +1.8984
+  14                            +1.6016               +1.6016
+  41                            +1.3516               +1.3516
 
-  token vector length                2,048 numbers
-  all 64 scores identical?           yes
-  fp32 dot products, largest shift   0.0058
-  tokens picking the same 8 in fp32  94 of 94
+  experts with matching scores       64 of 64
 ```
 
-The by-hand products and the model's scores are identical for all 64 experts, not merely close, because the router is this matrix multiplication with nothing added. These are the numbers [§3](#one-token-routed) starts from, where they are called logits.
+The table shows the three highest-scoring experts, but all 64 hand-computed scores equal the model's to the last digit. So the router is exactly this sum, with no bias or scaling added. These scores are what §3 calls **logits**.
 
-The last two lines are a check on precision. bfloat16 can only hold values between 1 and 2 in steps of 1/128, so the +1.8984 above is really $243/128$, and the same dot product computed in fp32 from the same stored weights lands up to 0.0058 away. For this passage that never changes the routing decision at layer 0: all 94 tokens pick the same eight experts either way.
+[Setup](#why-bfloat16) said routing is measured in bf16 and that fp32 could move the last digits, and the router is the place to check whether that matters. bf16 keeps fewer digits per number: between 1 and 2 it can only store multiples of 1/128, so the top score above is stored as exactly 243/128, which prints as +1.8984. Recomputing the scores for all 94 tokens of the passage in fp32, which keeps more digits, from the same weights and inputs ([`the_router_is_tiny`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  score +1.8984, as bf16 stores it   243 / 128
+  tokens in the passage              94
+  largest change in any score        0.0114
+  tokens with the same 8 experts     94 of 94
+```
+
+The scores move by at most 0.0114, and no token's eight experts change. The rounding is far smaller than the gaps between the scores that decide the cut.
 
 ### 3. One token, routed {#one-token-routed}
 
@@ -472,17 +482,17 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         426.1     1.00x
-  64                        915.5     2.15x
+  8                         420.8     1.00x
+  64                        917.5     2.18x
 
   expert FLOPs ratio (64/8)          8x
-  measured wall-clock ratio          2.15x
+  measured wall-clock ratio          2.18x
     below 8x because attention, norms and the LM head are unchanged
 ```
 
-Eight times the expert arithmetic costs 2.15× the wall clock, and zero extra bytes of weights.
+Eight times the expert arithmetic costs 2.18× the wall clock, and zero extra bytes of weights.
 
-It is 2.15× rather than 8× because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. So "active parameters" predicts the *trend* of speed, not a clean multiplier.
+It is 2.18× rather than 8× because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. So "active parameters" predicts the *trend* of speed, not a clean multiplier.
 
 Unlike every other number in this post, this one is a wall-clock measurement and it moves a little from run to run; the counts and ratios elsewhere do not. And the top-64 row is a measurement of **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes; it is a timing experiment, not a quality one.
 
@@ -743,7 +753,7 @@ Half of that is right, which is what makes it dangerous.
 
 **1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident, **12.9 GiB** in bf16, because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
-**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.15×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
+**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.18×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
 
 **3. And say why the memory does not improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
