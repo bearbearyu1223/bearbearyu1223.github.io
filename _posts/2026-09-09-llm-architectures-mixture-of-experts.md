@@ -112,10 +112,11 @@ A **mixture-of-experts** layer replaces one FFN with many smaller ones, called *
 - **The router costs almost nothing.** One matrix per layer, 64 rows each 2,048 wide, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE does not renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
 - **The router does specialize, and it is measurable rather than folklore.** Two halves of the *same* passage route differently by 0.216; the three pairs of different text average 0.554, **2.56×** that noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
-- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.17×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
+- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.16×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
 - **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9** ([§6](#sparsity-and-batching)). That is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
 - **Nothing keeps the experts equally busy on its own.** The busiest expert in layer 0 takes **5.71×** an even share, and four experts in the last layer go unused by the test passage ([§8](#load-balance)).
+- **Training updates every router row but only the chosen experts.** For one token, all 64 router rows get a gradient through the softmax, and exactly the 8 chosen experts do; a hand-derived formula matches autograd to 1.5e-8 ([§9](#how-its-trained)).
 - **MoE is an architecture, not a training stage.** The router and the experts learn together during pre-training, and the same model then carries on through mid-training and post-training unchanged ([§9](#how-its-trained)).
 
 ---
@@ -400,6 +401,50 @@ Routing happens independently at every layer, which is easy to miss ([`routing_d
 
 One word visits sixteen separate committees of eight on its way through the model. There is no such thing as "the expert for `' harbour'`" — there are 16 independent choices, and the number of distinct paths a single token could take is astronomically large. Note also that `kept total` climbs with depth, from 0.25 in layer 1 to 0.49 in layer 15: the router is more decisive in the later layers.
 
+#### The whole layer, written out {#the-layer-formula}
+
+The formula above stops at the MoE output $y$. Two more pieces finish the layer: what each expert computes, and how $y$ rejoins the rest of the model. The new symbols first:
+
+| Symbol | Means | Shape here |
+| --- | --- | --- |
+| $h_{mid}$ | the **residual stream** after attention: the running vector every sub-layer reads from and adds its result back into | $(2048,)$ |
+| $\mathrm{RMSNorm}$ | the layer norm OLMoE uses: rescale a vector to unit root-mean-square, then multiply each number by a learned weight | — |
+| $W_{gate}^{(e)}$, $W_{up}^{(e)}$ | expert $e$'s two input projections | 1,024 rows × 2,048 wide |
+| $W_{down}^{(e)}$ | expert $e$'s output projection | 2,048 rows × 1,024 wide |
+| $\mathrm{SiLU}(u)$ | the activation, $u \cdot \sigma(u)$ where $\sigma$ is the sigmoid, applied to each number separately | — |
+| $\odot$ | multiply two vectors number by number | — |
+| $h_{out}$ | what the layer passes to the next one | $(2048,)$ |
+
+$$x = \mathrm{RMSNorm}(h_{mid}) \qquad z = W_r\,x \qquad p_e = \frac{e^{z_e}}{\sum_{j=1}^{64} e^{z_j}} \qquad \mathcal{K} = \operatorname*{top-8}_{e}\ p_e$$
+
+$$\mathrm{FFN}_e(x) = W_{down}^{(e)}\big(\mathrm{SiLU}(W_{gate}^{(e)}x) \odot W_{up}^{(e)}x\big) \qquad h_{out} = h_{mid} + \sum_{e \in \mathcal{K}} p_e\,\mathrm{FFN}_e(x)$$
+
+Read in order: normalize the residual stream, score all 64 experts, turn the scores into probabilities, keep the top 8, and run each chosen expert, which projects the token to 1,024 numbers twice, gates one projection by the other, and projects back to 2,048. Weight each expert's output by its probability, add the eight together, and add the sum back into the residual stream. The softmax is the one [§3's walkthrough](#one-token-routed) described in words, taken over all 64 experts and not renormalized after the cut.
+
+The demo builds the output for `' harbour'` from exactly these equations and compares it with layer 0's own MoE block ([`the_layer_by_hand`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  expert  weight p_e  |FFN_e(x)|  |p_e FFN_e(x)|
+  ------------------------------------------------
+  5           0.1164      0.8041          0.0936
+  14          0.0864      0.6428          0.0555
+  41          0.0669      1.5089          0.1010
+  18          0.0597      0.6144          0.0367
+  6           0.0356      1.8434          0.0655
+  17          0.0243      0.9634          0.0234
+  28          0.0196      0.7652          0.0150
+  9           0.0195      0.8227          0.0160
+
+  |y|, sum of the 8 rows (fp32)      0.2074
+  |y|, the model's own block (fp32)  0.2074
+  largest difference, any coordinate 0.0e+00
+  layer output == h_mid + y? (bf16)  yes
+```
+
+Each row is one expert's contribution, $p_e$ times its output, and $|\mathrm{FFN}_e(x)|$ is the length of the output vector, which is how large a change that expert proposes. The eight contributions add up to the model's own output with no difference at all. That comparison runs in fp32 on a copy of the block, so its weights differ from [§3's bf16 table](#one-token-routed) in the fourth decimal (0.1164 against 0.1161); the last line checks, in the model's own bf16, that the layer's output really is the residual stream plus the MoE output.
+
+The rows also show something the weights alone hide. Expert 41 has only the third-largest weight but makes the largest contribution, because the change it proposes is almost twice as long as expert 5's. An expert's influence on a token is its weight times the size of what it proposes, and the router controls only the first.
+
 The same thing in shapes, with the real numbers underneath:
 
 ![The router as a pipeline of tensor shapes, and all 64 routing probabilities for one real token with the 8 that survive the cut](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/router-flow-light.png){: .light width="1000" height="640" }
@@ -499,17 +544,17 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         430.0     1.00x
-  64                        933.6     2.17x
+  8                         431.4     1.00x
+  64                        932.6     2.16x
 
   expert FLOPs ratio (64/8)          8x
-  measured wall-clock ratio          2.17x
+  measured wall-clock ratio          2.16x
     below 8x because attention, norms and the LM head are unchanged
 ```
 
-Eight times the expert arithmetic costs 2.17× the wall clock, and zero extra bytes of weights.
+Eight times the expert arithmetic costs 2.16× the wall clock, and zero extra bytes of weights.
 
-Both halves of that deserve a note. The **2.17× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.17× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
+Both halves of that deserve a note. The **2.16× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.16× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
 
 Unlike every other number in this post, this one is a wall-clock measurement and it moves a little from run to run; the counts and ratios elsewhere do not. And the top-64 row is a measurement of **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes; it is a timing experiment, not a quality one.
 
@@ -546,6 +591,24 @@ Eight tokens already need half the experts. Two hundred and fifty-six need **60.
 So the sparsity that makes an MoE cheap is a property of a *token*, and it evaporates the moment you process tokens together. At any realistic batch size, essentially every expert is needed by somebody, which is exactly why all of them must be resident. The dotted line on the chart is the worst case, where no two tokens ever share an expert; it reaches all 64 by eight tokens. The measured curve sits below it because tokens do share experts, which is [§4](#what-the-router-learns)'s specialization showing up again, but it does not sit far enough below to change the conclusion.
 
 This resolves the apparent paradox in the name. **An MoE saves arithmetic, not memory.** Per token, 17% of the parameters multiply. Per batch, essentially 100% of them have to be in RAM and get read. That connects to [post 2](/posts/llm-architectures-kv-cache/)'s finding that generating a token is limited by memory bandwidth rather than arithmetic. For a single token an MoE reads only its eight experts, which is why it generates quickly; for a batch it reads nearly all of them, so at serving batch sizes the bandwidth saving mostly disappears.
+
+#### How a batch is actually computed {#batch-dispatch}
+
+Written per token, a batch of $T$ tokens is $T$ separate copies of the layer formula. With $\mathbf{1}[\cdot]$ meaning 1 when the condition inside holds and 0 otherwise:
+
+$$y_t = \sum_{e=1}^{64} \mathbf{1}[e \in \mathcal{K}_t]\; p_{t,e}\; \mathrm{FFN}_e(x_t) \qquad \text{for each token } t = 1, \dots, T$$
+
+Nobody computes it that way. Swapping the order of the two sums groups the work by expert instead of by token. For each expert $e$, collect the tokens that chose it, $T_e = \{t : e \in \mathcal{K}_t\}$, stack their vectors into one matrix, run $\mathrm{FFN}_e$ on all of them in a single matrix multiply, scale each result by that token's $p_{t,e}$, and add it back to its own token. [OLMoE's implementation in transformers](https://github.com/huggingface/transformers/blob/main/src/transformers/models/olmoe/modeling_olmoe.py) is exactly this loop over experts. At layer 0, for the 356-token passage ([`batch_collapse`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  experts called                     64 of 64
+  tokens per call, fewest            1
+  tokens per call, median            39
+  tokens per call, most              254
+  tokens x 8 routing slots           2,848
+```
+
+All 64 experts are called, which is this section's finding seen from the hardware's side, and the calls are very uneven: one expert multiplies a single token while another multiplies 254. Uneven call sizes are what the expert capacity limits in [§3](#router-variants) exist to bound, and across several GPUs they are what makes [§7](#across-gpus)'s traffic uneven too.
 
 ### 7. When the model spans many GPUs {#across-gpus}
 
@@ -611,17 +674,57 @@ Measuring the spread over 2848 routing slots per layer ([`load_balance`](https:/
 
 An even share would be 1.56%. The busiest expert in layer 0 takes 8.92%, which is 5.71× that, while the quietest takes 0.04% and four experts in the last layer are never used by this passage at all. (That count is passage-dependent: a broader sample would use more of them. It is a statement about this text, not a claim that four experts are dead weight.)
 
-This is why MoE training carries an **auxiliary loss**: an extra penalty added to the training objective that grows when routing is lopsided. The objective being optimized is a sum of two terms.
+This is why MoE training carries **auxiliary losses**: extra penalty terms added to the training objective. OLMoE's objective has three terms ([Muennighoff et al.](https://arxiv.org/abs/2409.02060), §2):
 
 | Symbol | Means |
 | --- | --- |
-| $\mathcal{L}_{\text{LM}}$ | the ordinary next-token prediction loss — how surprised the model was by the real next token |
-| $\mathcal{L}_{\text{balance}}$ | the load-balancing penalty, large when a few experts take most of the traffic and small when the load is spread |
-| $\alpha$ | how much the penalty counts against the prediction loss |
+| $\mathcal{L}_{CE}$ | **cross-entropy**, the ordinary next-token loss: averaged over tokens, $-\log$ of the probability the model gave the token that actually came next |
+| $\mathcal{L}_{LB}$ | the **load-balancing loss**, large when a few experts take most of the traffic |
+| $\mathcal{L}_{RZ}$ | the **router z-loss**, large when the router's logits grow large |
+| $\alpha$, $\beta$ | how much each penalty counts; for OLMoE-1B-7B, 0.01 and 0.001 |
 
-$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{LM}} + \alpha \cdot \mathcal{L}_{\text{balance}}$$
+$$\mathcal{L} = \mathcal{L}_{CE} + \alpha\,\mathcal{L}_{LB} + \beta\,\mathcal{L}_{RZ}$$
 
-OLMoE sets $\alpha$ to **0.01**, which is the `router_aux_loss_coef` printed above. That number is small on purpose: the balancing term is there to stop a collapse, not to drive the model, and setting it too high would trade away prediction quality to make a histogram look tidy. And even *with* that penalty applied throughout training, the busiest expert still runs about five times as often as an even share. The auxiliary loss keeps the distribution from collapsing; it does not make it flat, and it is not trying to.
+The two penalties need a few more quantities, each averaged over the $N$ token positions in a batch:
+
+| Symbol | Means | Sums to |
+| --- | --- | --- |
+| $N_E$ | the number of experts | 64 |
+| $f_i$ | the fraction of tokens that have expert $i$ among their top 8 | 8, over all experts |
+| $P_i$ | the router probability given to expert $i$, averaged over tokens | 1, over all experts |
+| $z_{t,j}$ | token $t$'s router logit for expert $j$ | — |
+
+$$f_i = \frac{1}{N}\sum_{t=1}^{N} \mathbf{1}[i \in \mathcal{K}_t] \qquad P_i = \frac{1}{N}\sum_{t=1}^{N} p_{t,i} \qquad \mathcal{L}_{LB} = N_E \sum_{i=1}^{N_E} f_i\,P_i \qquad \mathcal{L}_{RZ} = \frac{1}{N}\sum_{t=1}^{N}\Big(\log \sum_{j=1}^{N_E} e^{z_{t,j}}\Big)^2$$
+
+If routing were perfectly even, every $f_i$ would be $8/64$ and every $P_i$ would be $1/64$, so $\mathcal{L}_{LB} = 64 \times 64 \times \tfrac{8}{64} \times \tfrac{1}{64} = 8$. It grows when the experts picked most often are also the ones given the most probability, which is exactly what a router locking onto a few experts looks like. One detail matters for how it trains: $f_i$ is a count of top-8 selections, so like the selection itself it has no gradient. Only $P_i$ does, and through it the loss pushes probability away from experts that are already taking more than their share.
+
+The z-loss squares the logarithm of the softmax's denominator. Keeping it small keeps the router's logits in a range where the softmax stays numerically stable, which is the reason the paper gives for it.
+
+On the 94-token passage ([`what_training_minimizes`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  tokens scored                      93 (each predicts the next)
+  L_CE, cross-entropy                2.7381
+
+  sum of f_i over experts            8.0000
+  sum of P_i over experts            1.0000
+  L_LB if routing were even          8.0000
+  L_LB by hand, all layers pooled    8.1675
+  L_LB, transformers' own function   8.1675
+  L_LB by hand, mean of per-layer    10.5038
+  L_RZ, router z-loss (paper)        11.5881
+
+  term           coefficient    value  contribution
+  ---------------------------------------------------
+  L_CE                     1   2.7381        2.7381
+  L_LB (pooled)         0.01   8.1675        0.0817
+  L_RZ                 0.001  11.5881        0.0116
+  total                                      2.8314
+```
+
+The sums come out at 8 and 1, as the definitions require, and the hand computation equals transformers' own function. The pooled value, 8.17, looks almost perfectly balanced, and that is partly an artifact. transformers' function pools the router logits of all 16 layers before counting, which treats expert 5 in layer 0 and expert 5 in layer 15 as one expert and averages each layer's imbalance away; computed layer by layer, the same passage scores 10.50. transformers adds only $\alpha\,\mathcal{L}_{LB}$ to the loss it returns, so the z-loss here comes from the paper's formula, shown for scale.
+
+Weighted by their coefficients, the two penalties add 0.0817 and 0.0116 to a cross-entropy of 2.7381, about 3% and 0.4%. That is small on purpose: the balancing term is there to stop a collapse, not to drive the model, and setting it too high would trade away prediction quality to make a histogram look tidy. And even *with* that penalty applied throughout training, the busiest expert still runs about five times as often as an even share. The auxiliary loss keeps the distribution from collapsing; it does not make it flat, and it is not trying to.
 
 ### 9. How an MoE is trained, and where "mid-training" fits {#how-its-trained}
 
@@ -629,7 +732,46 @@ Two different things often get talked about in the same breath here: mixture-of-
 
 **The experts and the router learn together, during pre-training.** They are not bolted on afterwards. At the start of training every expert is random and the router is random, so the first routing decisions are meaningless. Then ordinary next-token prediction runs: the model reads text, predicts what comes next, and is scored on how wrong it was. **Backpropagation** then works that error backwards through the network to get a gradient for every weight involved, and the weights move. The router, the chosen experts and the rest of the network all update. The skipped experts do not, because they contributed nothing to the output.
 
-There is a subtlety here that [§3](#one-token-routed) set up. Picking the top 8 is a discrete choice, and discrete choices have no useful gradient — you cannot differentiate "expert 5 was ranked higher than expert 6". So how does the router learn anything at all? Through the weights. Each chosen expert's output is scaled by its router probability $p_e$ before being added in, so $p_e$ sits in the middle of an ordinary differentiable path. If an expert's contribution improved the prediction, the gradient pushes its $p_e$ up, which means pushing that expert's router score up for tokens like this one. **The router learns because the routing weights multiply, not because the selection itself is differentiable.**
+There is a subtlety here that [§3](#one-token-routed) set up. Picking the top 8 is a discrete choice, and discrete choices have no useful gradient: you cannot differentiate "expert 5 was ranked higher than expert 6". So how does the router learn anything at all? Through the weights, and the chain rule shows exactly how. Two symbols first:
+
+| Symbol | Means |
+| --- | --- |
+| $g_e$ | how much the loss would change if expert $e$'s output grew along its own direction: $g_e = \frac{\partial \mathcal{L}}{\partial y} \cdot \mathrm{FFN}_e(x)$, one number per chosen expert |
+| $\delta_{ej}$ | 1 if $e = j$, and 0 otherwise |
+
+Treat the chosen set $\mathcal{K}$ as fixed, differentiate $y = \sum_{e \in \mathcal{K}} p_e\,\mathrm{FFN}_e(x)$ through the softmax, and for every expert $j$:
+
+$$\frac{\partial \mathcal{L}}{\partial z_j} = \sum_{e \in \mathcal{K}} g_e\; p_e\,(\delta_{ej} - p_j) \qquad \frac{\partial \mathcal{L}}{\partial W_r} = \frac{\partial \mathcal{L}}{\partial z}\, x^{\top}$$
+
+Two consequences follow, and both are checkable:
+
+- **Every router row gets a gradient, not only the eight chosen ones.** The $-p_j$ term is present for all 64, because each $p_e$ has every expert's score in its denominator: raising a chosen expert's probability means lowering everyone else's.
+- **Only the chosen experts' own weights get a gradient.** A skipped expert's FFN never appears in $y$, so for this token nothing in the loss depends on it.
+
+The demo backpropagates one token through layer 0's MoE block and counts what receives a gradient, then compares the router formula above with PyTorch's automatic differentiation ([`what_gets_a_gradient`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  router rows with nonzero gradient  64 of 64
+  experts with nonzero gradient      8 of 64
+    which ones                       5, 6, 9, 14, 17, 18, 28, 41
+    the router's top 8, sorted       5, 6, 9, 14, 17, 18, 28, 41
+
+  dL/dW_r, largest entry (autograd)  0.1680
+  dL/dW_r, by hand vs autograd       max difference 1.5e-08
+```
+
+All 64 router rows receive gradient, exactly the router's eight chosen experts do and no others, and the formula agrees with autograd to within 1.5e-8 against gradient entries as large as 0.168. The loss in this check is $v \cdot y$ for a fixed random vector $v$, standing in for whatever the rest of the network would send back, so it depends on nothing outside this one block. **The router learns because the routing weights multiply, not because the selection itself is differentiable.**
+
+#### One training step and one inference call, end to end {#end-to-end}
+
+Put together, a training step on a batch runs in four stages:
+
+1. **Forward.** Every token passes through all 16 layers. In each, attention runs in full, and the MoE sub-layer applies [the layer formula](#the-layer-formula), computed one expert at a time over the tokens that chose it, as in [§6](#batch-dispatch).
+2. **Loss.** $\mathcal{L} = \mathcal{L}_{CE} + \alpha\,\mathcal{L}_{LB} + \beta\,\mathcal{L}_{RZ}$ from [§8](#load-balance), over the whole batch.
+3. **Backward.** Gradients flow as above: into all 64 router rows in every layer, and into each expert only from the tokens that chose it. Over a whole batch, as §6 measured, nearly every expert is chosen by someone, so nearly every expert is updated at every step, each from a different subset of the tokens.
+4. **Update.** The optimizer moves every parameter that received a gradient.
+
+Inference is the first stage alone. There are no labels, no loss and no penalties, and nothing is updated; the router makes the same top-8 choice with the same weights, and the batch is computed expert by expert in the same way. The only thing inference adds is the KV cache from [post 2](/posts/llm-architectures-kv-cache/), which stores attention's keys and values and does not touch the experts.
 
 Specialization is emergent from that process. Nobody assigns expert 17 to code. It becomes whatever it becomes, because it happened to be picked slightly more often for certain inputs early on and improved at them, which made it get picked more. That is the same runaway dynamic [§8](#load-balance)'s auxiliary loss exists to keep from going too far.
 
@@ -675,7 +817,7 @@ Half of that is right, which is what makes it dangerous.
 
 **1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident — **12.9 GiB** in bf16 — because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
-**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.17×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
+**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.16×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
 
 **3. And say why the memory does not improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
@@ -706,6 +848,14 @@ Every symbol this post uses, in one place. [Post 1's appendix](/posts/llm-archit
 | `norm_topk_prob` | whether the kept weights are rescaled to sum to 1 | false in OLMoE |
 | TV distance | **total variation** — half the summed absolute difference between two distributions; 0 is identical, 1 is disjoint | floor 0.216, cross-domain 0.554 |
 | coeff of var | standard deviation over mean, a scale-free measure of unevenness | 0.88 to 1.07 |
+| $\mathcal{L}_{CE}$ | cross-entropy, the next-token loss | 2.7381 on the test passage |
+| $\mathcal{L}_{LB}$ | load-balancing loss, $N_E \sum_i f_i P_i$; 8 when routing is perfectly even | 8.1675 pooled, 10.5038 per layer |
+| $\mathcal{L}_{RZ}$ | router z-loss, the mean squared log of the softmax denominator | 11.5881 |
+| $\alpha$, $\beta$ | the weights on $\mathcal{L}_{LB}$ and $\mathcal{L}_{RZ}$ in the total loss | 0.01 and 0.001 |
+| $f_i$, $P_i$ | fraction of tokens choosing expert $i$; mean router probability of expert $i$ | sum to 8 and 1 |
+| $h_{mid}$ | the residual stream after attention, which the MoE output is added back into | $(2048,)$ |
+| $\mathrm{SiLU}$, $\odot$ | the activation $u \cdot \sigma(u)$; number-by-number multiplication | inside each expert |
+| $g_e$ | how much the loss changes if expert $e$'s output grows, $\frac{\partial \mathcal{L}}{\partial y} \cdot \mathrm{FFN}_e(x)$ | one per chosen expert |
 | auxiliary loss | an extra training penalty that grows when routing is lopsided | coefficient 0.01 |
 | expert parallelism | splitting the *experts* across GPUs, rather than slicing every matrix | 64 experts over 2–16 GPUs |
 | all-to-all | the exchange that sends each token to whichever GPUs hold its experts, and gathers the results back | 5.54 GPUs per token at 8 |
