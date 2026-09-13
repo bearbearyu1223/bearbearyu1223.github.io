@@ -25,7 +25,7 @@ The three posts since then each attacked one of three costs of running a trained
 
 [Post 3](/posts/llm-architectures-flash-attention/) removed work that was being *written down only to be fetched back*. FlashAttention computes attention one tile at a time, so the GPU moves **3.9× fewer bytes** between its large main memory and the small, fast memory close to its arithmetic units. It also needs a fixed amount of scratch space instead of an amount that grows with the square of the sequence length. Its output differs from standard attention by about **1e-6**, and post 3 showed that this is floating-point rounding from the reordered computation rather than a different answer. Sliding-window attention, a genuine approximation of attention, differed by **0.6** on the same test.
 
-[Post 4](/posts/llm-architectures-quantization/) stopped being exact on purpose. By storing each weight in fewer bits, it cut the memory the weights take by **2.09×**, from 942 MiB to 452 MiB. Most of that post was about the harder question that follows: whether the usual quality check can even see what the lost precision broke. It mostly cannot.
+[Post 4](/posts/llm-architectures-quantization/) stopped being exact on purpose. By storing each weight in fewer bits, it cut the memory the weights take by **2.09×**, from 942 MiB to 452 MiB (a **MiB**, or mebibyte, is $2^{20}$ = 1,048,576 bytes). Most of that post was about the harder question that follows: whether the usual quality check can even see what the lost precision broke. It mostly cannot.
 
 They also differed in what they did to the model's output. The KV cache leaves the computation unchanged: generating with or without it produces the same tokens. FlashAttention computes the same function mathematically, but changes the order of floating-point operations, which introduces tiny differences in the last few bits. Quantization is different: it deliberately changes the computation by representing weights with fewer bits.
 
@@ -82,7 +82,7 @@ There is also a practical reason: it fits on the machine running these experimen
 
 #### Why bfloat16?
 
-That leads to one deliberate break from post 4: this demo loads the model in **bfloat16** (bf16), which stores each number in 2 bytes, rather than fp32, which uses 4. At 6.92B parameters the weights alone come to 25.8 GiB in fp32, more than this laptop's 24 GiB of memory, and to 12.9 GiB in bf16, which fits.
+That leads to one deliberate break from post 4: this demo loads the model in **bfloat16** (bf16), which stores each number in 2 bytes, rather than fp32, which uses 4. At 6.92B parameters the weights alone come to 25.8 GiB in fp32 (a **GiB** is $2^{30}$ = 1,073,741,824 bytes), more than this laptop's 24 GiB of memory, and to 12.9 GiB in bf16, which fits.
 
 This is less of a compromise than it sounds, because bf16 is the precision OLMoE was released in. Its published configuration lists `bfloat16`, so the demo runs the model as its authors ship it rather than a reduced copy. The two kinds of number in this post are affected differently, though. Parameter counts, and everything derived from them, do not depend on precision at all. Routing measurements, such as which experts a token picks and with what weights, come from a forward pass run in bf16, so an fp32 run could move their last digits. The fp32 model does not fit on this machine, so a full comparison is not made here, though [§2](#the-router) checks the router step itself and finds its choices unchanged.
 
@@ -112,7 +112,7 @@ A **mixture-of-experts** layer replaces one FFN with many smaller ones, called *
 - **The router costs almost nothing.** One matrix per layer, 64 rows each 2,048 wide, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE does not renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
 - **The router does specialize, and it is measurable rather than folklore.** Two halves of the *same* passage route differently by 0.216; the three pairs of different text average 0.554, **2.56×** that noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
-- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.10×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
+- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.17×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
 - **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9** ([§6](#sparsity-and-batching)). That is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
 - **Nothing keeps the experts equally busy on its own.** The busiest expert in layer 0 takes **5.71×** an even share, and four experts in the last layer go unused by the test passage ([§8](#load-balance)).
@@ -156,7 +156,7 @@ Counting the parameters by role ([`where_the_parameters_are`](https://github.com
 
 #### Where each of those numbers comes from {#deriving-the-census}
 
-Every number in that table comes from multiplying out the shapes of the model's weights, and it is worth doing once by hand, because this is where "7B total, 1B active" stops being a slogan. A **parameter** is one learned number. A matrix of $R$ rows, each $W$ numbers wide, holds $R \times W$ of them, and a vector of length $W$ holds $W$.
+Every number in that table comes from multiplying out the shapes of the model's weights. Doing it once by hand is where "7B total, 1B active" stops being a slogan. A **parameter** is one learned number. A matrix of $R$ rows, each $W$ numbers wide, holds $R \times W$ of them, and a vector of length $W$ holds $W$.
 
 Start with a single layer. These are all of layer 0's weights, read straight from the checkpoint rather than from its configuration file, so the arithmetic is checked against what is actually stored ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
@@ -240,7 +240,7 @@ Attention, the router and the norms run in full for every token. Of the experts,
 
 #### Why sixty-four? {#why-sixty-four}
 
-Nothing so far explains where 64 and 8 came from, and they are worth pulling apart, because they are neither arbitrary nor universal. They are OLMoE's choices. Mixtral used 8 experts and picked 2; Qwen3-30B-A3B uses 128 and picks 8; DeepSeek-V3 uses 256 routed experts and picks 8. The mechanism is the same in all of them; the two numbers are a design decision made per model.
+Nothing so far explains where 64 and 8 came from. They are neither arbitrary nor universal: they are OLMoE's choices, set in [its configuration](https://huggingface.co/allenai/OLMoE-1B-7B-0924/blob/main/config.json). Other models choose differently. [Mixtral 8x7B](https://arxiv.org/abs/2401.04088) has 8 experts per layer and picks 2 ([config](https://huggingface.co/mistralai/Mixtral-8x7B-v0.1/blob/main/config.json)). [Qwen3-30B-A3B](https://arxiv.org/abs/2505.09388) has 128 and picks 8 (the Qwen3 Technical Report's Table 2, and its [config](https://huggingface.co/Qwen/Qwen3-30B-A3B/blob/main/config.json)). [DeepSeek-V3](https://arxiv.org/abs/2412.19437) has 256 routed experts plus one shared expert, and picks 8 of the 256 (the DeepSeek-V3 report's §4.2, and its [config](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json)). The mechanism is the same in all of them; the two numbers are a design decision made per model.
 
 The useful way to read them is that they are not two independent knobs. What a token costs is $k$ multiplied by the width of one expert, and that product is the real budget ([`why_this_many_experts`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
@@ -293,7 +293,7 @@ Its shape follows from that job. A token arrives at each MoE layer as a vector o
     / 1,073,741,824 bytes in a GiB   12.88 GiB
 ```
 
-The last three steps switch from counting parameters to counting bytes. In bfloat16 every parameter takes 2 bytes, so 2,097,152 parameters are 4,194,304 bytes. A **MiB** is $2^{20} = 1{,}048{,}576$ bytes and a **GiB** is $2^{30} = 1{,}073{,}741{,}824$ bytes; they are the power-of-two cousins of MB and GB, which is why 4,194,304 bytes comes out as exactly 4.0 MiB. The "2.10M" used elsewhere in this post is a plain million: 2,097,152 rounded to two decimals.
+The last three steps switch from counting parameters to counting bytes. In bfloat16 every parameter takes 2 bytes, so 2,097,152 parameters are 4,194,304 bytes. A MiB is $2^{20} = 1{,}048{,}576$ bytes and a GiB is $2^{30} = 1{,}073{,}741{,}824$ bytes, the power-of-two cousins of MB and GB, which is why 4,194,304 bytes comes out as exactly 4.0 MiB. The "2.10M" used elsewhere in this post is a plain million: 2,097,152 rounded to two decimals.
 
 The share divides the router's 2,097,152 parameters by all 6,919,161,856, which is 0.030%. Everything else is the remaining 6,917,064,704 parameters at 2 bytes each, 13,834,129,408 bytes, which is 12.88 GiB. Three hundredths of one percent of the model decides how the rest of it is spent, on every token, at every layer.
 
@@ -409,7 +409,7 @@ The lower panel is the reason 0.4281 is not a surprise once you see it. Eight ba
 
 #### Not every router works this way {#router-variants}
 
-OLMoE's router is the plain form, which is why it is the one to learn first. Nearly every part of it is a decision that other models make differently, and the differences are visible in their published configs rather than being a matter of interpretation. DeepSeek-V3 makes a different choice on all four:
+OLMoE's router is the plain form, which is why it is the one to learn first. Nearly every part of it is a decision that other models make differently, and the differences are visible in their published configs rather than being a matter of interpretation. [DeepSeek-V3](https://arxiv.org/abs/2412.19437) makes a different choice on all four; every entry below is read from [OLMoE's config](https://huggingface.co/allenai/OLMoE-1B-7B-0924/blob/main/config.json) and [DeepSeek-V3's config](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json):
 
 | Decision | OLMoE | DeepSeek-V3 |
 | --- | --- | --- |
@@ -499,17 +499,17 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         444.1     1.00x
-  64                        931.3     2.10x
+  8                         430.0     1.00x
+  64                        933.6     2.17x
 
   expert FLOPs ratio (64/8)          8x
-  measured wall-clock ratio          2.10x
+  measured wall-clock ratio          2.17x
     below 8x because attention, norms and the LM head are unchanged
 ```
 
-Eight times the expert arithmetic costs 2.10× the wall clock, and zero extra bytes of weights.
+Eight times the expert arithmetic costs 2.17× the wall clock, and zero extra bytes of weights.
 
-Both halves of that deserve a note. The **2.10× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.10× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
+Both halves of that deserve a note. The **2.17× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.17× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
 
 Unlike every other number in this post, this one is a wall-clock measurement and it moves a little from run to run; the counts and ratios elsewhere do not. And the top-64 row is a measurement of **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes; it is a timing experiment, not a quality one.
 
@@ -549,7 +549,7 @@ This resolves the apparent paradox in the name. **An MoE saves arithmetic, not m
 
 ### 7. When the model spans many GPUs {#across-gpus}
 
-Everything so far assumed the model fits on one machine. OLMoE does, at 12.89 GiB. The models this architecture actually exists for do not: DeepSeek-V3 is 671B parameters, over a terabyte of weights in bf16, so it has to be split across many GPUs.
+Everything so far assumed the model fits on one machine. OLMoE does, at 12.89 GiB. The models this architecture exists for do not: [DeepSeek-V3](https://arxiv.org/abs/2412.19437) has 671B parameters, over a terabyte of weights in bf16, so it has to be split across many GPUs.
 
 There are two ways to split a transformer, and MoE makes the second one natural.
 
@@ -575,7 +575,7 @@ The absolute number climbs while the share falls, and both halves matter. Going 
 > **What this section does and does not measure.** The routing is real, measured on the actual model. The GPU assignment is arithmetic on top of it — experts dealt out in contiguous blocks — not a benchmark on a multi-GPU host, which is not something a laptop can honestly produce. What it gives you is the quantity that *determines* the communication cost, rather than the cost itself, which depends on the serving stack and on **interconnect bandwidth** — how fast the links between GPUs can carry data, as distinct from how fast the GPUs compute.
 {: .prompt-info }
 
-For scale, here is how OLMoE sits next to two models built the same way. These are published configuration values rather than measurements of mine:
+For scale, here is how OLMoE sits next to two models built the same way. These are published values rather than measurements of mine, from each model's configuration ([OLMoE](https://huggingface.co/allenai/OLMoE-1B-7B-0924/blob/main/config.json), [Qwen3-30B-A3B](https://huggingface.co/Qwen/Qwen3-30B-A3B/blob/main/config.json), [DeepSeek-V3](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json)) and, for the active counts, each model's name or report:
 
 | | OLMoE-1B-7B | Qwen3-30B-A3B | DeepSeek-V3 |
 | --- | --- | --- | --- |
@@ -587,7 +587,7 @@ For scale, here is how OLMoE sits next to two models built the same way. These a
 | shared expert | none | none | 1, always on |
 | fits on one 24 GB card | yes, in bf16 | no | not remotely |
 
-Two details in that last column are worth noticing, because simplified diagrams of DeepSeek-V3 routinely get them wrong. It has a **shared expert** that every token passes through in addition to its top-8, so "8 of 256" understates what runs. And its first three layers are ordinary dense FFNs, not MoE layers, so it has 58 MoE layers rather than 61. Its experts are also much narrower than its dense layers — an intermediate width of 2,048 against the 18,432 of the dense FFN — which is what lets it hold 256 of them per layer.
+Two details in that last column are often drawn wrong in simplified diagrams of DeepSeek-V3, and both are stated in [its report](https://arxiv.org/abs/2412.19437), §4.2. It has a **shared expert** that every token passes through in addition to its top-8, so "8 of 256" understates what runs. And its first three layers are ordinary dense FFNs, not MoE layers, so it has 58 MoE layers rather than 61. Its experts are also much narrower than its dense layers — an intermediate width of 2,048 against the 18,432 of the dense FFN — which is what lets it hold 256 of them per layer.
 
 ### 8. Nothing balances the load for free {#load-balance}
 
@@ -625,7 +625,7 @@ OLMoE sets $\alpha$ to **0.01**, which is the `router_aux_loss_coef` printed abo
 
 ### 9. How an MoE is trained, and where "mid-training" fits {#how-its-trained}
 
-A question worth separating out, because two different things get talked about in the same breath: mixture-of-experts is an **architecture**, while pre-training, mid-training and post-training are **stages in a model's life**. They are different dimensions, not alternatives. You can ask "is this model MoE?" and "what stage is it in?" independently.
+Two different things often get talked about in the same breath here: mixture-of-experts is an **architecture**, while pre-training, mid-training and post-training are **stages in a model's life**. They are different dimensions, not alternatives. You can ask "is this model MoE?" and "what stage is it in?" independently.
 
 **The experts and the router learn together, during pre-training.** They are not bolted on afterwards. At the start of training every expert is random and the router is random, so the first routing decisions are meaningless. Then ordinary next-token prediction runs: the model reads text, predicts what comes next, and is scored on how wrong it was. **Backpropagation** then works that error backwards through the network to get a gradient for every weight involved, and the weights move. The router, the chosen experts and the rest of the network all update. The skipped experts do not, because they contributed nothing to the output.
 
@@ -633,7 +633,7 @@ There is a subtlety here that [§3](#one-token-routed) set up. Picking the top 8
 
 Specialization is emergent from that process. Nobody assigns expert 17 to code. It becomes whatever it becomes, because it happened to be picked slightly more often for certain inputs early on and improved at them, which made it get picked more. That is the same runaway dynamic [§8](#load-balance)'s auxiliary loss exists to keep from going too far.
 
-Not every MoE is trained this way. **Sparse upcycling** takes a finished dense model, copies its FFN into many identical experts, and continues training — much cheaper than starting over, since it inherits everything the dense model learned. The tradeoff shows up in [§4](#what-the-router-learns)'s measurement: upcycled models are reported to specialize noticeably less ([Muennighoff et al.](https://arxiv.org/abs/2409.02060) compare OLMoE against the upcycled Mixtral), which makes sense if every expert starts as a copy of the same function. OLMoE was trained sparse from scratch, which is part of why its routing is worth measuring.
+Not every MoE is trained this way. **Sparse upcycling** takes a finished dense model, copies its FFN into many identical experts, and continues training — much cheaper than starting over, since it inherits everything the dense model learned. The tradeoff shows up in [§4](#what-the-router-learns)'s measurement: upcycled models are reported to specialize noticeably less ([Muennighoff et al.](https://arxiv.org/abs/2409.02060) compare OLMoE against the upcycled Mixtral), which makes sense if every expert starts as a copy of the same function. OLMoE was trained sparse from scratch, which is part of why its routing is the one this post measures.
 
 #### The three stages
 
@@ -641,7 +641,7 @@ Not every MoE is trained this way. **Sparse upcycling** takes a finished dense m
 
 **Post-training** is the other end, and it is about behaviour rather than knowledge. A raw pre-trained model is not an assistant; it is a very well-read text continuer. Post-training teaches it to follow instructions, hold a conversation, use tools, and decline things it should decline, through **supervised fine-tuning** (showing it worked examples of good answers and training it to reproduce them) and preference-based methods (showing it pairs of answers with a judgement of which is better). Posts 8 and 9 of this series are about two of those methods.
 
-**Mid-training** is the term with the least agreement behind it, which is worth saying plainly rather than pretending it is a settled piece of vocabulary. Broadly it means continued training after the main pre-training run but before the behaviour-focused stage, using deliberately chosen data rather than a broad web scrape. You may also see it called continued pre-training, annealing, or a second curriculum stage.
+**Mid-training** is the term with the least agreement behind it, and it is not a settled piece of vocabulary. Broadly it means continued training after the main pre-training run but before the behaviour-focused stage, using deliberately chosen data rather than a broad web scrape. You may also see it called continued pre-training, annealing, or a second curriculum stage.
 
 The clearest concrete example comes from the same lab that built the model in this post. [OLMo 2](https://arxiv.org/abs/2501.00656) pre-trains in two stages: roughly 3.9 trillion tokens of general mixture, then a second stage of about 5–10% of the compute budget on a curated mix heavy in high-quality web text, academic content, instruction data and synthetic mathematics, aimed at capabilities the first stage left weak. (OLMo 2 is a dense model, not an MoE — it is cited here for the training stage, not the architecture.)
 
@@ -675,7 +675,7 @@ Half of that is right, which is what makes it dangerous.
 
 **1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident — **12.9 GiB** in bf16 — because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
-**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.10×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
+**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.17×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
 
 **3. And say why the memory does not improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
@@ -785,6 +785,9 @@ $16.00 \div 8.00 = 2.0$. The 8.00 GiB is a floor, not a peak: it counts only ten
 - Fedus et al., [Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity](https://arxiv.org/abs/2101.03961) (2021) — top-1 routing, expert capacity, and the batching and token-dropping concerns that §6 measures the root of.
 - Lepikhin et al., [GShard: Scaling Giant Models with Conditional Computation and Automatic Sharding](https://arxiv.org/abs/2006.16668) (2020) — expert parallelism, and why the union-of-experts problem in §6 becomes a communication cost at scale.
 - OLMo Team, [2 OLMo 2 Furious](https://arxiv.org/abs/2501.00656) (2025) — §9's concrete example of a mid-training stage: a curated second-stage mix over roughly 5–10% of the compute budget, after ~3.9T tokens of general pre-training. A dense model, cited for the training schedule rather than the architecture.
+- Jiang et al., [Mixtral of Experts](https://arxiv.org/abs/2401.04088) (2024) — 8 experts per layer, 2 chosen per token; one of §1's contrasts with OLMoE's 64 and 8, and the upcycled model OLMoE's specialization is compared against in §9.
+- Yang et al., [Qwen3 Technical Report](https://arxiv.org/abs/2505.09388) (2025) — Table 2 gives Qwen3-30B-A3B's 48 layers, 128 experts and 8 activated, used in §1 and §7.
+- Ai2, [OLMo training configuration](https://github.com/allenai/OLMo/blob/main/olmo/config.py) — the note that padding the embedding size to a multiple of 128 can improve throughput, cited in §1 for OLMoE's 50,304-row tables.
 - Komatsuzaki et al., [Sparse Upcycling: Training Mixture-of-Experts from Dense Checkpoints](https://arxiv.org/abs/2212.05055) (2022) — the alternative to training sparse from scratch, and the reason §4's result depends on which of the two produced the model.
-- DeepSeek-AI, [DeepSeek-V3 Technical Report](https://arxiv.org/abs/2412.19437) (2024) — the 671B/37B model in §7's comparison, its shared expert, and the serving architecture that §7's all-to-all describes.
+- DeepSeek-AI, [DeepSeek-V3 Technical Report](https://arxiv.org/abs/2412.19437) (2024) — the 671B/37B model in §1 and §7, §4.2's 256 routed experts plus one shared, 8 activated, its shared expert, and the serving architecture that §7's all-to-all describes.
 - Wang, Hayou and Nalisnick, [The Myth of Expert Specialization in MoEs: Why Routing Reflects Geometry, Not Necessarily Domain Expertise](https://arxiv.org/abs/2604.09780) (2026) — the dissenting reading of §4. Argues that because routers are linear maps, hidden-state similarity is necessary and sufficient to explain expert-usage similarity, so specialization is emergent from the representation space. Their models are Qwen- and DeepSeek-family rather than OLMoE. Their result on load balancing also bears on §8: they prove the balancing loss suppresses shared hidden-state directions.
