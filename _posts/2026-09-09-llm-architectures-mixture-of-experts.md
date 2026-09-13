@@ -179,7 +179,7 @@ Reading down it, one tensor at a time. Each tensor performs one operation, and i
 
 $$q = \mathrm{RMSNorm}_q(W_q\,x) \qquad k = \mathrm{RMSNorm}_k(W_k\,x) \qquad v = W_v\,x \qquad \text{output} = W_o\,(\text{the 16 heads' results, joined})$$
 
-Each of $W_q$, $W_k$, $W_v$ and $W_o$ is 2,048 rows × 2,048 wide, so the four together hold $4 \times 2{,}048 \times 2{,}048 = 16{,}777{,}216$ parameters. OLMoE also normalizes the whole query vector and the whole key vector before splitting them into 16 heads of 128 numbers, so `q_norm` and `k_norm` are RMSNorms with a vector of 2,048 learned scales each. Those 4,096 extra parameters per layer are why attention prints as 0.269B rather than the 0.268B the four matrices alone would give. The query path on a real token ([`each_tensor_step_by_step`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+Each of $$W_q$$, $$W_k$$, $$W_v$$ and $$W_o$$ is 2,048 rows × 2,048 wide, so the four together hold $4 \times 2{,}048 \times 2{,}048 = 16{,}777{,}216$ parameters. OLMoE also normalizes the whole query vector and the whole key vector before splitting them into 16 heads of 128 numbers, so `q_norm` and `k_norm` are RMSNorms with a vector of 2,048 learned scales each. Those 4,096 extra parameters per layer are why attention prints as 0.269B rather than the 0.268B the four matrices alone would give. The query path on a real token ([`each_tensor_step_by_step`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   step                          shape                 parameters
@@ -192,13 +192,13 @@ Each of $W_q$, $W_k$, $W_v$ and $W_o$ is 2,048 rows × 2,048 wide, so the four t
   values (W_v) and output (W_o)      2 x 4,194,304 = 8,388,608
 ```
 
-**The router** multiplies the same normalized vector by one matrix to get one score per expert, $z = W_r\,x$. It is 64 rows × 2,048 wide, so $64 \times 2{,}048 = 131{,}072$ parameters.
+**The router** multiplies the same normalized vector by one matrix to get one score per expert, $$z = W_r\,x$$. It is 64 rows × 2,048 wide, so $64 \times 2{,}048 = 131{,}072$ parameters.
 
 **The experts** are stored as two stacked tensors whose first dimension, 64, has one entry per expert; entry $e$ holds expert $e$'s matrices. Each expert is a [SwiGLU](/posts/llm-architectures-attention-and-rope/) FFN, and it runs three steps:
 
 $$\begin{bmatrix} x_{gate} \\ x_{up} \end{bmatrix} = W_{gate\_up}^{(e)}\,x \qquad x_{mix} = \mathrm{SiLU}(x_{gate}) \odot x_{up} \qquad \mathrm{FFN}_e(x) = W_{down}^{(e)}\,x_{mix}$$
 
-The first step is two projections done as one multiply. `gate_up_proj[e]` is 2,048 rows × 2,048 wide: its first 1,024 rows are the gate projection $W_{gate}$ and its last 1,024 rows are the up projection $W_{up}$, each 2,048 wide, stacked so that one matrix multiply produces both. The result, 2,048 numbers, is split in half into $x_{gate}$ and $x_{up}$, 1,024 numbers each. The second step has no parameters: $\mathrm{SiLU}(x_{gate})$ turns the gate half into 1,024 dials, and $\odot$ multiplies them number by number into the up half, so the gate decides how much of each of the 1,024 features passes. The third step, `down_proj[e]`, is 2,048 rows × 1,024 wide and takes those 1,024 numbers back to the model's 2,048.
+The first step is two projections done as one multiply. `gate_up_proj[e]` is 2,048 rows × 2,048 wide: its first 1,024 rows are the gate projection $$W_{gate}$$ and its last 1,024 rows are the up projection $$W_{up}$$, each 2,048 wide, stacked so that one matrix multiply produces both. The result, 2,048 numbers, is split in half into $$x_{gate}$$ and $$x_{up}$$, 1,024 numbers each. The second step has no parameters: $$\mathrm{SiLU}(x_{gate})$$ turns the gate half into 1,024 dials, and $\odot$ multiplies them number by number into the up half, so the gate decides how much of each of the 1,024 features passes. The third step, `down_proj[e]`, is 2,048 rows × 1,024 wide and takes those 1,024 numbers back to the model's 2,048.
 
 Counting them: `gate_up_proj` is $2{,}048 \times 2{,}048 = 4{,}194{,}304$ parameters per expert, which is the same as $2 \times 1{,}024 \times 2{,}048$ for the two projections it stacks, and `down_proj` is $2{,}048 \times 1{,}024 = 2{,}097{,}152$. One expert therefore holds $4{,}194{,}304 + 2{,}097{,}152 = 6{,}291{,}456$ parameters, the **6.29M** in the table. Across the 64 stacked experts, that is $64 \times 4{,}194{,}304 = 268{,}435{,}456$ for `gate_up_proj` and $64 \times 2{,}097{,}152 = 134{,}217{,}728$ for `down_proj`, the two rows above. The 1,024 is the expert's width, *half* the model's width, for reasons [below](#why-sixty-four). The router's first choice for the same token, run step by step ([`each_tensor_step_by_step`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
@@ -217,7 +217,7 @@ Counting them: `gate_up_proj` is $2{,}048 \times 2{,}048 = 4{,}194{,}304$ parame
 
 The last line confirms the stacking: multiplying by only the first 1,024 rows of `gate_up_proj` gives exactly the gate half.
 
-**The norms** are two RMSNorms, each a vector of 2,048 learned scales: one before attention, $x = \mathrm{RMSNorm}(h)$, and one before the MoE block, $x = \mathrm{RMSNorm}(h_{mid})$. Their equation is the same as the final norm's, which is worked through below.
+**The norms** are two RMSNorms, each a vector of 2,048 learned scales: one before attention, $x = \mathrm{RMSNorm}(h)$, and one before the MoE block, $$x = \mathrm{RMSNorm}(h_{mid})$$. Their equation is the same as the final norm's, which is worked through below.
 
 Three more pieces sit outside the 16 layers, and two of them are large ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
@@ -243,10 +243,10 @@ The row count has one wrinkle. OLMoE's tokenizer defines **50,280** tokens, with
 
 | Symbol | Means |
 | --- | --- |
-| $h_i$ | the $i$-th of the vector's 2,048 numbers, as it leaves the last layer |
-| $\sqrt{\frac{1}{d}\sum_j h_j^2}$ | the vector's **root mean square** (RMS): its typical size |
+| $$h_i$$ | the $i$-th of the vector's 2,048 numbers, as it leaves the last layer |
+| $$\sqrt{\frac{1}{d}\sum_j h_j^2}$$ | the vector's **root mean square** (RMS): its typical size |
 | $\epsilon$ | a tiny constant, $10^{-5}$, that keeps the division safe for an all-zero vector |
-| $\gamma_i$ | a learned scale for dimension $i$ |
+| $$\gamma_i$$ | a learned scale for dimension $i$ |
 
 $$\mathrm{RMSNorm}(h)_i = \gamma_i \cdot \frac{h_i}{\sqrt{\frac{1}{d}\sum_{j=1}^{d} h_j^2 + \epsilon}}$$
 
@@ -395,14 +395,14 @@ Here is the mechanism in full. Before the formula, every symbol in it:
 | Symbol | Means | Shape here |
 | --- | --- | --- |
 | $x$ | one token's vector arriving at the MoE layer | $(2048,)$ |
-| $d_{model}$ | the model's width, the length of $x$ | 2048 |
+| $$d_{model}$$ | the model's width, the length of $x$ | 2048 |
 | $E$ | how many experts the layer has | 64 |
 | $k$ | how many experts each token is routed to | 8 |
-| $W_r$ | the router matrix | $(64, 2048)$ |
+| $$W_r$$ | the router matrix | $(64, 2048)$ |
 | $z$ | **router logits** — one raw, unbounded score per expert | $(64,)$ |
 | $p$ | those scores turned into probabilities by softmax | $(64,)$ |
 | $\mathcal{K}$ | the set of the $k$ highest-scoring experts | 8 indices |
-| $\text{FFN}_e$ | expert $e$, an ordinary feed-forward network | — |
+| $$\text{FFN}_e$$ | expert $e$, an ordinary feed-forward network | — |
 | $y$ | what the layer outputs for this token | $(2048,)$ |
 
 A **logit** is a raw score before it has been turned into a probability; it can be any real number, positive or negative. **Softmax** is the function that turns a list of logits into positive numbers that sum to 1, by exponentiating each one and dividing by the total, so the largest logit gets the largest share.
@@ -472,13 +472,13 @@ The formula above stops at the MoE output $y$. Two more pieces finish the layer:
 
 | Symbol | Means | Shape here |
 | --- | --- | --- |
-| $h_{mid}$ | the **residual stream** after attention: the running vector every sub-layer reads from and adds its result back into | $(2048,)$ |
+| $$h_{mid}$$ | the **residual stream** after attention: the running vector every sub-layer reads from and adds its result back into | $(2048,)$ |
 | $\mathrm{RMSNorm}$ | the layer norm OLMoE uses: rescale a vector to unit root-mean-square, then multiply each number by a learned weight; its equation is in [§1](#deriving-the-census) | — |
-| $W_{gate}^{(e)}$, $W_{up}^{(e)}$ | expert $e$'s two input projections | 1,024 rows × 2,048 wide |
-| $W_{down}^{(e)}$ | expert $e$'s output projection | 2,048 rows × 1,024 wide |
+| $$W_{gate}^{(e)}$$, $$W_{up}^{(e)}$$ | expert $e$'s two input projections | 1,024 rows × 2,048 wide |
+| $$W_{down}^{(e)}$$ | expert $e$'s output projection | 2,048 rows × 1,024 wide |
 | $\mathrm{SiLU}(u)$ | the activation, $u \cdot \sigma(u)$ where $\sigma$ is the sigmoid, applied to each number separately | — |
 | $\odot$ | multiply two vectors number by number | — |
-| $h_{out}$ | what the layer passes to the next one | $(2048,)$ |
+| $$h_{out}$$ | what the layer passes to the next one | $(2048,)$ |
 
 $$x = \mathrm{RMSNorm}(h_{mid}) \qquad z = W_r\,x \qquad p_e = \frac{e^{z_e}}{\sum_{j=1}^{64} e^{z_j}} \qquad \mathcal{K} = \operatorname*{top-8}_{e}\ p_e$$
 
@@ -506,7 +506,7 @@ The demo builds the output for `' harbour'` from exactly these equations and com
   layer output == h_mid + y? (bf16)  yes
 ```
 
-Each row is one expert's contribution, $p_e$ times its output, and $|\mathrm{FFN}_e(x)|$ is the length of the output vector, which is how large a change that expert proposes. The eight contributions add up to the model's own output with no difference at all. That comparison runs in fp32 on a copy of the block, so its weights differ from [§3's bf16 table](#one-token-routed) in the fourth decimal (0.1164 against 0.1161); the last line checks, in the model's own bf16, that the layer's output really is the residual stream plus the MoE output.
+Each row is one expert's contribution, $$p_e$$ times its output, and $$\lvert \mathrm{FFN}_e(x) \rvert$$ is the length of the output vector, which is how large a change that expert proposes. The eight contributions add up to the model's own output with no difference at all. That comparison runs in fp32 on a copy of the block, so its weights differ from [§3's bf16 table](#one-token-routed) in the fourth decimal (0.1164 against 0.1161); the last line checks, in the model's own bf16, that the layer's output really is the residual stream plus the MoE output.
 
 The rows also show something the weights alone hide. Expert 41 has only the third-largest weight but makes the largest contribution, because the change it proposes is almost twice as long as expert 5's. An expert's influence on a token is its weight times the size of what it proposes, and the router controls only the first.
 
@@ -663,7 +663,7 @@ Written per token, a batch of $T$ tokens is $T$ separate copies of the layer for
 
 $$y_t = \sum_{e=1}^{64} \mathbf{1}[e \in \mathcal{K}_t]\; p_{t,e}\; \mathrm{FFN}_e(x_t) \qquad \text{for each token } t = 1, \dots, T$$
 
-Nobody computes it that way. Swapping the order of the two sums groups the work by expert instead of by token. For each expert $e$, collect the tokens that chose it, $T_e = \{t : e \in \mathcal{K}_t\}$, stack their vectors into one matrix, run $\mathrm{FFN}_e$ on all of them in a single matrix multiply, scale each result by that token's $p_{t,e}$, and add it back to its own token. [OLMoE's implementation in transformers](https://github.com/huggingface/transformers/blob/main/src/transformers/models/olmoe/modeling_olmoe.py) is exactly this loop over experts. At layer 0, for the 356-token passage ([`batch_collapse`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+Nobody computes it that way. Swapping the order of the two sums groups the work by expert instead of by token. For each expert $e$, collect the tokens that chose it, $$T_e = \{t : e \in \mathcal{K}_t\}$$, stack their vectors into one matrix, run $$\mathrm{FFN}_e$$ on all of them in a single matrix multiply, scale each result by that token's $$p_{t,e}$$, and add it back to its own token. [OLMoE's implementation in transformers](https://github.com/huggingface/transformers/blob/main/src/transformers/models/olmoe/modeling_olmoe.py) is exactly this loop over experts. At layer 0, for the 356-token passage ([`batch_collapse`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   experts called                     64 of 64
@@ -743,9 +743,9 @@ This is why MoE training carries **auxiliary losses**: extra penalty terms added
 
 | Symbol | Means |
 | --- | --- |
-| $\mathcal{L}_{CE}$ | **cross-entropy**, the ordinary next-token loss: averaged over tokens, $-\log$ of the probability the model gave the token that actually came next |
-| $\mathcal{L}_{LB}$ | the **load-balancing loss**, large when a few experts take most of the traffic |
-| $\mathcal{L}_{RZ}$ | the **router z-loss**, large when the router's logits grow large |
+| $$\mathcal{L}_{CE}$$ | **cross-entropy**, the ordinary next-token loss: averaged over tokens, $-\log$ of the probability the model gave the token that actually came next |
+| $$\mathcal{L}_{LB}$$ | the **load-balancing loss**, large when a few experts take most of the traffic |
+| $$\mathcal{L}_{RZ}$$ | the **router z-loss**, large when the router's logits grow large |
 | $\alpha$, $\beta$ | how much each penalty counts; for OLMoE-1B-7B, 0.01 and 0.001 |
 
 $$\mathcal{L} = \mathcal{L}_{CE} + \alpha\,\mathcal{L}_{LB} + \beta\,\mathcal{L}_{RZ}$$
@@ -754,14 +754,14 @@ The two penalties need a few more quantities, each averaged over the $N$ token p
 
 | Symbol | Means | Sums to |
 | --- | --- | --- |
-| $N_E$ | the number of experts | 64 |
-| $f_i$ | the fraction of tokens that have expert $i$ among their top 8 | 8, over all experts |
-| $P_i$ | the router probability given to expert $i$, averaged over tokens | 1, over all experts |
-| $z_{t,j}$ | token $t$'s router logit for expert $j$ | — |
+| $$N_E$$ | the number of experts | 64 |
+| $$f_i$$ | the fraction of tokens that have expert $i$ among their top 8 | 8, over all experts |
+| $$P_i$$ | the router probability given to expert $i$, averaged over tokens | 1, over all experts |
+| $$z_{t,j}$$ | token $t$'s router logit for expert $j$ | — |
 
 $$f_i = \frac{1}{N}\sum_{t=1}^{N} \mathbf{1}[i \in \mathcal{K}_t] \qquad P_i = \frac{1}{N}\sum_{t=1}^{N} p_{t,i} \qquad \mathcal{L}_{LB} = N_E \sum_{i=1}^{N_E} f_i\,P_i \qquad \mathcal{L}_{RZ} = \frac{1}{N}\sum_{t=1}^{N}\Big(\log \sum_{j=1}^{N_E} e^{z_{t,j}}\Big)^2$$
 
-If routing were perfectly even, every $f_i$ would be $8/64$ and every $P_i$ would be $1/64$, so $\mathcal{L}_{LB} = 64 \times 64 \times \tfrac{8}{64} \times \tfrac{1}{64} = 8$. It grows when the experts picked most often are also the ones given the most probability, which is exactly what a router locking onto a few experts looks like. One detail matters for how it trains: $f_i$ is a count of top-8 selections, so like the selection itself it has no gradient. Only $P_i$ does, and through it the loss pushes probability away from experts that are already taking more than their share.
+If routing were perfectly even, every $$f_i$$ would be $8/64$ and every $$P_i$$ would be $1/64$, so $$\mathcal{L}_{LB} = 64 \times 64 \times \tfrac{8}{64} \times \tfrac{1}{64} = 8$$. It grows when the experts picked most often are also the ones given the most probability, which is exactly what a router locking onto a few experts looks like. One detail matters for how it trains: $$f_i$$ is a count of top-8 selections, so like the selection itself it has no gradient. Only $$P_i$$ does, and through it the loss pushes probability away from experts that are already taking more than their share.
 
 The z-loss squares the logarithm of the softmax's denominator. Keeping it small keeps the router's logits in a range where the softmax stays numerically stable, which is the reason the paper gives for it.
 
@@ -787,7 +787,7 @@ On the 94-token passage ([`what_training_minimizes`](https://github.com/bearbear
   total                                      2.8314
 ```
 
-The sums come out at 8 and 1, as the definitions require, and the hand computation equals transformers' own function. The pooled value, 8.17, looks almost perfectly balanced, and that is partly an artifact. transformers' function pools the router logits of all 16 layers before counting, which treats expert 5 in layer 0 and expert 5 in layer 15 as one expert and averages each layer's imbalance away; computed layer by layer, the same passage scores 10.50. transformers adds only $\alpha\,\mathcal{L}_{LB}$ to the loss it returns, so the z-loss here comes from the paper's formula, shown for scale.
+The sums come out at 8 and 1, as the definitions require, and the hand computation equals transformers' own function. The pooled value, 8.17, looks almost perfectly balanced, and that is partly an artifact. transformers' function pools the router logits of all 16 layers before counting, which treats expert 5 in layer 0 and expert 5 in layer 15 as one expert and averages each layer's imbalance away; computed layer by layer, the same passage scores 10.50. transformers adds only $$\alpha\,\mathcal{L}_{LB}$$ to the loss it returns, so the z-loss here comes from the paper's formula, shown for scale.
 
 Weighted by their coefficients, the two penalties add 0.0817 and 0.0116 to a cross-entropy of 2.7381, about 3% and 0.4%. That is small on purpose: the balancing term is there to stop a collapse, not to drive the model, and setting it too high would trade away prediction quality to make a histogram look tidy. And even *with* that penalty applied throughout training, the busiest expert still runs about five times as often as an even share. The auxiliary loss keeps the distribution from collapsing; it does not make it flat, and it is not trying to.
 
@@ -801,16 +801,16 @@ There is a subtlety here that [§3](#one-token-routed) set up. Picking the top 8
 
 | Symbol | Means |
 | --- | --- |
-| $g_e$ | how much the loss would change if expert $e$'s output grew along its own direction: $g_e = \frac{\partial \mathcal{L}}{\partial y} \cdot \mathrm{FFN}_e(x)$, one number per chosen expert |
-| $\delta_{ej}$ | 1 if $e = j$, and 0 otherwise |
+| $$g_e$$ | how much the loss would change if expert $e$'s output grew along its own direction: $$g_e = \frac{\partial \mathcal{L}}{\partial y} \cdot \mathrm{FFN}_e(x)$$, one number per chosen expert |
+| $$\delta_{ej}$$ | 1 if $e = j$, and 0 otherwise |
 
-Treat the chosen set $\mathcal{K}$ as fixed, differentiate $y = \sum_{e \in \mathcal{K}} p_e\,\mathrm{FFN}_e(x)$ through the softmax, and for every expert $j$:
+Treat the chosen set $\mathcal{K}$ as fixed, differentiate $$y = \sum_{e \in \mathcal{K}} p_e\,\mathrm{FFN}_e(x)$$ through the softmax, and for every expert $j$:
 
 $$\frac{\partial \mathcal{L}}{\partial z_j} = \sum_{e \in \mathcal{K}} g_e\; p_e\,(\delta_{ej} - p_j) \qquad \frac{\partial \mathcal{L}}{\partial W_r} = \frac{\partial \mathcal{L}}{\partial z}\, x^{\top}$$
 
 Two consequences follow, and both are checkable:
 
-- **Every router row gets a gradient, not only the eight chosen ones.** The $-p_j$ term is present for all 64, because each $p_e$ has every expert's score in its denominator: raising a chosen expert's probability means lowering everyone else's.
+- **Every router row gets a gradient, not only the eight chosen ones.** The $$-p_j$$ term is present for all 64, because each $$p_e$$ has every expert's score in its denominator: raising a chosen expert's probability means lowering everyone else's.
 - **Only the chosen experts' own weights get a gradient.** A skipped expert's FFN never appears in $y$, so for this token nothing in the loss depends on it.
 
 The demo backpropagates one token through layer 0's MoE block and counts what receives a gradient, then compares the router formula above with PyTorch's automatic differentiation ([`what_gets_a_gradient`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
@@ -832,7 +832,7 @@ All 64 router rows receive gradient, exactly the router's eight chosen experts d
 Put together, a training step on a batch runs in four stages:
 
 1. **Forward.** Every token passes through all 16 layers. In each, attention runs in full, and the MoE sub-layer applies [the layer formula](#the-layer-formula), computed one expert at a time over the tokens that chose it, as in [§6](#batch-dispatch).
-2. **Loss.** $\mathcal{L} = \mathcal{L}_{CE} + \alpha\,\mathcal{L}_{LB} + \beta\,\mathcal{L}_{RZ}$ from [§8](#load-balance), over the whole batch.
+2. **Loss.** $$\mathcal{L} = \mathcal{L}_{CE} + \alpha\,\mathcal{L}_{LB} + \beta\,\mathcal{L}_{RZ}$$ from [§8](#load-balance), over the whole batch.
 3. **Backward.** Gradients flow as above: into all 64 router rows in every layer, and into each expert only from the tokens that chose it. Over a whole batch, as §6 measured, nearly every expert is chosen by someone, so nearly every expert is updated at every step, each from a different subset of the tokens.
 4. **Update.** The optimizer moves every parameter that received a gradient.
 
@@ -902,25 +902,25 @@ Every symbol this post uses, in one place. [Post 1's appendix](/posts/llm-archit
 | --- | --- | --- |
 | $E$ | **experts** — how many separate, smaller FFNs a layer holds | 64 |
 | $k$ | how many experts each token is routed to, the "top-k" | 8 |
-| $d_{model}$ | the model's width, the length of one token's vector | 2048 |
-| $W_r$ | the **router** matrix, one per layer | 64 rows, each 2,048 wide |
+| $$d_{model}$$ | the model's width, the length of one token's vector | 2048 |
+| $$W_r$$ | the **router** matrix, one per layer | 64 rows, each 2,048 wide |
 | $z$ | **router logits** — one raw score per expert, any real number | $(64,)$ |
 | $p$ | the logits after softmax; over all $E$ they sum to 1 | $(64,)$ |
 | $\mathcal{K}$ | the set of experts that survive the top-k cut | 8 of 64 |
-| $\text{FFN}_e$ | expert $e$ — an ordinary SwiGLU feed-forward network | 6.29M parameters |
+| $$\text{FFN}_e$$ | expert $e$ — an ordinary SwiGLU feed-forward network | 6.29M parameters |
 | total parameters | every weight in the model, all of which must be resident | 6.919B |
 | active parameters | the weights one token's arithmetic uses | 1.179B (17.0%) |
 | `norm_topk_prob` | whether the kept weights are rescaled to sum to 1 | false in OLMoE |
 | TV distance | **total variation** — half the summed absolute difference between two distributions; 0 is identical, 1 is disjoint | floor 0.216, cross-domain 0.554 |
 | coeff of var | standard deviation over mean, a scale-free measure of unevenness | 0.88 to 1.07 |
-| $\mathcal{L}_{CE}$ | cross-entropy, the next-token loss | 2.7381 on the test passage |
-| $\mathcal{L}_{LB}$ | load-balancing loss, $N_E \sum_i f_i P_i$; 8 when routing is perfectly even | 8.1675 pooled, 10.5038 per layer |
-| $\mathcal{L}_{RZ}$ | router z-loss, the mean squared log of the softmax denominator | 11.5881 |
-| $\alpha$, $\beta$ | the weights on $\mathcal{L}_{LB}$ and $\mathcal{L}_{RZ}$ in the total loss | 0.01 and 0.001 |
-| $f_i$, $P_i$ | fraction of tokens choosing expert $i$; mean router probability of expert $i$ | sum to 8 and 1 |
-| $h_{mid}$ | the residual stream after attention, which the MoE output is added back into | $(2048,)$ |
+| $$\mathcal{L}_{CE}$$ | cross-entropy, the next-token loss | 2.7381 on the test passage |
+| $$\mathcal{L}_{LB}$$ | load-balancing loss, $$N_E \sum_i f_i P_i$$; 8 when routing is perfectly even | 8.1675 pooled, 10.5038 per layer |
+| $$\mathcal{L}_{RZ}$$ | router z-loss, the mean squared log of the softmax denominator | 11.5881 |
+| $\alpha$, $\beta$ | the weights on $$\mathcal{L}_{LB}$$ and $$\mathcal{L}_{RZ}$$ in the total loss | 0.01 and 0.001 |
+| $$f_i$$, $$P_i$$ | fraction of tokens choosing expert $i$; mean router probability of expert $i$ | sum to 8 and 1 |
+| $$h_{mid}$$ | the residual stream after attention, which the MoE output is added back into | $(2048,)$ |
 | $\mathrm{SiLU}$, $\odot$ | the activation $u \cdot \sigma(u)$; number-by-number multiplication | inside each expert |
-| $g_e$ | how much the loss changes if expert $e$'s output grows, $\frac{\partial \mathcal{L}}{\partial y} \cdot \mathrm{FFN}_e(x)$ | one per chosen expert |
+| $$g_e$$ | how much the loss changes if expert $e$'s output grows, $$\frac{\partial \mathcal{L}}{\partial y} \cdot \mathrm{FFN}_e(x)$$ | one per chosen expert |
 | auxiliary loss | an extra training penalty that grows when routing is lopsided | coefficient 0.01 |
 | expert parallelism | splitting the *experts* across GPUs, rather than slicing every matrix | 64 experts over 2–16 GPUs |
 | all-to-all | the exchange that sends each token to whichever GPUs hold its experts, and gathers the results back | 5.54 GPUs per token at 8 |
@@ -946,7 +946,7 @@ The setup is a 64-token prompt, after which the model writes 512 new tokens one 
 
 **With a cache**, every token goes through the model exactly once: the 64 prompt tokens, then each new token as it is written. The keys and values of earlier tokens are read back from the cache rather than recomputed, so the total is $64 + 512 = 576$ tokens.
 
-**Without a cache**, nothing from earlier steps is kept, so writing each new token means running the whole sequence so far back through the model. Number the generation steps $i = 0, 1, \dots, 511$. Step $i$ processes the 64 prompt tokens plus the $i$ tokens already written, which is $64 + i$ tokens: 64 at the first step, 65 at the second, and 575 at the last. The symbol $\sum_{i=0}^{511}$ below means "add this up for every step from 0 to 511":
+**Without a cache**, nothing from earlier steps is kept, so writing each new token means running the whole sequence so far back through the model. Number the generation steps $i = 0, 1, \dots, 511$. Step $i$ processes the 64 prompt tokens plus the $i$ tokens already written, which is $64 + i$ tokens: 64 at the first step, 65 at the second, and 575 at the last. The symbol $$\sum_{i=0}^{511}$$ below means "add this up for every step from 0 to 511":
 
 $$\sum_{i=0}^{511} (64 + i) \;=\; \underbrace{512 \times 64}_{\text{the prompt, redone 512 times}} + \underbrace{(0 + 1 + \dots + 511)}_{\text{the tokens written so far}} \;=\; 32{,}768 + 130{,}816 \;=\; 163{,}584$$
 
