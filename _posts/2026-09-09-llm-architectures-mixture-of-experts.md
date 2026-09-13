@@ -17,35 +17,35 @@ published: false
 
 [Post 1](/posts/llm-architectures-attention-and-rope/) took a transformer block apart and put a cost on every piece. One finding matters more here than anything else: the **feed-forward network** holds more of a model's parameters than attention does.
 
-The feed-forward network, or **FFN**, is the per-token stack of matrix multiplies that sits after attention in every transformer block. Attention is where tokens look at one another; the FFN is where each token is transformed on its own. You will also see this component called the **MLP**, short for *multi-layer perceptron*. The original transformer paper called it a feed-forward network, while most model code calls it `mlp`, including the code for [OLMoE](https://arxiv.org/abs/2409.02060), the model measured in this post. Both names refer to the same component, and I will call it the FFN.
+The feed-forward network, or **FFN**, is the per-token stack of matrix multiplies that sits after attention in every transformer block. Attention is where tokens look at one another; the FFN is where each token is transformed on its own. You will also see it called the **MLP**, short for *multi-layer perceptron*, which is what most model code names it, including the code for [OLMoE](https://arxiv.org/abs/2409.02060), the model measured in this post. I will call it the FFN.
 
 The three posts since then each attacked one of three costs of running a trained model: **how much arithmetic** it does, **how much memory** it occupies, and **how many bytes** it has to move through the hardware while doing that arithmetic.
 
 [Post 2](/posts/llm-architectures-kv-cache/) removed work that was being *repeated*. Instead of recomputing keys and values at every generation step, it stores them in a **KV cache**. For a 64-token prompt followed by 512 generated tokens, running without the cache pushes **284× as many tokens** through the model: 163,584 against 576. The price is memory: for a 128k-token conversation in Llama 3.1 8B's shape, keeping the cache holds up to **2.0× more memory** than recomputing would, and holds it for the whole conversation. Both numbers are worked through step by step in [the appendix](#appendix-kv-cache-numbers).
 
-[Post 3](/posts/llm-architectures-flash-attention/) removed work that was being *written down only to be fetched back*. FlashAttention computes attention one tile at a time, so the GPU moves **3.9× fewer bytes** between its large main memory and the small, fast memory close to its arithmetic units. It also needs a fixed amount of scratch space instead of an amount that grows with the square of the sequence length. Its output differs from standard attention by about **1e-6**, and post 3 showed that this is floating-point rounding from the reordered computation rather than a different answer. Sliding-window attention, a genuine approximation of attention, differed by **0.6** on the same test.
+[Post 3](/posts/llm-architectures-flash-attention/) removed work that was being *written down only to be fetched back*. FlashAttention computes attention one tile at a time, so the GPU moves **3.9× fewer bytes** between its large main memory and the small, fast memory close to its arithmetic units.
 
-[Post 4](/posts/llm-architectures-quantization/) stopped being exact on purpose. By storing each weight in fewer bits, it cut the memory the weights take by **2.09×**, from 942 MiB to 452 MiB (a **MiB**, or mebibyte, is $2^{20}$ = 1,048,576 bytes). Most of that post was about the harder question that follows: whether the usual quality check can even see what the lost precision broke. It mostly cannot.
+[Post 4](/posts/llm-architectures-quantization/) stopped being exact on purpose. By storing each weight in fewer bits, it cut the memory the weights take by **2.09×**, from 942 MiB to 452 MiB (a **MiB**, or mebibyte, is $2^{20}$ = 1,048,576 bytes).
 
-They also differed in what they did to the model's output. The KV cache leaves the computation unchanged: generating with or without it produces the same tokens. FlashAttention computes the same function mathematically, but changes the order of floating-point operations, which introduces tiny differences in the last few bits. Quantization is different: it deliberately changes the computation by representing weights with fewer bits.
+They also differed in what they did to the model's output. The KV cache leaves the computation unchanged: generating with or without it produces the same tokens. FlashAttention computes the same function mathematically, but changes the order of floating-point operations, which introduces tiny differences in the last few bits: about **1e-6** on post 3's test, against **0.6** for sliding-window attention, which really does approximate. Quantization is different: it deliberately changes the computation by representing weights with fewer bits.
 
 All three techniques operate on a model you already have. **Mixture-of-experts makes a different move: it changes the model you build.** Instead of sending every token through the same large FFN, an MoE model builds many smaller FFNs, called **experts**, and sends each token through only a few of them.
 
-That shifts the three costs in an unusual way. Per token, it cuts the arithmetic to a fraction: in the model measured here, **17%** of the parameters take part in any one token. It does nothing at all to the number of parameters that have to be kept in memory. And although a single token also moves fewer bytes, because only its chosen experts are read, that advantage mostly disappears once many tokens are processed together, as [§6](#sparsity-and-batching) will show.
+That shifts the three costs unevenly. Per token, the arithmetic falls to a fraction. Memory does not fall at all. The bytes a token moves fall as well, but only while it is processed on its own, which [§6](#sparsity-and-batching) shows does not last.
 
 Think of it as a firm with a hundred specialists on staff. A question about a contract does not go to all hundred people. A partner reads it, decides which specialists would be useful, and sends it to three of them, and only those three bill hours to that question. The other ninety-seven have not gone anywhere, though. They are still on the payroll, and the firm still pays for desks for all hundred.
 
 So the firm pays two different bills, and only one of them got smaller. **The hours billed depend on how many specialists you use; the rent depends on how many you employ.** That is the central trade of mixture-of-experts. The hours are **compute** and the desks are **memory**: for each token the model multiplies through only a handful of experts, but every expert's parameters still have to live somewhere, ready in case a later token is routed to it. [§5](#two-bills) puts measured numbers on both bills.
 
-The analogy holds only up to a point. Human specialists divide into categories people recognize, such as tax, litigation or employment law, and there is no guarantee that neural-network experts organize themselves into anything similar. "Expert" is the name the component was given, not a promise about what it learns. [§4](#what-the-router-learns) looks at what the router actually learns to do.
+The analogy holds only up to a point. Nothing guarantees that neural-network experts divide their work into anything like tax, litigation or employment law; "expert" is the name the component was given, not a promise about what it learns. [§4](#what-the-router-learns) looks at what the router learns to do.
 
-The whole idea fits in one sentence: **instead of one FFN per block that every token uses, build many smaller FFNs and let each token use only a few.** The model measured in this post has **64 experts and activates 8 of them per token**. Those two numbers are design choices rather than part of the definition, and [§1](#why-sixty-four) looks at where they come from.
+The model measured in this post has **64 experts in each layer and activates 8 of them per token**. Those two numbers are design choices rather than part of the definition, and [§1](#why-sixty-four) looks at where they come from.
 
-Nothing here is being approximated just because the model is sparse. OLMoE was trained with this routing from its first step, so the model you run is the model that was trained. It simply has far more parameter capacity than it uses for any one token, and a small learned component, the **router**, decides which slice of that capacity each token gets.
+Nothing is approximated here. OLMoE was trained with this routing from its first step, so the model you run is the model that was trained, and a small learned component, the **router**, decides which experts each token gets.
 
 The arithmetic is strange the first time you see it. The model in this post has **6.9 billion** parameters, and for any one token it activates about **1.2 billion** of them. The other **5.7 billion** sit in memory, untouched by that token, waiting for other tokens that need them. That is the sense in which this is a model that mostly declines to run.
 
-If you would rather see the shape of the thing before the arithmetic starts, the whole architecture is on one page below. Every number on it is measured later in the post. The panels are numbered: panel 1 is the whole model, and panel 2 opens up one of its MoE layers. The grid of numbered boxes in panel 2 is that layer's **64 experts, one box per FFN**, and the eight filled boxes are the experts selected for one real token.
+The whole architecture is on one page below, and every number on it is measured later in the post. Panel 1 is the whole model and panel 2 opens up one MoE layer. The grid of numbered boxes in panel 2 is that layer's **64 experts, one box per FFN**, and the eight filled boxes are the experts selected for one real token.
 
 ![Mixture-of-experts end to end: the whole model, one MoE layer in detail, what is inside one expert, the key numbers, and what happens to a single token](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/moe-architecture-light.png){: .light width="1100" height="1372" }
 ![Mixture-of-experts end to end: the whole model, one MoE layer in detail, what is inside one expert, the key numbers, and what happens to a single token](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/moe-architecture-dark.png){: .dark width="1100" height="1372" }
@@ -62,15 +62,15 @@ cd llm-architectures-refresher
 uv sync && uv run demo05
 ```
 
-The code is in [`demos/d05_moe.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py). Every number in this post is printed by that program, and each block of its output, which I call a **receipt**, names the function that printed it.
+The code is in [`demos/d05_moe.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py). Every number this post measures is printed by that program, and each block of its output, which I call a **receipt**, names the function that printed it. Numbers taken from other models' configurations or papers link to their source instead.
 
 The model is **OLMoE-1B-7B** from the Allen Institute for AI (Ai2): [the paper](https://arxiv.org/abs/2409.02060), [the weights](https://huggingface.co/allenai/OLMoE-1B-7B-0924), and [the training code and data](https://github.com/allenai/OLMoE).
 
 Its name carries the central idea of this post. **OLMo** is Ai2's family of fully open language models (*Open Language Model*), the **E** stands for *experts*, and **1B-7B** means that about 1 billion parameters are active for each token even though the model holds about 7 billion in total. The full checkpoint name adds **0924**, for its September 2024 release.
 
-Both numbers are rounded, and [§1](#where-the-parameters-actually-are) measures them exactly: 6.92B parameters exist, and 1.18B of them are active for a token, or 1.28B if you also count the embedding table the token is looked up in. That gap, between the parameters that exist and the parameters that run, is what this post is about.
+Both numbers are rounded, and [§1](#where-the-parameters-actually-are) measures them exactly: 6.92B parameters exist, and 1.18B of them are active for a token, or 1.28B if you also count the embedding table the token is looked up in.
 
-#### Why this model?
+#### Why this model? {#why-this-model}
 
 The choice was not casual. Like [post 4](/posts/llm-architectures-quantization/), this post needs a trained checkpoint. A router with random weights has learned nothing about where to send tokens, so the routing behaviour [§4](#what-the-router-learns) examines only exists after training; the architecture alone does not produce it.
 
@@ -78,11 +78,9 @@ OLMoE suits the experiment for two reasons. The first is that it is **fully open
 
 The second is that it is a clean version of the mechanism. Each layer has 64 experts and sends each token to 8 of them, with neither of the two common variations. There is no **shared expert**, an extra FFN that every token passes through regardless of routing, and the model was not **upcycled**, which means built by copying a trained dense model's FFN into many experts and continuing training from there. OLMoE was trained sparse from scratch. That turns out to matter for what its router learned in §4, and [§9](#how-its-trained) comes back to why.
 
-There is also a practical reason: it fits on the machine running these experiments. Many open MoE models hold tens of billions of parameters even when only two or three billion are active per token. Sparse activation reduces the computation each token needs, but it does not remove the inactive parameters from memory, so for inference the whole model still has to fit somewhere.
-
 #### Why bfloat16?
 
-That leads to one deliberate break from post 4: this demo loads the model in **bfloat16** (bf16), which stores each number in 2 bytes, rather than fp32, which uses 4. At 6.92B parameters the weights alone come to 25.8 GiB in fp32 (a **GiB** is $2^{30}$ = 1,073,741,824 bytes), more than this laptop's 24 GiB of memory, and to 12.9 GiB in bf16, which fits.
+It also has to fit on the laptop running these experiments, which leads to one deliberate break from post 4: this demo loads the model in **bfloat16** (bf16), which stores each number in 2 bytes, rather than fp32, which uses 4. At 6.92B parameters the weights alone come to 25.8 GiB in fp32 (a **GiB** is $2^{30}$ = 1,073,741,824 bytes), more than this laptop's 24 GiB of memory, and to 12.9 GiB in bf16, which fits.
 
 This is less of a compromise than it sounds, because bf16 is the precision OLMoE was released in. Its published configuration lists `bfloat16`, so the demo runs the model as its authors ship it rather than a reduced copy. The two kinds of number in this post are affected differently, though. Parameter counts, and everything derived from them, do not depend on precision at all. Routing measurements, such as which experts a token picks and with what weights, come from a forward pass run in bf16, so an fp32 run could move their last digits. The fp32 model does not fit on this machine, so a full comparison is not made here, though [§2](#the-router) checks the router step itself and finds its choices unchanged.
 
@@ -90,10 +88,10 @@ This is less of a compromise than it sounds, because bf16 is the precision OLMoE
 
 Skip to [the short version](#the-short-version) for the findings without the derivations.
 
-1. [Where the parameters actually are](#where-the-parameters-actually-are)
+1. [Where the parameters are](#where-the-parameters-actually-are)
 2. [The router, which is smaller than you would guess](#the-router)
 3. [One token, routed](#one-token-routed)
-4. [What the router actually learns](#what-the-router-learns)
+4. [What the router learns](#what-the-router-learns)
 5. [Two bills: memory and time](#two-bills)
 6. [Sparsity does not survive a batch](#sparsity-and-batching)
 7. [When the model spans many GPUs](#across-gpus)
@@ -102,30 +100,30 @@ Skip to [the short version](#the-short-version) for the findings without the der
 10. [What follows from all this](#what-follows)
 11. [Sidebar: the probe](#sidebar-the-probe)
 
-Plus two appendices at the end: [all notation](#appendix-all-notation), if a symbol ever goes by without introduction, and [where the KV cache numbers come from](#appendix-kv-cache-numbers), which works through the two numbers the opening section borrows from post 2.
+Plus three appendices at the end: [counting every parameter](#appendix-counting-parameters), which derives §1's census tensor by tensor; [all notation](#appendix-all-notation), if a symbol ever goes by without introduction; and [where the KV cache numbers come from](#appendix-kv-cache-numbers), for the two numbers the opening section borrows from post 2.
 
 ### The short version {#the-short-version}
 
-A **mixture-of-experts** layer replaces one FFN with many smaller ones, called **experts**, plus a small **router** that picks a few experts per token. "Sparse" here means only the picked ones run. That is the entire idea; everything else is consequence.
+A **mixture-of-experts** layer replaces one FFN with many smaller ones, called **experts**, plus a small **router** that picks a few experts per token. "Sparse" here means only the picked ones run.
 
 - **The experts are essentially the model.** 93.1% of OLMoE's parameters are experts, against 3.9% for attention. A token activates 17.0% of the total ([§1](#where-the-parameters-actually-are)).
 - **The router costs almost nothing.** One matrix per layer, 64 rows each 2,048 wide, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE does not renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
-- **The router does specialize, and it is measurable rather than folklore.** Two halves of the *same* passage route differently by 0.216; the three pairs of different text average 0.554, **2.56×** that noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
-- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.21×** the elapsed time and exactly zero extra bytes of weights ([§5](#two-bills)).
+- **The router does specialize, and it can be measured.** Two halves of the *same* passage route differently by 0.216; the three pairs of different text average 0.554, **2.56×** that noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
+- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.15×** the elapsed time and zero extra bytes of weights ([§5](#two-bills)).
 - **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9** ([§6](#sparsity-and-batching)). That is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
 - **Nothing keeps the experts equally busy on its own.** The busiest expert in layer 0 takes **5.71×** an even share, and four experts in the last layer go unused by the test passage ([§8](#load-balance)).
-- **Training updates every router row but only the chosen experts.** For one token, all 64 router rows get a gradient through the softmax, and exactly the 8 chosen experts do; a hand-derived formula matches autograd to 1.5e-8 ([§9](#how-its-trained)).
+- **Training updates every router row but only the chosen experts.** For one token, all 64 router rows get a gradient through the softmax, and only the 8 chosen experts do; a hand-derived formula matches autograd to 1.5e-8 ([§9](#how-its-trained)).
 - **MoE is an architecture, not a training stage.** The router and the experts learn together during pre-training, and the same model then carries on through mid-training and post-training unchanged ([§9](#how-its-trained)).
 
 ---
 
-### 1. Where the parameters actually are {#where-the-parameters-actually-are}
+### 1. Where the parameters are {#where-the-parameters-actually-are}
 
 Start with the question [post 4](/posts/llm-architectures-quantization/) opened on, because for an MoE it has a much more interesting answer: which parts of the model does this technique even touch?
 
-For quantization the answer was "nearly all of it, a bit at a time." For mixture-of-experts the answer is that it touches exactly one component, the FFN, and replaces it with sixty-four smaller ones.
+For quantization the answer was "nearly all of it, a bit at a time." For mixture-of-experts the answer is that it touches one component, the FFN, and replaces it with sixty-four smaller ones.
 
 ![A dense block beside an MoE block, row for row: the one FFN becomes a router, 64 experts with 8 selected for this token, and a weighted combination](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/moe-block-light.png){: .light width="1000" height="636" }
 ![A dense block beside an MoE block, row for row: the one FFN becomes a router, 64 experts with 8 selected for this token, and a weighted combination](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/moe-block-dark.png){: .dark width="1000" height="636" }
@@ -155,142 +153,9 @@ Counting the parameters by role ([`where_the_parameters_are`](https://github.com
 ![Where OLMoE-1B-7B's 6.9B parameters live: a single bar, 93.1% of it experts](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/weight-census-light.png){: .light width="1000" height="317" }
 ![Where OLMoE-1B-7B's 6.9B parameters live: a single bar, 93.1% of it experts](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/weight-census-dark.png){: .dark width="1000" height="317" }
 
-#### Where each of those numbers comes from {#deriving-the-census}
+Every number in that table is a **parameter count**: how many learned numbers the model stores. Each one comes from multiplying out the shapes of the model's weights, since a matrix of $R$ rows, each $W$ numbers wide, holds $R \times W$ parameters. [Appendix: counting every parameter](#appendix-counting-parameters) does that for every tensor in the checkpoint, from the query projection to the final norm, and checks the total against the checkpoint's own count. The number that matters here comes straight out of it: one expert holds 6,291,456 parameters, and 64 experts in each of 16 layers make 6,442,450,944 of them, the 93.1%.
 
-Every number in that table is a **parameter count**: how many learned numbers the model stores, which is what sets its memory bill ([§5](#two-bills) turns the counts into bytes). They are not counts of arithmetic, though the two are linked. Applying a weight matrix to a token costs about 2 **FLOPs** (floating-point operations, the individual multiplies and adds the model performs) per parameter in it, [post 1's rule of thumb](/posts/llm-architectures-attention-and-rope/#an-aside-what-a-flop-is-and-how-to-count-one), which is why the *active* count at the end of this section is the one that predicts compute. Every count comes from multiplying out the shapes of the model's weights, and doing it once by hand is where "7B total, 1B active" stops being a slogan. A **parameter** is one learned number. A matrix of $R$ rows, each $W$ numbers wide, holds $R \times W$ of them, and a vector of length $W$ holds $W$.
-
-Start with a single layer. These are all of layer 0's weights, read straight from the checkpoint rather than from its configuration file, so the arithmetic is checked against what is actually stored ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
-
-```text
-  tensor                             shape   parameters
-  -------------------------------------------------------
-  q, k, v, o projections  4 x (2048, 2048)   16,777,216
-  q_norm, k_norm               2 x (2048,)        4,096
-  router                        (64, 2048)      131,072
-  experts: gate_up_proj   (64, 2048, 2048)  268,435,456
-  experts: down_proj      (64, 2048, 1024)  134,217,728
-  two layer norms              2 x (2048,)        4,096
-  one layer                                 419,569,664
-```
-
-Reading down it, one tensor at a time. Each tensor performs one operation, and its parameter count is simply the size of the matrix doing that operation.
-
-**Attention** turns the normalized residual stream $x$ into a query, a key and a value, and after attention has run (the part [post 1](/posts/llm-architectures-attention-and-rope/) walks through) mixes the heads' results back together with an output matrix:
-
-$$q = \mathrm{RMSNorm}_q(W_q\,x) \qquad k = \mathrm{RMSNorm}_k(W_k\,x) \qquad v = W_v\,x \qquad \text{output} = W_o\,(\text{the 16 heads' results, joined})$$
-
-Each of $$W_q$$, $$W_k$$, $$W_v$$ and $$W_o$$ is 2,048 rows × 2,048 wide, so the four together hold $4 \times 2{,}048 \times 2{,}048 = 16{,}777{,}216$ parameters. OLMoE also normalizes the whole query vector and the whole key vector before splitting them into 16 heads of 128 numbers, so `q_norm` and `k_norm` are RMSNorms with a vector of 2,048 learned scales each. Those 4,096 extra parameters per layer are why attention prints as 0.269B rather than the 0.268B the four matrices alone would give. Here is layer 0's attention on a real token, one step per row: the size each step produces, and the parameters its weight adds, so the last column sums to attention's count in the census ([`each_tensor_step_by_step`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
-
-```text
-  step                              result                 parameters
-  ---------------------------------------------------------------------
-  x, the normalized input    2,048 numbers
-  q = W_q x                  2,048 numbers  2,048 x 2,048 = 4,194,304
-  q = q_norm(q)              2,048 numbers                      2,048
-  k = W_k x, then k_norm     2,048 numbers          4,194,304 + 2,048
-  v = W_v x                  2,048 numbers  2,048 x 2,048 = 4,194,304
-  split q, k, v into heads  16 heads x 128             0 (no weights)
-  attention in each head    16 heads x 128             0 (no weights)
-  join the heads             2,048 numbers             0 (no weights)
-  output = W_o (joined)      2,048 numbers  2,048 x 2,048 = 4,194,304
-  attention, total                                         16,781,312
-  equals the census, per layer?      yes
-```
-
-Five rows add parameters, and they are the four matrices and two norms in the equation above. The other three steps, splitting into heads, attention inside each head, and joining the heads back up, use no weights at all, which is why they cost memory nothing. [Post 1](/posts/llm-architectures-attention-and-rope/) covers what happens inside them: each of the 16 heads compares its 128-number query with the keys, mixes the values accordingly, and returns 128 numbers, and joining the 16 results restores 2,048.
-
-**The router** multiplies the same normalized vector by one matrix to get one score per expert, $$z = W_r\,x$$. It is 64 rows × 2,048 wide, so $64 \times 2{,}048 = 131{,}072$ parameters.
-
-**The experts** are stored as two stacked tensors whose first dimension, 64, has one entry per expert; entry $e$ holds expert $e$'s matrices. Each expert is a [SwiGLU](/posts/llm-architectures-attention-and-rope/) FFN, and it runs three steps:
-
-$$\begin{bmatrix} x_{gate} \\ x_{up} \end{bmatrix} = W_{gate\_up}^{(e)}\,x \qquad x_{mix} = \mathrm{SiLU}(x_{gate}) \odot x_{up} \qquad \mathrm{FFN}_e(x) = W_{down}^{(e)}\,x_{mix}$$
-
-The first step is two projections done as one multiply. `gate_up_proj[e]` is 2,048 rows × 2,048 wide: its first 1,024 rows are the gate projection $$W_{gate}$$ and its last 1,024 rows are the up projection $$W_{up}$$, each 2,048 wide, stacked so that one matrix multiply produces both. The result, 2,048 numbers, is split in half into $$x_{gate}$$ and $$x_{up}$$, 1,024 numbers each. The second step has no parameters: $$\mathrm{SiLU}(x_{gate})$$ turns the gate half into 1,024 dials, and $\odot$ multiplies them number by number into the up half, so the gate decides how much of each of the 1,024 features passes. The third step, `down_proj[e]`, is 2,048 rows × 1,024 wide and takes those 1,024 numbers back to the model's 2,048.
-
-Counting them: `gate_up_proj` is $2{,}048 \times 2{,}048 = 4{,}194{,}304$ parameters per expert, which is the same as $2 \times 1{,}024 \times 2{,}048$ for the two projections it stacks, and `down_proj` is $2{,}048 \times 1{,}024 = 2{,}097{,}152$. One expert therefore holds $4{,}194{,}304 + 2{,}097{,}152 = 6{,}291{,}456$ parameters, the **6.29M** in the table. Across the 64 stacked experts, that is $64 \times 4{,}194{,}304 = 268{,}435{,}456$ for `gate_up_proj` and $64 \times 2{,}097{,}152 = 134{,}217{,}728$ for `down_proj`, the two rows above. The 1,024 is the expert's width, *half* the model's width, for reasons [below](#why-sixty-four). The router's first choice for the same token, run step by step ([`each_tensor_step_by_step`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
-
-```text
-  step                            result                 parameters
-  -------------------------------------------------------------------
-  x, the normalized input  2,048 numbers
-  gate_up_proj[5] x        2,048 numbers  2,048 x 2,048 = 4,194,304
-    first half: gate       1,024 numbers
-    second half: up        1,024 numbers
-  x_mix = SiLU(gate) * up  1,024 numbers             0 (no weights)
-  down_proj[5] x_mix       2,048 numbers  2,048 x 1,024 = 2,097,152
-  one expert, total                                       6,291,456
-  gate == first half of gate_up rows? yes
-```
-
-The last line confirms the stacking: multiplying by only the first 1,024 rows of `gate_up_proj` gives exactly the gate half.
-
-**The norms** are two RMSNorms, each a vector of 2,048 learned scales: one before attention, $x = \mathrm{RMSNorm}(h)$, and one before the MoE block, $$x = \mathrm{RMSNorm}(h_{mid})$$. Their equation is the same as the final norm's, which is worked through below.
-
-Three more pieces sit outside the 16 layers, and two of them are large ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
-
-```text
-  tensor                shape   parameters
-  ------------------------------------------
-  embed_tokens  (50304, 2048)  103,022,592
-  lm_head       (50304, 2048)  103,022,592
-  final norm          (2048,)        2,048
-
-  tokens the tokenizer defines       50,280
-  rows in each table                 50,304
-  rows no token can select           24
-  rows, as a multiple of 128         393 x 128
-  embedding and LM head tied?        no
-```
-
-**The embedding table** (`embed_tokens`) is where a token enters the model. Before the model sees any text, the tokenizer turns it into **token ids**, whole numbers that each name one entry in the tokenizer's vocabulary. The table holds one row per id, and each row is a vector as wide as the model, 2,048 numbers, because that vector is what the first layer reads. Turning a token into its vector is a lookup: fetch the row whose position is the token's id. The table's size is therefore rows × width, $50{,}304 \times 2{,}048 = 103{,}022{,}592$.
-
-The row count has one wrinkle. OLMoE's tokenizer defines **50,280** tokens, with ids 0 to 50,279, but the table has **50,304** rows, so the last 24 rows can never be selected by any token. The table was padded up to the next multiple of 128, which is 393 × 128; Ai2's OLMo training code notes that [padding the embedding size to a multiple of 128 can improve throughput](https://github.com/allenai/OLMo/blob/main/olmo/config.py). The 24 spare rows are still stored and still counted, which is why the census uses 50,304 rather than 50,280.
-
-**The LM head** (`lm_head`) runs in the other direction. After the last layer, the token's 2,048-number vector is multiplied by this matrix to produce one score per row, and those scores become the next-token probabilities. Its rows have to line up one-for-one with the embedding table's, so it has the same shape and the same count, 103,022,592; [post 1](/posts/llm-architectures-attention-and-rope/#the-last-two-boxes-the-final-norm-and-the-lm-head) draws the two as one table read in two directions. Some models tie them, storing a single table and using it for both jobs. OLMoE does not, as the block's last line confirms, so both are stored and both count: $2 \times 103{,}022{,}592 = 206{,}045{,}184$, the **embed + head** row. **The final norm** (`model.norm`) is the last step before the LM head, and its shape follows from what it does. It is an **RMSNorm**, the same operation OLMoE applies four times inside every layer (the two layer norms, `q_norm` and `k_norm`). For a token's vector $h$ of $d = 2{,}048$ numbers, the symbols first:
-
-| Symbol | Means |
-| --- | --- |
-| $$h_i$$ | the $i$-th of the vector's 2,048 numbers, as it leaves the last layer |
-| $$\sqrt{\frac{1}{d}\sum_j h_j^2}$$ | the vector's **root mean square** (RMS): its typical size |
-| $\epsilon$ | a tiny constant, $10^{-5}$, that keeps the division safe for an all-zero vector |
-| $$\gamma_i$$ | a learned scale for dimension $i$ |
-
-$$\mathrm{RMSNorm}(h)_i = \gamma_i \cdot \frac{h_i}{\sqrt{\frac{1}{d}\sum_{j=1}^{d} h_j^2 + \epsilon}}$$
-
-Dividing by the root mean square resets the vector to a standard size, and multiplying by $\gamma$ lets training decide how much each dimension should count. $\gamma$ is the only thing learned, one number per dimension and no bias, which is why the tensor has shape `(2048,)` and exactly 2,048 parameters. Applied by hand to a real token ([`what_the_final_norm_does`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
-
-```text
-  gamma, one scale per dimension     shape (2048,)
-  epsilon                            1e-05
-  RMS of the vector coming in        0.2170
-  after dividing by its RMS          0.9999
-  after multiplying by gamma         1.6627
-  gamma smallest / median / largest  0.1328 / 2.2344 / 2.6094
-  formula by hand == model's norm?   yes (fp32)
-
-  median token RMS entering layer 0  0.0045
-  median entering the final norm     0.2796
-```
-
-The formula matches the model's norm exactly. Dividing takes the vector from an RMS of 0.2170 to 0.9999, not quite 1 because of $\epsilon$, and $\gamma$ then scales individual dimensions by anywhere from 0.13 to 2.61. The last two lines are the reason the norm exists. Every sub-layer adds its output onto the residual stream, so a typical token's vector grows from an RMS of 0.0045 entering the first layer to 0.28 entering the final norm, about 60 times larger. The final norm hands the LM head a vector of the same scale no matter how much the layers added along the way. [Post 1](/posts/llm-architectures-attention-and-rope/#the-residual-and-what-pre-norm-means) covers where the norms inside each layer sit, and why they come before each sub-layer rather than after.
-
-Every one of the 16 layers is the same size, which the demo checks, so each role's total is its per-layer count times 16, plus the pieces outside the layers ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
-
-```text
-  role            per layer           x 16      outside          total
-  ----------------------------------------------------------------------
-  experts       402,653,184  6,442,450,944               6,442,450,944
-  attention      16,781,312    268,500,992                 268,500,992
-  router            131,072      2,097,152                   2,097,152
-  norms               4,096         65,536        2,048         67,584
-  embed + head                              206,045,184    206,045,184
-  TOTAL                                                  6,919,161,856
-  equals the checkpoint's count?     yes
-```
-
-The roles sum to 6,919,161,856, which equals the checkpoint's own count. Each share in the first table is one role divided by that total; for the experts, $6{,}442{,}450{,}944 \div 6{,}919{,}161{,}856 = 93.1\%$.
-
-**Active** parameters are the ones a single token's arithmetic actually uses ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+A token does not use all of them. Its **active** parameters are the ones its arithmetic uses ([`what_one_token_uses`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   part                             parameters
@@ -307,9 +172,6 @@ The roles sum to 6,919,161,856, which equals the checkpoint's own count. Each sh
 ```
 
 Attention, the router and the norms run in full for every token. Of the experts, only 8 of 64 run in each layer, so the expert term is $8 \times 6{,}291{,}456 \times 16$. The LM head is a full matrix multiply, so it counts. The embedding table does not, because a token enters it by *lookup*: the model reads out one row by position, which multiplies nothing. Counting it anyway gives 1.28B. Either way, the result is the **17.0%** that the design exists to produce.
-
-> **"1B active, 7B total"** is what the model's name means, and it is two different measurements of the same object. Neither is a lie and neither is sufficient on its own. Which one you should care about depends entirely on whether you are buying memory or buying time, which is [§5](#two-bills).
-{: .prompt-info }
 
 #### Why sixty-four? {#why-sixty-four}
 
@@ -343,7 +205,7 @@ So the number of experts per token, $k$, is set by the compute you are willing t
 
 Every row in that table stores the same number of parameters and runs the same arithmetic per token. What changes is how many distinct combinations of experts a token can be assigned to: **8** at the coarse end, **4.4 billion** at the fine end. A model with 8 experts picking 1 has eight possible behaviours at that layer. OLMoE has more than four billion.
 
-That is the argument for **fine-grained experts**, and it is the reason each of OLMoE's experts is *half* the model width rather than four times it. It is not free — more, smaller experts mean more routing decisions, more scattered memory access, and a token with more experts to reach touches more GPUs, which is [§7](#across-gpus)'s problem. Where to sit on that curve is what differs between Mixtral, OLMoE, Qwen3 and DeepSeek-V3.
+That is the argument for **fine-grained experts**, and it is the reason each of OLMoE's experts is *half* the model width rather than four times it. It is not free: more, smaller experts mean more routing decisions, more scattered memory access, and a token with more experts to reach touches more GPUs, which is [§7](#across-gpus)'s problem. Where to sit on that curve is what differs between Mixtral, OLMoE, Qwen3 and DeepSeek-V3.
 
 ### 2. The router, which is smaller than you would guess {#the-router}
 
@@ -366,15 +228,15 @@ Its shape follows from that job. A token arrives at each MoE layer as a vector o
     / 1,073,741,824 bytes in a GiB   12.88 GiB
 ```
 
-The last three steps switch from counting parameters to counting bytes. In bfloat16 every parameter takes 2 bytes, so 2,097,152 parameters are 4,194,304 bytes. A MiB is $2^{20} = 1{,}048{,}576$ bytes and a GiB is $2^{30} = 1{,}073{,}741{,}824$ bytes, the power-of-two cousins of MB and GB, which is why 4,194,304 bytes comes out as exactly 4.0 MiB. The "2.10M" used elsewhere in this post is a plain million: 2,097,152 rounded to two decimals.
+The last three steps switch from counting parameters to counting bytes. In bfloat16 every parameter takes 2 bytes, so 2,097,152 parameters are 4,194,304 bytes. That is $4 \times 2^{20}$ bytes, exactly 4.0 MiB. The "2.10M" used elsewhere in this post is a plain million: 2,097,152 rounded to two decimals.
 
-The share divides the router's 2,097,152 parameters by all 6,919,161,856, which is 0.030%. Everything else is the remaining 6,917,064,704 parameters at 2 bytes each, 13,834,129,408 bytes, which is 12.88 GiB. Three hundredths of one percent of the model decides how the rest of it is spent, on every token, at every layer.
+The share divides the router's 2,097,152 parameters by all 6,919,161,856, which is 0.030%. Everything else is the remaining 6,917,064,704 parameters at 2 bytes each, 13,834,129,408 bytes, which is 12.88 GiB. Three hundredths of one percent of the model decides how the rest of it is spent, on every token, at every layer. That asymmetry is where the risk in this architecture lives: a router that chooses badly does not merely lose a little accuracy, it wastes the capacity the other 93% of the parameters represent. [§8](#load-balance) is about what happens when it chooses lopsidedly, and why training has to push against that.
 
 #### What a score is
 
 Each score is a **dot product**: multiply the token's vector and one router row together number by number, then add up the 2,048 products. The result is large when the two vectors point in similar directions, so an expert's score is high when the token's vector resembles that expert's row. It is the same operation [post 1](/posts/llm-architectures-attention-and-rope/) used to compare a query with a key.
 
-That is checkable, so the demo checks it. It captures the vector that actually enters layer 0's MoE block for the word `' harbour'`, which is the token after attention and the layer norm, and computes each expert's dot product by hand ([`the_router_is_tiny`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+The demo checks this on a real token. It captures the vector that actually enters layer 0's MoE block for the word `' harbour'`, which is the token after attention and the layer norm, and computes each expert's dot product by hand ([`the_router_is_tiny`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   expert  row . token vector, by hand  router score, from model
@@ -389,11 +251,9 @@ That is checkable, so the demo checks it. It captures the vector that actually e
   tokens picking the same 8 in fp32  94 of 94
 ```
 
-The by-hand products and the model's scores are identical for all 64 experts, not merely close, because the router is exactly this matrix multiplication with nothing added. These are the numbers [§3](#one-token-routed) starts from, where they are called logits.
+The by-hand products and the model's scores are identical for all 64 experts, not merely close, because the router is this matrix multiplication with nothing added. These are the numbers [§3](#one-token-routed) starts from, where they are called logits.
 
 The last two lines are a check on precision. bfloat16 can only hold values between 1 and 2 in steps of 1/128, so the +1.8984 above is really $243/128$, and the same dot product computed in fp32 from the same stored weights lands up to 0.0058 away. For this passage that never changes the routing decision at layer 0: all 94 tokens pick the same eight experts either way.
-
-That asymmetry is where the risk in this architecture lives. A router that chooses badly does not merely lose a little accuracy; it wastes the capacity the other 93% of the parameters represent. [§8](#load-balance) is about what happens when it chooses lopsidedly, and why training has to actively push against that.
 
 ### 3. One token, routed {#one-token-routed}
 
@@ -406,15 +266,15 @@ Here is the mechanism in full. Before the formula, every symbol in it:
 | $E$ | how many experts the layer has | 64 |
 | $k$ | how many experts each token is routed to | 8 |
 | $$W_r$$ | the router matrix | $(64, 2048)$ |
-| $z$ | **router logits** — one raw, unbounded score per expert | $(64,)$ |
-| $p$ | those scores turned into probabilities by softmax | $(64,)$ |
+| $z$ | **router logits**: one raw, unbounded score per expert | $(64,)$ |
+| $$p_e$$ | expert $e$'s score turned into a probability by softmax | one per expert |
 | $\mathcal{K}$ | the set of the $k$ highest-scoring experts | 8 indices |
 | $$\text{FFN}_e$$ | expert $e$, an ordinary feed-forward network | — |
 | $y$ | what the layer outputs for this token | $(2048,)$ |
 
 A **logit** is a raw score before it has been turned into a probability; it can be any real number, positive or negative. **Softmax** is the function that turns a list of logits into positive numbers that sum to 1, by exponentiating each one and dividing by the total, so the largest logit gets the largest share.
 
-$$z = W_r\,x \qquad p = \mathrm{softmax}(z) \qquad \mathcal{K} = \operatorname*{top-k}_{e}\ p_e \qquad y = \sum_{e \in \mathcal{K}} p_e \cdot \text{FFN}_e(x)$$
+$$z = W_r\,x \qquad p_e = \frac{e^{z_e}}{\sum_{j=1}^{64} e^{z_j}} \qquad \mathcal{K} = \operatorname*{top-k}_{e}\ p_e \qquad y = \sum_{e \in \mathcal{K}} p_e \cdot \text{FFN}_e(x)$$
 
 Read left to right: score every expert, turn the scores into probabilities, keep the eight highest, run only those eight, and add their outputs together weighted by how strongly the router wanted each one.
 
@@ -471,7 +331,7 @@ Routing happens independently at every layer, which is easy to miss ([`routing_d
   15               23      0.1158      0.4851   0.24
 ```
 
-One word visits sixteen separate committees of eight on its way through the model. There is no such thing as "the expert for `' harbour'`" — there are 16 independent choices, and the number of distinct paths a single token could take is astronomically large. Note also that `kept total` climbs with depth, from 0.25 in layer 1 to 0.49 in layer 15: the router is more decisive in the later layers.
+One word visits sixteen separate committees of eight on its way through the model. There is no such thing as "the expert for `' harbour'`". There are 16 independent choices, and the number of distinct paths a single token could take is astronomically large. Note also that `kept total` climbs with depth, from 0.25 in layer 1 to 0.49 in layer 15: the router is more decisive in the later layers.
 
 #### The whole layer, written out {#the-layer-formula}
 
@@ -480,18 +340,16 @@ The formula above stops at the MoE output $y$. Two more pieces finish the layer:
 | Symbol | Means | Shape here |
 | --- | --- | --- |
 | $$h_{mid}$$ | the **residual stream** after attention: the running vector every sub-layer reads from and adds its result back into | $(2048,)$ |
-| $\mathrm{RMSNorm}$ | the layer norm OLMoE uses: rescale a vector to unit root-mean-square, then multiply each number by a learned weight; its equation is in [§1](#deriving-the-census) | — |
+| $\mathrm{RMSNorm}$ | the layer norm OLMoE uses: rescale a vector to unit root-mean-square, then multiply each number by a learned weight; its equation is in [the parameter appendix](#appendix-counting-parameters) | — |
 | $$W_{gate}^{(e)}$$, $$W_{up}^{(e)}$$ | expert $e$'s two input projections | 1,024 rows × 2,048 wide |
 | $$W_{down}^{(e)}$$ | expert $e$'s output projection | 2,048 rows × 1,024 wide |
 | $\mathrm{SiLU}(u)$ | the activation, $u \cdot \sigma(u)$ where $\sigma$ is the sigmoid, applied to each number separately | — |
 | $\odot$ | multiply two vectors number by number | — |
 | $$h_{out}$$ | what the layer passes to the next one | $(2048,)$ |
 
-$$x = \mathrm{RMSNorm}(h_{mid}) \qquad z = W_r\,x \qquad p_e = \frac{e^{z_e}}{\sum_{j=1}^{64} e^{z_j}} \qquad \mathcal{K} = \operatorname*{top-8}_{e}\ p_e$$
+$$x = \mathrm{RMSNorm}(h_{mid}) \qquad \mathrm{FFN}_e(x) = W_{down}^{(e)}\big(\mathrm{SiLU}(W_{gate}^{(e)}x) \odot W_{up}^{(e)}x\big) \qquad h_{out} = h_{mid} + y$$
 
-$$\mathrm{FFN}_e(x) = W_{down}^{(e)}\big(\mathrm{SiLU}(W_{gate}^{(e)}x) \odot W_{up}^{(e)}x\big) \qquad h_{out} = h_{mid} + \sum_{e \in \mathcal{K}} p_e\,\mathrm{FFN}_e(x)$$
-
-Read in order: normalize the residual stream, score all 64 experts, turn the scores into probabilities, keep the top 8, and run each chosen expert, which projects the token to 1,024 numbers twice, gates one projection by the other, and projects back to 2,048. Weight each expert's output by its probability, add the eight together, and add the sum back into the residual stream. The softmax is the one [§3's walkthrough](#one-token-routed) described in words, taken over all 64 experts and not renormalized after the cut.
+Read in order: the $x$ the router scores is a normalized copy of the residual stream; each chosen expert projects it to 1,024 numbers twice, gates one projection by the other, and projects back to 2,048; and the weighted sum $y$ from the first formula is added back into the residual stream.
 
 The demo builds the output for `' harbour'` from exactly these equations and compares it with layer 0's own MoE block ([`the_layer_by_hand`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
@@ -515,18 +373,18 @@ The demo builds the output for `' harbour'` from exactly these equations and com
 
 Each row is one expert's contribution, $$p_e$$ times its output, and $$\lvert \mathrm{FFN}_e(x) \rvert$$ is the length of the output vector, which is how large a change that expert proposes. The eight contributions add up to the model's own output with no difference at all. That comparison runs in fp32 on a copy of the block, so its weights differ from [§3's bf16 table](#one-token-routed) in the fourth decimal (0.1164 against 0.1161); the last line checks, in the model's own bf16, that the layer's output really is the residual stream plus the MoE output.
 
-The rows also show something the weights alone hide. Expert 41 has only the third-largest weight but makes the largest contribution, because the change it proposes is almost twice as long as expert 5's. An expert's influence on a token is its weight times the size of what it proposes, and the router controls only the first.
+Expert 41 has only the third-largest weight but makes the largest contribution, because the change it proposes is almost twice as long as expert 5's. An expert's influence on a token is its weight times the size of what it proposes, and the router controls only the first.
 
 The same thing in shapes, with the real numbers underneath:
 
 ![The router as a pipeline of tensor shapes, and all 64 routing probabilities for one real token with the 8 that survive the cut](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/router-flow-light.png){: .light width="1000" height="640" }
 ![The router as a pipeline of tensor shapes, and all 64 routing probabilities for one real token with the 8 that survive the cut](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/router-flow-dark.png){: .dark width="1000" height="640" }
 
-The lower panel is the reason 0.4281 is not a surprise once you see it. Eight bars are tall, and the remaining fifty-six are individually small but collectively larger than the eight — which is what a softmax over sixty-four options looks like when the model has a mild preference rather than a strong one.
+The lower panel shows where the missing 0.5719 went. Eight bars are tall, and the other fifty-six are each small but together larger than the eight. That is what a softmax over sixty-four options looks like when the model has a mild preference rather than a strong one.
 
 #### Not every router works this way {#router-variants}
 
-OLMoE's router is the plain form, which is why it is the one to learn first. Nearly every part of it is a decision that other models make differently, and the differences are visible in their published configs rather than being a matter of interpretation. [DeepSeek-V3](https://arxiv.org/abs/2412.19437) makes a different choice on all four; every entry below is read from [OLMoE's config](https://huggingface.co/allenai/OLMoE-1B-7B-0924/blob/main/config.json) and [DeepSeek-V3's config](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json):
+OLMoE's router is the plain form, which is why it is the one to learn first. Nearly every part of it is a decision other models make differently. [DeepSeek-V3](https://arxiv.org/abs/2412.19437) makes a different choice on all four; every entry below is read from [OLMoE's config](https://huggingface.co/allenai/OLMoE-1B-7B-0924/blob/main/config.json) and [DeepSeek-V3's config](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json):
 
 | Decision | OLMoE | DeepSeek-V3 |
 | --- | --- | --- |
@@ -539,17 +397,15 @@ The third row is a direct alternative to what [§8](#load-balance) describes rat
 
 The fourth row is [§7](#across-gpus) turned into a design constraint. If a token can only reach experts in 4 of 8 groups, the traffic between GPUs that §7 measures is bounded by construction rather than by luck.
 
-Two more variations you will meet in the literature: **noisy routing**, which adds random noise to the scores during training so the router explores experts it would otherwise never try ([Shazeer et al.](https://arxiv.org/abs/1701.06538)), and **expert capacity**, a hard cap on how many tokens one expert may accept per batch, with the overflow either dropped or passed through unchanged ([Fedus et al.](https://arxiv.org/abs/2101.03961)). Capacity limits exist because of exactly what [§8](#load-balance) measures: if the load is uneven and your hardware allocated equal space per expert, something has to give.
+Two more variations you will meet in the literature: **noisy routing**, which adds random noise to the scores during training so the router explores experts it would otherwise never try ([Shazeer et al.](https://arxiv.org/abs/1701.06538)), and **expert capacity**, a hard cap on how many tokens one expert may accept per batch, with the overflow either dropped or passed through unchanged ([Fedus et al.](https://arxiv.org/abs/2101.03961)). Capacity limits exist because of what [§8](#load-balance) measures: if the load is uneven and your hardware allocated equal space per expert, something has to give.
 
-### 4. What the router actually learns {#what-the-router-learns}
+### 4. What the router learns {#what-the-router-learns}
 
-Now the question everyone asks, and the one where it is easiest to fool yourself.
+The folk story is that experts specialize: one handles code, one handles French, one handles punctuation. Is it true?
 
-The folk story is that experts specialize — one handles code, one handles French, one handles punctuation. It is an appealing story. Is it true?
+One way to test it is to route three passages of clearly different character (English prose, Python, and a paragraph of group theory), then measure how differently they use the experts. Each token makes 8 expert picks per layer, and this post calls each pick a **routing slot**: a 94-token passage fills 752 slots at every layer, and a passage's *expert usage* is the share of those slots each expert received. The measure is **total variation distance**, which for two distributions over the same 64 experts is half the sum of the absolute differences between them. It runs from 0, meaning the two used the experts identically, to 1, meaning they shared no expert at all.
 
-The honest way to ask is to route three passages of clearly different character (English prose, Python, and a paragraph of group theory), then measure how differently they use the experts. Each token makes 8 expert picks per layer, and this post calls each pick a **routing slot**: a 94-token passage fills 752 slots at every layer, and a passage's *expert usage* is the share of those slots each expert received. The measure is **total variation distance**, which for two distributions over the same 64 experts is half the sum of the absolute differences between them. It runs from 0, meaning the two used the experts identically, to 1, meaning they shared no expert at all.
-
-Here is where it would be easy to go wrong. Any two finite samples differ, even when drawn from the same source. A hundred tokens of prose will not use the experts in exactly the same proportions as another hundred tokens of the same prose, so a nonzero distance between prose and code proves nothing on its own. **The number needs a noise floor.**
+Any two finite samples differ, even when drawn from the same source. A hundred tokens of prose will not use the experts in exactly the same proportions as another hundred tokens of the same prose, so a nonzero distance between prose and code proves nothing on its own. The number needs a noise floor.
 
 So the demo splits each passage in half and measures the distance between the two halves of the *same* text. That is what sampling noise looks like. Every other row is read against it ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
@@ -568,7 +424,7 @@ So the demo splits each passage in half and measures the distance between the tw
 
 Expert choice clearly depends on the kind of text. Two halves of one passage differ by 0.216; two different kinds of text differ by 0.554, **2.56×** as much.
 
-The more interesting structure is in the columns. Averaging the three cross-domain rows at each depth and setting them against the floor ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+The distances also change with depth. Averaging the three cross-domain rows at each depth and setting them against the floor ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   noise floor, first layer           0.240
@@ -577,7 +433,7 @@ The more interesting structure is in the columns. Averaging the three cross-doma
   cross-domain, last layer           0.652
 ```
 
-At layer 0 the cross-domain distance is 0.400 against a noise floor of 0.240, a ratio of only 1.7, so early routing is barely about content at all. By layer 15 it is 0.652 against a floor of 0.173, a ratio of 3.8. **The noise floor falls with depth while the cross-domain distance rises**, which is two separate signs of the same thing: deep routing is consistent within a kind of text and sharply different between kinds. Early layers route on something much closer to surface form.
+At layer 0 the cross-domain distance is 0.400 against a noise floor of 0.240, a ratio of only 1.7, so early routing is barely about content at all. By layer 15 it is 0.652 against a floor of 0.173, a ratio of 3.8. The noise floor falls with depth while the cross-domain distance rises, which is two separate signs of the same thing: deep routing is consistent within a kind of text and sharply different between kinds. Early layers route on something much closer to surface form.
 
 ![The same 64 experts used differently by different text, with two halves of one passage on top as the noise floor](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/specialization-light.png){: .light width="1000" height="382" }
 ![The same 64 experts used differently by different text, with two halves of one passage on top as the noise floor](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/specialization-dark.png){: .dark width="1000" height="382" }
@@ -596,7 +452,7 @@ Individual experts do lean hard ([`what_the_router_learns`](https://github.com/b
 
 Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an even share would be 1.56%. Thirteen experts are used by code and never by prose at all.
 
-> **Two cautions, because this is where the story runs ahead of the evidence.**
+> **Two cautions before reading too much into this.**
 >
 > First, "the router distinguishes code from prose" is a much weaker claim than "expert 17 is the code expert." Code and English prose differ in their *tokens* before they differ in anything conceptual, and a router that keyed purely on surface form would produce a table much like the one above.
 >
@@ -611,33 +467,33 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 
 **Memory is billed on total parameters.** Every expert has to be resident, because the router decides at run time and any token might want any of them. There is no subset you could have left on disk. That is **12.89 GiB** in bf16 for a model whose name starts with "1B".
 
-**Time is billed on active parameters**, and the cleanest way to show it is to change nothing but $k$. (The output below counts **FLOPs**, the floating-point operations defined in [§1](#deriving-the-census); a FLOP count is independent of how fast any particular chip gets through them.) Same weights, same memory, same everything — route to all 64 experts instead of 8 and measure ([`two_bills`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+**Time is billed on active parameters**, and the cleanest way to show it is to change nothing but $k$. (The output below counts **FLOPs**, floating-point operations: the individual multiplies and adds a model performs, independent of how fast any particular chip gets through them. [Post 1](/posts/llm-architectures-attention-and-rope/#an-aside-what-a-flop-is-and-how-to-count-one) explains how to count them.) Same weights, same memory: route to all 64 experts instead of 8 and time the forward pass ([`two_bills`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         421.2     1.00x
-  64                        929.1     2.21x
+  8                         426.1     1.00x
+  64                        915.5     2.15x
 
   expert FLOPs ratio (64/8)          8x
-  measured wall-clock ratio          2.21x
+  measured wall-clock ratio          2.15x
     below 8x because attention, norms and the LM head are unchanged
 ```
 
-Eight times the expert arithmetic costs 2.21× the wall clock, and zero extra bytes of weights.
+Eight times the expert arithmetic costs 2.15× the wall clock, and zero extra bytes of weights.
 
-Both halves of that deserve a note. The **2.21× rather than 8×** is because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. The gap between 8× and 2.21× is a useful reminder that "active parameters" predicts the *trend* of speed, not a clean multiplier.
+It is 2.15× rather than 8× because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. So "active parameters" predicts the *trend* of speed, not a clean multiplier.
 
 Unlike every other number in this post, this one is a wall-clock measurement and it moves a little from run to run; the counts and ratios elsewhere do not. And the top-64 row is a measurement of **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes; it is a timing experiment, not a quality one.
 
-> This is the practical trap. A 7B-total, 1B-active model is *not* a drop-in replacement for a 1B dense model — it needs about 5.9 times the memory (6.92B parameters resident against 1.18B active). It is also not equivalent to a 7B dense model, since it does a fraction of the arithmetic. It buys the quality that comes with more parameters at close to the speed that comes with fewer, and it pays for that in RAM.
+> A 7B-total, 1B-active model is *not* a drop-in replacement for a 1B dense model: it needs about 5.9 times the memory (6.92B parameters resident against 1.18B active). It is also not equivalent to a 7B dense model, since it does a fraction of the arithmetic. It buys the quality that comes with more parameters at close to the speed that comes with fewer, and it pays for that in RAM.
 {: .prompt-tip }
 
 ### 6. Sparsity does not survive a batch {#sparsity-and-batching}
 
-Here is the result that reframes everything above, and the one I found least obvious.
+Of everything in this post, this is the result I found least obvious.
 
-Every claim so far has been about *one token*. One token uses 8 of 64 experts. But nothing is served one token at a time — you process a prompt of hundreds of tokens at once, and you batch requests from many users together. So the question that decides real cost is: how many *distinct* experts does a group of tokens need between them?
+Every claim so far has been about *one token*. One token uses 8 of 64 experts. But nothing is served one token at a time: you process a prompt of hundreds of tokens at once, and you batch requests from many users together. So the question that decides real cost is: how many *distinct* experts does a group of tokens need between them?
 
 Each token picks its own 8. If two tokens pick differently, the hardware has to touch the union of their choices. Counting that union over every window of a given size in a 356-token passage ([`batch_collapse`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
@@ -660,17 +516,17 @@ Each token picks its own 8. If two tokens pick differently, the hardware has to 
 
 Eight tokens already need half the experts. Two hundred and fifty-six need **60.9 of 64**, which is 95%.
 
-So the sparsity that makes an MoE cheap is a property of a *token*, and it evaporates the moment you process tokens together. At any realistic batch size, essentially every expert is needed by somebody, which is exactly why all of them must be resident. The dotted line on the chart is the worst case, where no two tokens ever share an expert; it reaches all 64 by eight tokens. The measured curve sits below it because tokens do share experts, which is [§4](#what-the-router-learns)'s specialization showing up again, but it does not sit far enough below to change the conclusion.
+So the sparsity that makes an MoE cheap is a property of a *token*, and it evaporates the moment you process tokens together. At any realistic batch size, essentially every expert is needed by somebody, which is why all of them must be resident. The dotted line on the chart is the worst case, where no two tokens ever share an expert; it reaches all 64 by eight tokens. The measured curve sits below it because tokens do share experts, which is [§4](#what-the-router-learns)'s specialization showing up again, but it does not sit far enough below to change the conclusion.
 
-This resolves the apparent paradox in the name. **An MoE saves arithmetic, not memory.** Per token, 17% of the parameters multiply. Per batch, essentially 100% of them have to be in RAM and get read. That connects to [post 2](/posts/llm-architectures-kv-cache/)'s finding that generating a token is limited by memory bandwidth rather than arithmetic. For a single token an MoE reads only its eight experts, which is why it generates quickly; for a batch it reads nearly all of them, so at serving batch sizes the bandwidth saving mostly disappears.
+That is what "1B active, 7B total" means in practice. **An MoE saves arithmetic, not memory.** Per token, 17% of the parameters multiply. Per batch, essentially 100% of them have to be in RAM and get read. That connects to [post 2](/posts/llm-architectures-kv-cache/)'s finding that generating a token is limited by memory bandwidth rather than arithmetic. For a single token an MoE reads only its eight experts, which is why it generates quickly; for a batch it reads nearly all of them, so at serving batch sizes the bandwidth saving mostly disappears.
 
-#### How a batch is actually computed {#batch-dispatch}
+#### How a batch is computed {#batch-dispatch}
 
 Written per token, a batch of $T$ tokens is $T$ separate copies of the layer formula. With $\mathbf{1}[\cdot]$ meaning 1 when the condition inside holds and 0 otherwise:
 
 $$y_t = \sum_{e=1}^{64} \mathbf{1}[e \in \mathcal{K}_t]\; p_{t,e}\; \mathrm{FFN}_e(x_t) \qquad \text{for each token } t = 1, \dots, T$$
 
-Nobody computes it that way. Swapping the order of the two sums groups the work by expert instead of by token. For each expert $e$, collect the tokens that chose it, $$T_e = \{t : e \in \mathcal{K}_t\}$$, stack their vectors into one matrix, run $$\mathrm{FFN}_e$$ on all of them in a single matrix multiply, scale each result by that token's $$p_{t,e}$$, and add it back to its own token. [OLMoE's implementation in transformers](https://github.com/huggingface/transformers/blob/main/src/transformers/models/olmoe/modeling_olmoe.py) is exactly this loop over experts. At layer 0, for the 356-token passage ([`batch_collapse`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+Nobody computes it that way. Swapping the order of the two sums groups the work by expert instead of by token. For each expert $e$, collect the tokens that chose it, $$T_e = \{t : e \in \mathcal{K}_t\}$$, stack their vectors into one matrix, run $$\mathrm{FFN}_e$$ on all of them in a single matrix multiply, scale each result by that token's $$p_{t,e}$$, and add it back to its own token. [OLMoE's implementation in transformers](https://github.com/huggingface/transformers/blob/main/src/transformers/models/olmoe/modeling_olmoe.py) is this loop over experts. At layer 0, for the 356-token passage ([`batch_collapse`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   experts called                     64 of 64
@@ -690,7 +546,7 @@ There are two ways to split a transformer, and MoE makes the second one natural.
 
 **Tensor parallelism** cuts every matrix into pieces and gives each GPU a slice, so all GPUs work on every token. **Expert parallelism** cuts along the experts instead: GPU 0 gets experts 0–7, GPU 1 gets experts 8–15, and so on. Nobody has to slice a matrix, because the experts were already separate objects.
 
-The catch follows directly from [§6](#sparsity-and-batching). Routing is per token, and a token's eight experts are wherever the router says they are. If those eight live on five different GPUs, that token has to be sent to five GPUs and its results gathered back — for every layer, for every token. That exchange is the **all-to-all**, and it is one of the central engineering problems in serving MoE models.
+The catch follows directly from [§6](#sparsity-and-batching). Routing is per token, and a token's eight experts are wherever the router says they are. If those eight live on five different GPUs, that token has to be sent to five GPUs and its results gathered back, at every layer and for every token. That exchange is the **all-to-all**, and it is one of the central engineering problems in serving MoE models.
 
 How much traffic that is depends entirely on how scattered the routing is, which is measurable from the routing indices alone ([`experts_across_gpus`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
@@ -703,11 +559,11 @@ How much traffic that is depends entirely on how scattered the routing is, which
   16               4            6.84     43%                  0%
 ```
 
-Split across four GPUs, the average token needs **3.67 of them**, and **68%** of tokens need all four. At two GPUs, 99% of tokens need both — the router almost never keeps a token's work on one side.
+Split across four GPUs, the average token needs **3.67 of them**, and **68%** of tokens need all four. At two GPUs, 99% of tokens need both; the router almost never keeps a token's work on one side.
 
-The absolute number climbs while the share falls, and both halves matter. Going from 8 GPUs to 16 raises the GPUs a token must reach from 5.54 to 6.84, so each token's work is spread thinner and communicated wider. It cannot exceed 8, because a token only picks 8 experts, which is why the "of all" column drops. What you are watching is [§6](#sparsity-and-batching)'s finding in a different costume: a token's choices are scattered, so nothing about them stays local.
+The number of GPUs a token needs climbs while the share falls. Going from 8 GPUs to 16 raises the GPUs a token must reach from 5.54 to 6.84, so each token's work is spread thinner and communicated wider. It cannot exceed 8, because a token only picks 8 experts, which is why the "of all" column drops. This is [§6](#sparsity-and-batching)'s finding again, counted in GPUs: a token's choices are scattered, so nothing about them stays local.
 
-> **What this section does and does not measure.** The routing is real, measured on the actual model. The GPU assignment is arithmetic on top of it — experts dealt out in contiguous blocks — not a benchmark on a multi-GPU host, which is not something a laptop can honestly produce. What it gives you is the quantity that *determines* the communication cost, rather than the cost itself, which depends on the serving stack and on **interconnect bandwidth** — how fast the links between GPUs can carry data, as distinct from how fast the GPUs compute.
+> **What this section does and does not measure.** The routing is real, measured on the actual model. The GPU assignment is arithmetic on top of it (experts dealt out in contiguous blocks), not a benchmark on a multi-GPU host, which is not something a laptop can honestly produce. What it gives you is the quantity that *determines* the communication cost, rather than the cost itself, which depends on the serving stack and on **interconnect bandwidth**: how fast the links between GPUs can carry data, as distinct from how fast the GPUs compute.
 {: .prompt-info }
 
 For scale, here is how OLMoE sits next to two models built the same way. These are published values rather than measurements of mine, from each model's configuration ([OLMoE](https://huggingface.co/allenai/OLMoE-1B-7B-0924/blob/main/config.json), [Qwen3-30B-A3B](https://huggingface.co/Qwen/Qwen3-30B-A3B/blob/main/config.json), [DeepSeek-V3](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json)) and, for the active counts, each model's name or report:
@@ -722,13 +578,13 @@ For scale, here is how OLMoE sits next to two models built the same way. These a
 | shared expert | none | none | 1, always on |
 | fits on one 24 GB card | yes, in bf16 | no | not remotely |
 
-Two details in that last column are often drawn wrong in simplified diagrams of DeepSeek-V3, and both are stated in [its report](https://arxiv.org/abs/2412.19437), §4.2. It has a **shared expert** that every token passes through in addition to its top-8, so "8 of 256" understates what runs. And its first three layers are ordinary dense FFNs, not MoE layers, so it has 58 MoE layers rather than 61. Its experts are also much narrower than its dense layers — an intermediate width of 2,048 against the 18,432 of the dense FFN — which is what lets it hold 256 of them per layer.
+Two details in that last column are often drawn wrong in simplified diagrams of DeepSeek-V3, and both are stated in [its report](https://arxiv.org/abs/2412.19437), §4.2. It has a **shared expert** that every token passes through in addition to its top-8, so "8 of 256" understates what runs. And its first three layers are ordinary dense FFNs, not MoE layers, so it has 58 MoE layers rather than 61. Its experts are also much narrower than its dense layers (an intermediate width of 2,048 against the 18,432 of the dense FFN), which is what lets it hold 256 of them per layer.
 
 ### 8. Nothing balances the load for free {#load-balance}
 
 One more consequence of letting a learned component do the choosing: nothing makes the experts equally popular.
 
-There is a degenerate outcome sitting in this architecture. If the router slightly prefers a few experts early in training, those experts get more of the **gradient** — the signal that says which way to nudge each weight to reduce the error — so they improve faster, get preferred more strongly, and the rest starve. You would end up paying for 64 experts and effectively training a handful.
+There is a degenerate outcome sitting in this architecture. If the router slightly prefers a few experts early in training, those experts get more of the **gradient** (the signal that says which way to nudge each weight to reduce the error), so they improve faster, get preferred more strongly, and the rest starve. You would end up paying for 64 experts and effectively training a handful.
 
 Measuring the spread over 2848 routing slots per layer ([`load_balance`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)). The last column is the **coefficient of variation**, the standard deviation of expert usage divided by its mean: a scale-free measure of unevenness where 0 is perfectly even and around 1.0 means the spread between experts is about as large as the average usage itself.
 
@@ -768,7 +624,7 @@ The two penalties need a few more quantities, each averaged over the $N$ token p
 
 $$f_i = \frac{1}{N}\sum_{t=1}^{N} \mathbf{1}[i \in \mathcal{K}_t] \qquad P_i = \frac{1}{N}\sum_{t=1}^{N} p_{t,i} \qquad \mathcal{L}_{LB} = N_E \sum_{i=1}^{N_E} f_i\,P_i \qquad \mathcal{L}_{RZ} = \frac{1}{N}\sum_{t=1}^{N}\Big(\log \sum_{j=1}^{N_E} e^{z_{t,j}}\Big)^2$$
 
-If routing were perfectly even, every $$f_i$$ would be $8/64$ and every $$P_i$$ would be $1/64$, so $$\mathcal{L}_{LB} = 64 \times 64 \times \tfrac{8}{64} \times \tfrac{1}{64} = 8$$. It grows when the experts picked most often are also the ones given the most probability, which is exactly what a router locking onto a few experts looks like. One detail matters for how it trains: $$f_i$$ is a count of top-8 selections, so like the selection itself it has no gradient. Only $$P_i$$ does, and through it the loss pushes probability away from experts that are already taking more than their share.
+If routing were perfectly even, every $$f_i$$ would be $8/64$ and every $$P_i$$ would be $1/64$, so $$\mathcal{L}_{LB} = 64 \times 64 \times \tfrac{8}{64} \times \tfrac{1}{64} = 8$$. It grows when the experts picked most often are also the ones given the most probability, which is what a router locking onto a few experts looks like. One detail matters for how it trains: $$f_i$$ is a count of top-8 selections, so like the selection itself it has no gradient. Only $$P_i$$ does, and through it the loss pushes probability away from experts that are already taking more than their share.
 
 The z-loss squares the logarithm of the softmax's denominator. Keeping it small keeps the router's logits in a range where the softmax stays numerically stable, which is the reason the paper gives for it.
 
@@ -796,7 +652,7 @@ On the 94-token passage ([`what_training_minimizes`](https://github.com/bearbear
 
 The sums come out at 8 and 1, as the definitions require, and the hand computation equals transformers' own function. The pooled value, 8.17, looks almost perfectly balanced, and that is partly an artifact. transformers' function pools the router logits of all 16 layers before counting, which treats expert 5 in layer 0 and expert 5 in layer 15 as one expert and averages each layer's imbalance away; computed layer by layer, the same passage scores 10.50. transformers adds only $$\alpha\,\mathcal{L}_{LB}$$ to the loss it returns, so the z-loss here comes from the paper's formula, shown for scale.
 
-Weighted by their coefficients, the two penalties add 0.0817 and 0.0116 to a cross-entropy of 2.7381, about 3% and 0.4%. That is small on purpose: the balancing term is there to stop a collapse, not to drive the model, and setting it too high would trade away prediction quality to make a histogram look tidy. And even *with* that penalty applied throughout training, the busiest expert still runs about five times as often as an even share. The auxiliary loss keeps the distribution from collapsing; it does not make it flat, and it is not trying to.
+Weighted by their coefficients, the two penalties add 0.0817 and 0.0116 to a cross-entropy of 2.7381, about 3% and 0.4%. That is small on purpose: the balancing term is there to stop a collapse, not to drive the model, and setting it too high would trade away prediction quality to make a histogram look tidy. Even with that penalty applied throughout training, the busiest expert still runs about five times as often as an even share. The auxiliary loss keeps the distribution from collapsing; it does not make it flat.
 
 ### 9. How an MoE is trained, and where "mid-training" fits {#how-its-trained}
 
@@ -804,7 +660,7 @@ Two different things often get talked about in the same breath here: mixture-of-
 
 **The experts and the router learn together, during pre-training.** They are not bolted on afterwards. At the start of training every expert is random and the router is random, so the first routing decisions are meaningless. Then ordinary next-token prediction runs: the model reads text, predicts what comes next, and is scored on how wrong it was. **Backpropagation** then works that error backwards through the network to get a gradient for every weight involved, and the weights move. The router, the chosen experts and the rest of the network all update. The skipped experts do not, because they contributed nothing to the output.
 
-There is a subtlety here that [§3](#one-token-routed) set up. Picking the top 8 is a discrete choice, and discrete choices have no useful gradient: you cannot differentiate "expert 5 was ranked higher than expert 6". So how does the router learn anything at all? Through the weights, and the chain rule shows exactly how. Two symbols first:
+There is a subtlety here that [§3](#one-token-routed) set up. Picking the top 8 is a discrete choice, and discrete choices have no useful gradient: you cannot differentiate "expert 5 was ranked higher than expert 6". So how does the router learn anything at all? Through the weights $$p_e$$ that multiply each expert's output. Two symbols first, then the chain rule:
 
 | Symbol | Means |
 | --- | --- |
@@ -815,7 +671,7 @@ Treat the chosen set $\mathcal{K}$ as fixed, differentiate $$y = \sum_{e \in \ma
 
 $$\frac{\partial \mathcal{L}}{\partial z_j} = \sum_{e \in \mathcal{K}} g_e\; p_e\,(\delta_{ej} - p_j) \qquad \frac{\partial \mathcal{L}}{\partial W_r} = \frac{\partial \mathcal{L}}{\partial z}\, x^{\top}$$
 
-Two consequences follow, and both are checkable:
+Two consequences follow:
 
 - **Every router row gets a gradient, not only the eight chosen ones.** The $$-p_j$$ term is present for all 64, because each $$p_e$$ has every expert's score in its denominator: raising a chosen expert's probability means lowering everyone else's.
 - **Only the chosen experts' own weights get a gradient.** A skipped expert's FFN never appears in $y$, so for this token nothing in the loss depends on it.
@@ -834,9 +690,13 @@ The demo backpropagates one token through layer 0's MoE block and counts what re
 
 All 64 router rows receive gradient, exactly the router's eight chosen experts do and no others, and the formula agrees with autograd to within 1.5e-8 against gradient entries as large as 0.168. The loss in this check is $v \cdot y$ for a fixed random vector $v$, standing in for whatever the rest of the network would send back, so it depends on nothing outside this one block. **The router learns because the routing weights multiply, not because the selection itself is differentiable.**
 
+Specialization is emergent from that process. Nobody assigns expert 17 to code. It becomes whatever it becomes, because it happened to be picked slightly more often for certain inputs early on and improved at them, which made it get picked more. That is the same runaway dynamic [§8](#load-balance)'s auxiliary loss exists to keep from going too far.
+
+Not every MoE is trained this way. An **upcycled** model, as [Setup](#why-this-model) described, starts from a finished dense model's FFN copied into every expert. That is much cheaper than starting over, since it inherits everything the dense model learned. The tradeoff shows up in [§4](#what-the-router-learns)'s measurement: upcycled models are reported to specialize noticeably less ([Muennighoff et al.](https://arxiv.org/abs/2409.02060) compare OLMoE against the upcycled Mixtral), which makes sense if every expert starts as a copy of the same function. OLMoE was trained sparse from scratch, which is part of why its routing is the one this post measures.
+
 #### One training step and one inference call, end to end {#end-to-end}
 
-Put together, a training step on a batch runs in four stages:
+A training step on a batch runs in four stages:
 
 1. **Forward.** Every token passes through all 16 layers. In each, attention runs in full, and the MoE sub-layer applies [the layer formula](#the-layer-formula), computed one expert at a time over the tokens that chose it, as in [§6](#batch-dispatch).
 2. **Loss.** $$\mathcal{L} = \mathcal{L}_{CE} + \alpha\,\mathcal{L}_{LB} + \beta\,\mathcal{L}_{RZ}$$ from [§8](#load-balance), over the whole batch.
@@ -844,10 +704,6 @@ Put together, a training step on a batch runs in four stages:
 4. **Update.** The optimizer moves every parameter that received a gradient.
 
 Inference is the first stage alone. There are no labels, no loss and no penalties, and nothing is updated; the router makes the same top-8 choice with the same weights, and the batch is computed expert by expert in the same way. The only thing inference adds is the KV cache from [post 2](/posts/llm-architectures-kv-cache/), which stores attention's keys and values and does not touch the experts.
-
-Specialization is emergent from that process. Nobody assigns expert 17 to code. It becomes whatever it becomes, because it happened to be picked slightly more often for certain inputs early on and improved at them, which made it get picked more. That is the same runaway dynamic [§8](#load-balance)'s auxiliary loss exists to keep from going too far.
-
-Not every MoE is trained this way. **Sparse upcycling** takes a finished dense model, copies its FFN into many identical experts, and continues training — much cheaper than starting over, since it inherits everything the dense model learned. The tradeoff shows up in [§4](#what-the-router-learns)'s measurement: upcycled models are reported to specialize noticeably less ([Muennighoff et al.](https://arxiv.org/abs/2409.02060) compare OLMoE against the upcycled Mixtral), which makes sense if every expert starts as a copy of the same function. OLMoE was trained sparse from scratch, which is part of why its routing is the one this post measures.
 
 #### The three stages
 
@@ -857,19 +713,17 @@ Not every MoE is trained this way. **Sparse upcycling** takes a finished dense m
 
 **Mid-training** is the term with the least agreement behind it, and it is not a settled piece of vocabulary. Broadly it means continued training after the main pre-training run but before the behaviour-focused stage, using deliberately chosen data rather than a broad web scrape. You may also see it called continued pre-training, annealing, or a second curriculum stage.
 
-The clearest concrete example comes from the same lab that built the model in this post. [OLMo 2](https://arxiv.org/abs/2501.00656) pre-trains in two stages: roughly 3.9 trillion tokens of general mixture, then a second stage of about 5–10% of the compute budget on a curated mix heavy in high-quality web text, academic content, instruction data and synthetic mathematics, aimed at capabilities the first stage left weak. (OLMo 2 is a dense model, not an MoE — it is cited here for the training stage, not the architecture.)
+The clearest concrete example comes from the same lab that built the model in this post. [OLMo 2](https://arxiv.org/abs/2501.00656) pre-trains in two stages: roughly 3.9 trillion tokens of general mixture, then a second stage of about 5–10% of the compute budget on a curated mix heavy in high-quality web text, academic content, instruction data and synthetic mathematics, aimed at capabilities the first stage left weak. (OLMo 2 is a dense model, not an MoE; it is cited here for the training stage, not the architecture.)
 
-**Why not just put that data in the pre-training mix?** Because when data arrives matters, not only whether it arrived. Spread a small amount of excellent mathematics across four trillion tokens of general text and its influence is diluted by everything around it. Concentrated near the end, when the model already has general competence, the same tokens have more room to shape it, which is the reasoning labs give for scheduling it that way. The analogy that survives scrutiny is a curriculum: broad schooling first, then specialization, then learning how to do the job with other people.
+**Why not just put that data in the pre-training mix?** Because when data arrives matters, not only whether it arrived. Spread a small amount of excellent mathematics across four trillion tokens of general text and its influence is diluted by everything around it. Concentrated near the end, when the model already has general competence, the same tokens have more room to shape it, which is the reasoning labs give for scheduling it that way. A closer analogy is a curriculum: broad schooling first, then specialization, then learning how to do the job with other people.
 
 For an MoE, all three stages run on the same architecture. The router is learned in pre-training and keeps routing through mid-training, post-training and inference. So when someone says "we trained an MoE with a long mid-training stage", those are two separate facts: how the network is built, and how the training run was scheduled.
 
 ### 10. What follows from all this {#what-follows}
 
-Pulling the measurements into the shape they make together:
-
 **A mixture-of-experts model is a memory-for-arithmetic trade, and it runs in the opposite direction to post 4's.** Quantization keeps every weight and makes each one smaller. MoE keeps every weight at full size and declines to multiply by most of them. One shrinks the bytes, the other shrinks the FLOPs, and they are fully compatible. [gpt-oss-20b](https://huggingface.co/openai/gpt-oss-20b) is an MoE that ships its experts in 4-bit, for instance.
 
-**The scaling argument underneath it is simple.** Adding experts adds capacity at almost no cost in per-token compute, since $k$ stays fixed while $E$ grows. What it does cost is memory, linearly and unforgivingly.
+**The scaling argument underneath it is simple.** Adding experts adds capacity at almost no cost in per-token compute, since $k$ stays fixed while $E$ grows. What it does cost is memory, linearly.
 
 **Serving one is a networking problem before it is a compute problem.** The experts have to be split across GPUs because they are most of the model, and routing then scatters each token's work across most of those GPUs ([§7](#across-gpus)). That is why interconnect bandwidth matters as much as FLOPs when serving these models.
 
@@ -887,9 +741,9 @@ Half of that is right, which is what makes it dangerous.
 
 **A better answer comes in four moves.**
 
-**1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident — **12.9 GiB** in bf16 — because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
+**1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident, **12.9 GiB** in bf16, because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
-**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.21×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
+**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.15×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
 
 **3. And say why the memory does not improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
@@ -899,7 +753,144 @@ What the question is really testing is whether "1B active, 7B total" is being re
 
 ### What's next {#whats-next}
 
-Post 6 is **LoRA**, and it moves this series from inference to training for the first time. Posts 2 through 4 changed how a finished model runs, and this one changed what gets built. LoRA changes how a model gets adapted: instead of updating all 6.9B parameters to teach a model a new task, it freezes them and trains a pair of much smaller matrices alongside. The questions there are what rank actually buys you, why the update can be low-rank at all when the weights it modifies are not, and what it costs to serve fifty fine-tunes of the same base model at once — which, after [§6](#sparsity-and-batching), should sound like a familiar kind of question.
+Post 6 is **LoRA**, and it moves this series from inference to training for the first time. Posts 2 through 4 changed how a finished model runs, and this one changed what gets built. LoRA changes how a model gets adapted: instead of updating all 6.9B parameters to teach a model a new task, it freezes them and trains a pair of much smaller matrices alongside. The questions there are what rank buys you, why the update can be low-rank at all when the weights it modifies are not, and what it costs to serve fifty fine-tunes of the same base model at once. After [§6](#sparsity-and-batching), that should sound like a familiar kind of question.
+
+### Appendix: counting every parameter {#appendix-counting-parameters}
+
+This appendix derives every number in [§1's census](#where-the-parameters-actually-are) from the shapes of the model's weights. Every count here is a **parameter count**, the number of learned values stored: a matrix of $R$ rows, each $W$ numbers wide, holds $R \times W$ of them, and a vector of length $W$ holds $W$. [Post 1](/posts/llm-architectures-attention-and-rope/#an-aside-what-a-flop-is-and-how-to-count-one) explains how a parameter count relates to the arithmetic a model does.
+
+Start with a single layer. These are all of layer 0's weights, read straight from the checkpoint rather than from its configuration file, so the arithmetic is checked against what is stored ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  tensor                             shape   parameters
+  -------------------------------------------------------
+  q, k, v, o projections  4 x (2048, 2048)   16,777,216
+  q_norm, k_norm               2 x (2048,)        4,096
+  router                        (64, 2048)      131,072
+  experts: gate_up_proj   (64, 2048, 2048)  268,435,456
+  experts: down_proj      (64, 2048, 1024)  134,217,728
+  two layer norms              2 x (2048,)        4,096
+  one layer                                 419,569,664
+```
+
+Reading down it, one tensor at a time. Each tensor performs one operation, and its parameter count is simply the size of the matrix doing that operation.
+
+**Attention** turns the normalized residual stream $x$ into a query, a key and a value, and after attention has run (the part [post 1](/posts/llm-architectures-attention-and-rope/) walks through) mixes the heads' results back together with an output matrix:
+
+$$q = \mathrm{RMSNorm}_q(W_q\,x) \qquad k = \mathrm{RMSNorm}_k(W_k\,x) \qquad v = W_v\,x \qquad \text{output} = W_o\,(\text{the 16 heads' results, joined})$$
+
+Each of $$W_q$$, $$W_k$$, $$W_v$$ and $$W_o$$ is 2,048 rows × 2,048 wide, so the four together hold $4 \times 2{,}048 \times 2{,}048 = 16{,}777{,}216$ parameters. OLMoE also normalizes the whole query vector and the whole key vector before splitting them into 16 heads of 128 numbers, so `q_norm` and `k_norm` are RMSNorms with a vector of 2,048 learned scales each. Those 4,096 extra parameters per layer are why attention prints as 0.269B rather than the 0.268B the four matrices alone would give. Here is layer 0's attention on a real token, one step per row: the size each step produces, and the parameters its weight adds, so the last column sums to attention's count in the census ([`each_tensor_step_by_step`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  step                              result                 parameters
+  ---------------------------------------------------------------------
+  x, the normalized input    2,048 numbers
+  q = W_q x                  2,048 numbers  2,048 x 2,048 = 4,194,304
+  q = q_norm(q)              2,048 numbers                      2,048
+  k = W_k x, then k_norm     2,048 numbers          4,194,304 + 2,048
+  v = W_v x                  2,048 numbers  2,048 x 2,048 = 4,194,304
+  split q, k, v into heads  16 heads x 128             0 (no weights)
+  attention in each head    16 heads x 128             0 (no weights)
+  join the heads             2,048 numbers             0 (no weights)
+  output = W_o (joined)      2,048 numbers  2,048 x 2,048 = 4,194,304
+  attention, total                                         16,781,312
+  equals the census, per layer?      yes
+```
+
+Five rows add parameters, and they are the four matrices and two norms in the equation above. The other three steps, splitting into heads, attention inside each head, and joining the heads back up, use no weights at all, which is why they cost memory nothing. [Post 1](/posts/llm-architectures-attention-and-rope/) covers what happens inside them: each of the 16 heads compares its 128-number query with the keys, mixes the values accordingly, and returns 128 numbers, and joining the 16 results restores 2,048.
+
+**The router** multiplies the same normalized vector by one matrix to get one score per expert, $$z = W_r\,x$$. It is 64 rows × 2,048 wide, so $64 \times 2{,}048 = 131{,}072$ parameters.
+
+**The experts** are stored as two stacked tensors whose first dimension, 64, has one entry per expert; entry $e$ holds expert $e$'s matrices. Each expert is a [SwiGLU](/posts/llm-architectures-attention-and-rope/) FFN, and it runs three steps:
+
+$$\begin{bmatrix} x_{gate} \\ x_{up} \end{bmatrix} = W_{gate\_up}^{(e)}\,x \qquad x_{mix} = \mathrm{SiLU}(x_{gate}) \odot x_{up} \qquad \mathrm{FFN}_e(x) = W_{down}^{(e)}\,x_{mix}$$
+
+The first step is two projections done as one multiply. `gate_up_proj[e]` is 2,048 rows × 2,048 wide: its first 1,024 rows are the gate projection $$W_{gate}$$ and its last 1,024 rows are the up projection $$W_{up}$$, each 2,048 wide, stacked so that one matrix multiply produces both. The result, 2,048 numbers, is split in half into $$x_{gate}$$ and $$x_{up}$$, 1,024 numbers each. The second step has no parameters: $$\mathrm{SiLU}(x_{gate})$$ turns the gate half into 1,024 dials, and $\odot$ multiplies them number by number into the up half, so the gate decides how much of each of the 1,024 features passes. The third step, `down_proj[e]`, is 2,048 rows × 1,024 wide and takes those 1,024 numbers back to the model's 2,048.
+
+Counting them: `gate_up_proj` is $2{,}048 \times 2{,}048 = 4{,}194{,}304$ parameters per expert, which is the same as $2 \times 1{,}024 \times 2{,}048$ for the two projections it stacks, and `down_proj` is $2{,}048 \times 1{,}024 = 2{,}097{,}152$. One expert therefore holds $4{,}194{,}304 + 2{,}097{,}152 = 6{,}291{,}456$ parameters, the **6.29M** in the table. Across the 64 stacked experts, that is $64 \times 4{,}194{,}304 = 268{,}435{,}456$ for `gate_up_proj` and $64 \times 2{,}097{,}152 = 134{,}217{,}728$ for `down_proj`, the two rows above. The 1,024 is the expert's width, *half* the model's width, for the reasons in [§1](#why-sixty-four). The router's first choice for the same token, run step by step ([`each_tensor_step_by_step`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  step                            result                 parameters
+  -------------------------------------------------------------------
+  x, the normalized input  2,048 numbers
+  gate_up_proj[5] x        2,048 numbers  2,048 x 2,048 = 4,194,304
+    first half: gate       1,024 numbers
+    second half: up        1,024 numbers
+  x_mix = SiLU(gate) * up  1,024 numbers             0 (no weights)
+  down_proj[5] x_mix       2,048 numbers  2,048 x 1,024 = 2,097,152
+  one expert, total                                       6,291,456
+  gate == first half of gate_up rows? yes
+```
+
+The last line confirms the stacking: multiplying by only the first 1,024 rows of `gate_up_proj` gives exactly the gate half.
+
+**The norms** are two RMSNorms, each a vector of 2,048 learned scales: one before attention, $x = \mathrm{RMSNorm}(h)$, and one before the MoE block, $$x = \mathrm{RMSNorm}(h_{mid})$$. Their equation is the same as the final norm's, which is worked through below.
+
+Three more pieces sit outside the 16 layers, and two of them are large ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  tensor                shape   parameters
+  ------------------------------------------
+  embed_tokens  (50304, 2048)  103,022,592
+  lm_head       (50304, 2048)  103,022,592
+  final norm          (2048,)        2,048
+
+  tokens the tokenizer defines       50,280
+  rows in each table                 50,304
+  rows no token can select           24
+  rows, as a multiple of 128         393 x 128
+  embedding and LM head tied?        no
+```
+
+**The embedding table** (`embed_tokens`) is where a token enters the model. Before the model sees any text, the tokenizer turns it into **token ids**, whole numbers that each name one entry in the tokenizer's vocabulary. The table holds one row per id, and each row is a vector as wide as the model, 2,048 numbers, because that vector is what the first layer reads. Turning a token into its vector is a lookup: fetch the row whose position is the token's id. The table's size is therefore rows × width, $50{,}304 \times 2{,}048 = 103{,}022{,}592$.
+
+OLMoE's tokenizer defines **50,280** tokens, with ids 0 to 50,279, but the table has **50,304** rows, so the last 24 rows can never be selected by any token. The table was padded up to the next multiple of 128, which is 393 × 128; Ai2's OLMo training code notes that [padding the embedding size to a multiple of 128 can improve throughput](https://github.com/allenai/OLMo/blob/main/olmo/config.py). The 24 spare rows are still stored and still counted, which is why the census uses 50,304 rather than 50,280.
+
+**The LM head** (`lm_head`) runs in the other direction. After the last layer, the token's 2,048-number vector is multiplied by this matrix to produce one score per row, and those scores become the next-token probabilities. Its rows have to line up one-for-one with the embedding table's, so it has the same shape and the same count, 103,022,592; [post 1](/posts/llm-architectures-attention-and-rope/#the-last-two-boxes-the-final-norm-and-the-lm-head) draws the two as one table read in two directions. Some models tie them, storing a single table and using it for both jobs. OLMoE does not, as the block's last line confirms, so both are stored and both count: $2 \times 103{,}022{,}592 = 206{,}045{,}184$, the **embed + head** row.
+
+**The final norm** (`model.norm`) is the last step before the LM head, and its shape follows from what it does. It is an **RMSNorm**, the same operation OLMoE applies four times inside every layer (the two layer norms, `q_norm` and `k_norm`). For a token's vector $h$ of $d = 2{,}048$ numbers, the symbols first:
+
+| Symbol | Means |
+| --- | --- |
+| $$h_i$$ | the $i$-th of the vector's 2,048 numbers, as it leaves the last layer |
+| $$\sqrt{\frac{1}{d}\sum_j h_j^2}$$ | the vector's **root mean square** (RMS): its typical size |
+| $\epsilon$ | a tiny constant, $10^{-5}$, that keeps the division safe for an all-zero vector |
+| $$\gamma_i$$ | a learned scale for dimension $i$ |
+
+$$\mathrm{RMSNorm}(h)_i = \gamma_i \cdot \frac{h_i}{\sqrt{\frac{1}{d}\sum_{j=1}^{d} h_j^2 + \epsilon}}$$
+
+Dividing by the root mean square resets the vector to a standard size, and multiplying by $\gamma$ lets training decide how much each dimension should count. $\gamma$ is the only thing learned, one number per dimension and no bias, which is why the tensor has shape `(2048,)` and exactly 2,048 parameters. Applied by hand to a real token ([`what_the_final_norm_does`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  gamma, one scale per dimension     shape (2048,)
+  epsilon                            1e-05
+  RMS of the vector coming in        0.2170
+  after dividing by its RMS          0.9999
+  after multiplying by gamma         1.6627
+  gamma smallest / median / largest  0.1328 / 2.2344 / 2.6094
+  formula by hand == model's norm?   yes (fp32)
+
+  median token RMS entering layer 0  0.0045
+  median entering the final norm     0.2796
+```
+
+The formula matches the model's norm exactly. Dividing takes the vector from an RMS of 0.2170 to 0.9999, not quite 1 because of $\epsilon$, and $\gamma$ then scales individual dimensions by anywhere from 0.13 to 2.61. The last two lines are the reason the norm exists. Every sub-layer adds its output onto the residual stream, so a typical token's vector grows from an RMS of 0.0045 entering the first layer to 0.28 entering the final norm, about 60 times larger. The final norm hands the LM head a vector of the same scale no matter how much the layers added along the way. [Post 1](/posts/llm-architectures-attention-and-rope/#the-residual-and-what-pre-norm-means) covers where the norms inside each layer sit, and why they come before each sub-layer rather than after.
+
+Every one of the 16 layers is the same size, which the demo checks, so each role's total is its per-layer count times 16, plus the pieces outside the layers ([`derive_the_census`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  role            per layer           x 16      outside          total
+  ----------------------------------------------------------------------
+  experts       402,653,184  6,442,450,944               6,442,450,944
+  attention      16,781,312    268,500,992                 268,500,992
+  router            131,072      2,097,152                   2,097,152
+  norms               4,096         65,536        2,048         67,584
+  embed + head                              206,045,184    206,045,184
+  TOTAL                                                  6,919,161,856
+  equals the checkpoint's count?     yes
+```
+
+The roles sum to 6,919,161,856, which equals the checkpoint's own count. Each share in §1's census table is one role divided by that total; for the experts, $6{,}442{,}450{,}944 \div 6{,}919{,}161{,}856 = 93.1\%$.
 
 ### Appendix: all notation {#appendix-all-notation}
 
@@ -907,18 +898,18 @@ Every symbol this post uses, in one place. [Post 1's appendix](/posts/llm-archit
 
 | Symbol | Means | In this post's runs |
 | --- | --- | --- |
-| $E$ | **experts** — how many separate, smaller FFNs a layer holds | 64 |
+| $E$ | **experts**: how many separate, smaller FFNs a layer holds | 64 |
 | $k$ | how many experts each token is routed to, the "top-k" | 8 |
 | $$d_{model}$$ | the model's width, the length of one token's vector | 2048 |
 | $$W_r$$ | the **router** matrix, one per layer | 64 rows, each 2,048 wide |
-| $z$ | **router logits** — one raw score per expert, any real number | $(64,)$ |
-| $p$ | the logits after softmax; over all $E$ they sum to 1 | $(64,)$ |
+| $z$ | **router logits**: one raw score per expert, any real number | $(64,)$ |
+| $$p_e$$ | expert $e$'s logit after softmax; over all $E$ experts they sum to 1 | one per expert |
 | $\mathcal{K}$ | the set of experts that survive the top-k cut | 8 of 64 |
-| $$\text{FFN}_e$$ | expert $e$ — an ordinary SwiGLU feed-forward network | 6.29M parameters |
+| $$\text{FFN}_e$$ | expert $e$, an ordinary SwiGLU feed-forward network | 6.29M parameters |
 | total parameters | every weight in the model, all of which must be resident | 6.919B |
 | active parameters | the weights one token's arithmetic uses | 1.179B (17.0%) |
 | `norm_topk_prob` | whether the kept weights are rescaled to sum to 1 | false in OLMoE |
-| TV distance | **total variation** — half the summed absolute difference between two distributions; 0 is identical, 1 is disjoint | floor 0.216, cross-domain 0.554 |
+| TV distance | **total variation**: half the summed absolute difference between two distributions; 0 is identical, 1 is disjoint | floor 0.216, cross-domain 0.554 |
 | coeff of var | standard deviation over mean, a scale-free measure of unevenness | 0.88 to 1.07 |
 | $$\mathcal{L}_{CE}$$ | cross-entropy, the next-token loss | 2.7381 on the test passage |
 | $$\mathcal{L}_{LB}$$ | load-balancing loss, $$N_E \sum_i f_i P_i$$; 8 when routing is perfectly even | 8.1675 pooled, 10.5038 per layer |
@@ -934,14 +925,8 @@ Every symbol this post uses, in one place. [Post 1's appendix](/posts/llm-archit
 | shared expert | an extra expert every token uses, on top of its top-k | none in OLMoE; 1 in DeepSeek-V3 |
 | noisy routing | random noise added to router scores during training, so it explores | not used in OLMoE |
 | expert capacity | a cap on how many tokens one expert accepts per batch; the overflow is dropped or passed through | a consequence of §8's imbalance |
-| sparse upcycling | building an MoE by copying a trained dense model's FFN into many experts | not how OLMoE was built |
+| upcycling | building an MoE by copying a trained dense model's FFN into many experts | not how OLMoE was built |
 | mid-training | a later, deliberately curated training stage between pre- and post-training | ~5–10% of OLMo 2's budget |
-
-Three things worth keeping straight:
-
-- **"Active" and "total" are not two estimates of one quantity.** They are exact counts of two different things, and they bill to two different budgets. Total sets your memory; active sets your arithmetic.
-- **Sparse does not mean small.** A sparse model is one that declines to use most of itself per token. It is still all there, and it is still all in RAM.
-- **The router is not a classifier over topics.** It is a learned scoring matrix whose behaviour correlates with input distribution ([§4](#what-the-router-learns)). Reading it as "expert 17 handles code" is a story laid over a measurement, and one the literature actively disputes.
 
 ### Appendix: where the KV cache numbers come from {#appendix-kv-cache-numbers}
 
@@ -1009,7 +994,7 @@ $16.00 \div 8.00 = 2.0$. The 8.00 GiB is a floor, not a peak: it counts only ten
 - OLMo Team, [2 OLMo 2 Furious](https://arxiv.org/abs/2501.00656) (2025) — §9's concrete example of a mid-training stage: a curated second-stage mix over roughly 5–10% of the compute budget, after ~3.9T tokens of general pre-training. A dense model, cited for the training schedule rather than the architecture.
 - Jiang et al., [Mixtral of Experts](https://arxiv.org/abs/2401.04088) (2024) — 8 experts per layer, 2 chosen per token; one of §1's contrasts with OLMoE's 64 and 8, and the upcycled model OLMoE's specialization is compared against in §9.
 - Yang et al., [Qwen3 Technical Report](https://arxiv.org/abs/2505.09388) (2025) — Table 2 gives Qwen3-30B-A3B's 48 layers, 128 experts and 8 activated, used in §1 and §7.
-- Ai2, [OLMo training configuration](https://github.com/allenai/OLMo/blob/main/olmo/config.py) — the note that padding the embedding size to a multiple of 128 can improve throughput, cited in §1 for OLMoE's 50,304-row tables.
+- Ai2, [OLMo training configuration](https://github.com/allenai/OLMo/blob/main/olmo/config.py) — the note that padding the embedding size to a multiple of 128 can improve throughput, cited in the parameter appendix for OLMoE's 50,304-row tables.
 - Komatsuzaki et al., [Sparse Upcycling: Training Mixture-of-Experts from Dense Checkpoints](https://arxiv.org/abs/2212.05055) (2022) — the alternative to training sparse from scratch, and the reason §4's result depends on which of the two produced the model.
 - DeepSeek-AI, [DeepSeek-V3 Technical Report](https://arxiv.org/abs/2412.19437) (2024) — the 671B/37B model in §1 and §7, §4.2's 256 routed experts plus one shared, 8 activated, its shared expert, and the serving architecture that §7's all-to-all describes.
 - Wang, Hayou and Nalisnick, [The Myth of Expert Specialization in MoEs: Why Routing Reflects Geometry, Not Necessarily Domain Expertise](https://arxiv.org/abs/2604.09780) (2026) — the dissenting reading of §4. Argues that because routers are linear maps, hidden-state similarity is necessary and sufficient to explain expert-usage similarity, so specialization is emergent from the representation space. Their models are Qwen- and DeepSeek-family rather than OLMoE. Their result on load balancing also bears on §8: they prove the balancing loss suppresses shared hidden-state directions.
