@@ -9,6 +9,8 @@ description: >-
   bill, and where per-token sparsity quietly disappears.
 math: true
 pin: true
+# Unpublished draft: delete this line to publish, and restore post 1's link to this post.
+published: false
 ---
 
 ## A model that mostly declines to run
