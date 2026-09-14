@@ -110,7 +110,7 @@ A **mixture-of-experts** layer replaces one FFN with many smaller ones, called *
 - **The router costs almost nothing.** One matrix per layer, 64 rows each 2,048 wide, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE does not renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
 - **The router does specialize, and it can be measured.** Two halves of the *same* passage route differently by 0.216; the three pairs of different text average 0.554, **2.56×** that noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
-- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.20×** the elapsed time and zero extra bytes of weights ([§5](#two-bills)).
+- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.18×** the elapsed time and zero extra bytes of weights ([§5](#two-bills)).
 - **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9** ([§6](#sparsity-and-batching)). That is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
 - **Nothing keeps the experts equally busy on its own.** The busiest expert in layer 0 takes **5.71×** an even share, and four experts in the last layer go unused by the test passage ([§8](#load-balance)).
@@ -418,65 +418,136 @@ Two more variations you will meet in the literature: **noisy routing**, which ad
 
 ### 4. What the router learns {#what-the-router-learns}
 
-The folk story is that experts specialize: one handles code, one handles French, one handles punctuation. Is it true?
+A common story about MoE models is that experts **specialize**: one expert becomes good at code, another at French, another at mathematics. But does the router actually send different kinds of text to different experts?
 
-One way to test it is to route three passages of clearly different character (English prose, Python, and a paragraph of group theory), then measure how differently they use the experts. Each token makes 8 expert picks per layer, and this post calls each pick a **routing slot**: a 94-token passage fills 752 slots at every layer, and a passage's *expert usage* is the share of those slots each expert received. The measure is **total variation distance**, which for two distributions over the same 64 experts is half the sum of the absolute differences between them. It runs from 0, meaning the two used the experts identically, to 1, meaning they shared no expert at all.
+That story is hard to test directly, so this section tests a weaker and more measurable version of it:
 
-Any two finite samples differ, even when drawn from the same source. A hundred tokens of prose will not use the experts in exactly the same proportions as another hundred tokens of the same prose, so a nonzero distance between prose and code proves nothing on its own. The number needs a noise floor.
+> **If I give the model very different kinds of text, does it route their tokens to different experts?**
 
-So the demo splits each passage in half and measures the distance between the two halves of the *same* text. That is what sampling noise looks like. Every other row is read against it ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+The demo feeds OLMoE three passages: **English prose, Python code, and a paragraph of group theory**. For each passage, it records which experts the router selects for every token at every layer.
+
+Remember that OLMoE chooses **8 experts for every token**, so a passage of 94 tokens produces 94 × 8 = 752 routing decisions at each layer. I'll call these **routing slots**. The three passages are not the same length, so they fill different numbers of slots ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
-  comparison           layer 0  layer 8  layer 15   mean
-  --------------------------------------------------------
-  same passage, split    0.240    0.210     0.173  0.216
-  prose vs code          0.465    0.736     0.855  0.731
-  prose vs math          0.362    0.508     0.596  0.535
-  code vs math           0.371    0.491     0.505  0.397
+  passage  tokens  routing slots per layer (x 8)
+  ------------------------------------------------
+  prose        94                            752
+  code        140                          1,120
+  math        103                            824
+```
+
+We can then ask what share of a passage's slots went to each of the model's 64 experts, which are numbered 0 to 63. If an expert receives 60 of prose's 752 slots, for example, its share is about 8%. Doing that for every expert gives each passage an **expert-usage distribution**: 64 shares that add up to 100%. Here are five of the 64, in the last layer, layer 15 ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  expert    prose     code     math
+  -----------------------------------
+  0         0.66%    0.54%    0.85%
+  1         0.00%    4.38%    0.85%
+  2         2.53%    0.00%    2.06%
+  17        0.13%    9.73%   12.38%
+  63        3.06%    0.09%    0.73%
+  all 64  100.00%  100.00%  100.00%
+```
+
+Expert 1 gets 4.38% of code's slots and none of prose's, and expert 63 leans the other way. If prose and code produce very different distributions across all 64 experts, that is evidence that the router treats them differently.
+
+#### How different is "different"?
+
+To put a number on it, I use **total variation distance**. For each expert, take the difference between the two passages' shares and ignore its sign; add up the 64 differences, then halve the total. You don't need the formula to read the results, only the scale: a distance of **0** means two passages used the experts in exactly the same proportions, and a distance of **1** means they had no expert in common at all.
+
+There is one complication, though. Suppose I take two samples of English prose. Even if the router treats them in essentially the same way, 50 tokens from one sample won't hit the experts in *exactly* the same proportions as 50 tokens from the other. So a nonzero distance between prose and code doesn't prove anything by itself. We need to know:
+
+> **How much difference should we expect even when the kind of text hasn't changed?**
+
+That is the **noise floor**. The demo estimates it by splitting each passage in half, measuring the distance between the two halves of the *same* passage, and averaging over the three passages. The halves are shorter than the full passages, and shorter samples differ more by chance, so if anything this floor is set high, which makes the comparison harder to pass rather than easier.
+
+Here is every layer. `noise` is the noise floor, the next three columns are the pairs of different passages, `cross` is the average of those three, and the last column divides `cross` by `noise` ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  layer  noise  prose/code  prose/math  code/math  cross  cross/noise
+  ---------------------------------------------------------------------
+  0      0.240       0.465       0.362      0.371  0.400         1.7x
+  1      0.227       0.524       0.380      0.346  0.416         1.8x
+  2      0.254       0.595       0.476      0.345  0.472         1.9x
+  3      0.222       0.616       0.459      0.356  0.477         2.1x
+  4      0.235       0.694       0.551      0.345  0.530         2.3x
+  5      0.232       0.772       0.631      0.320  0.574         2.5x
+  6      0.213       0.769       0.627      0.349  0.581         2.7x
+  7      0.224       0.772       0.628      0.354  0.585         2.6x
+  8      0.210       0.736       0.508      0.491  0.578         2.7x
+  9      0.216       0.847       0.559      0.435  0.613         2.8x
+  10     0.204       0.803       0.475      0.436  0.571         2.8x
+  11     0.200       0.854       0.553      0.385  0.597         3.0x
+  12     0.206       0.818       0.532      0.409  0.586         2.8x
+  13     0.197       0.812       0.631      0.505  0.649         3.3x
+  14     0.210       0.759       0.586      0.409  0.585         2.8x
+  15     0.173       0.855       0.596      0.505  0.652         3.8x
+  mean   0.216       0.731       0.535      0.397  0.554        2.56x
 
   noise floor, mean over layers      0.216
   cross-domain, mean over layers     0.554
   cross-domain over noise floor      2.56x
 ```
 
-Expert choice clearly depends on the kind of text. Two halves of one passage differ by 0.216; two different kinds of text differ by 0.554, **2.56×** as much.
+The `mean` row is the first result. Two halves of the **same text** differ by **0.216** on average. Two **different kinds of text** differ by **0.554**, which is **2.56×** the noise floor. So the router's expert choices clearly depend on the kind of text.
 
-The distances also change with depth. Averaging the three cross-domain rows at each depth and setting them against the floor ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+That does **not** yet mean there is a "code expert" or a "math expert". It only tells us that code, prose and mathematics produce measurably different routing patterns.
+
+#### The difference grows deeper in the model
+
+The rows show a second pattern. Taking the first and last layers out of that table ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
-  noise floor, first layer           0.240
-  cross-domain, first layer          0.400
-  noise floor, last layer            0.173
-  cross-domain, last layer           0.652
+                         layer 0  layer 15
+  ------------------------------------------
+  noise floor              0.240     0.173
+  cross-domain distance    0.400     0.652
+  cross-domain / noise      1.7x      3.8x
 ```
 
-At layer 0 the cross-domain distance is 0.400 against a noise floor of 0.240, a ratio of only 1.7, so early routing is barely about content at all. By layer 15 it is 0.652 against a floor of 0.173, a ratio of 3.8. The noise floor falls with depth while the cross-domain distance rises, which is two separate signs of the same thing: deep routing is consistent within a kind of text and sharply different between kinds. Early layers route on something much closer to surface form.
+At **layer 0**, different kinds of text are only **1.7×** farther apart than the noise floor. By **layer 15** they are **3.8×** farther apart. Two things happen at once. The noise floor falls from 0.240 to 0.173, so two halves of the same text route *more* alike, while the cross-domain distance rises from 0.400 to 0.652, so different kinds of text route *less* alike. The climb in between is not smooth (layer 13 jumps to 3.3× and layer 14 falls back to 2.8×), but the last column stays under 2× for layers 0 to 2 and is 2.8× or more from layer 9 onward.
+
+So deeper in this model, routing becomes more consistent within a kind of text and more different across kinds. One possible interpretation is that early routing responds to surface features such as individual tokens, punctuation and formatting, while later layers route on richer representations of what the text is about. That is an interpretation, though, not something this experiment proves.
 
 ![The same 64 experts used differently by different text, with two halves of one passage on top as the noise floor](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/specialization-light.png){: .light width="1000" height="382" }
 ![The same 64 experts used differently by different text, with two halves of one passage on top as the noise floor](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/specialization-dark.png){: .dark width="1000" height="382" }
 
 The top two rows are the same prose passage split in half; the bottom two are code and mathematics. The comparison to make by eye is row 1 against row 2 (noise) versus row 1 against row 3 (signal).
 
-Individual experts do lean hard ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+#### Some individual experts show striking preferences
+
+A distance sums up all 64 experts at once, and single experts can be far more lopsided. The expert whose share rises most between prose and code in layer 15 ([`what_the_router_learns`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
-  most code-leaning expert (layer 15) 17
-    share of code routing slots      9.73%
-    share of prose routing slots     0.13%
+  expert                             17
+    code slots it received           109 of 1,120 = 9.73%
+    prose slots it received          1 of 752 = 0.13%
+    math slots it received           102 of 824 = 12.38%
     an even share would be           1.56%
-  experts unused by prose but used by code 13
+  experts code uses, prose never     13
 ```
 
-Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an even share would be 1.56%. Thirteen experts are used by code and never by prose at all.
+Expert 17 receives **109 of code's 1,120 slots (9.73%)** and **1 of prose's 752 (0.13%)**, where an even share would be 1.56%. Thirteen experts are used by code and never by prose.
 
-> **Two cautions before reading too much into this.**
->
-> First, "the router distinguishes code from prose" is a much weaker claim than "expert 17 is the code expert." Code and English prose differ in their *tokens* before they differ in anything conceptual, and a router that keyed purely on surface form would produce a table much like the one above.
->
-> Second, this is contested in the literature, and the objection is sharper than "the effect is small." Wang, Hayou and Nalisnick's [*The Myth of Expert Specialization in MoEs*](https://arxiv.org/abs/2604.09780) (2026) points out that a router is a **linear map**, so two inputs get similar expert usage exactly when their hidden states are similar. Specialization on that account is a property of the representation space the model has learned, not of the routing architecture, and a table like the one above measures the former while appearing to describe the latter. Their paper names OLMoE's own specialization figure as an example of the genre it is questioning.
->
-> They also report something that cuts directly against the depth trend above: in the models they study, *deeper* layers show near-identical expert activation across semantically unrelated inputs. This post measures the opposite direction on a different model, and both can be true of their respective checkpoints. What neither establishes is *why* a token goes where it goes.
-{: .prompt-warning }
+It is tempting to look at that and say: **expert 17 is a code expert.** Its own block argues against that. It takes an even larger share of the *mathematics* passage, **102 of 824 slots (12.38%)**, so whatever expert 17 responds to, it is not code as such.
+
+#### Different routing is not expert specialization
+
+Code and English prose differ long before we get to abstract concepts. They use different tokens, punctuation, formatting and statistical patterns, and a router responding purely to those surface differences could produce exactly the kind of result we just saw.
+
+So this experiment supports the claim:
+
+> **The router sends different kinds of text through different mixtures of experts.**
+
+It does **not** establish the stronger claim:
+
+> **Individual experts have learned distinct skills such as "coding" or "mathematics".**
+
+That distinction matters because what "expert specialization" means is actively debated. Wang, Hayou and Nalisnick argue in [*The Myth of Expert Specialization in MoEs*](https://arxiv.org/abs/2604.09780) (2026) that much of what looks like specialization follows from the model's **representation space**. The router is a linear map over each token's hidden state, so two tokens get similar experts exactly when their hidden states are similar. If code and prose already sit in different regions of that space, the router will send them toward different experts. On that view, the router reveals distinctions the rest of the transformer has already learned, rather than creating a set of specialized experts on its own. Their paper names OLMoE's own specialization figure as an example of the kind of evidence it questions.
+
+Their results also complicate the depth story above. In the models they study, deeper layers show near-identical expert activation across semantically unrelated inputs, the opposite of what this experiment finds in OLMoE. Both can be true of their respective models and checkpoints.
+
+So the limits are worth stating plainly. We can observe where the router sends tokens, and we can show that routing depends strongly on the input. Observing a routing pattern is not the same as explaining why it exists, or proving what an expert has learned.
 
 ### 5. Two bills: memory and time {#two-bills}
 
@@ -489,17 +560,17 @@ Expert 17 takes 9.73% of code's routing slots against 0.13% of prose's, where an
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         422.5     1.00x
-  64                        930.1     2.20x
+  8                         433.5     1.00x
+  64                        947.0     2.18x
 
   expert FLOPs ratio (64/8)          8x
-  measured wall-clock ratio          2.20x
+  measured wall-clock ratio          2.18x
     below 8x because attention, norms and the LM head are unchanged
 ```
 
-Eight times the expert arithmetic costs 2.20× the wall clock, and zero extra bytes of weights.
+Eight times the expert arithmetic costs 2.18× the wall clock, and zero extra bytes of weights.
 
-It is 2.20× rather than 8× because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. So "active parameters" predicts the *trend* of speed, not a clean multiplier.
+It is 2.18× rather than 8× because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. So "active parameters" predicts the *trend* of speed, not a clean multiplier.
 
 Unlike every other number in this post, this one is a wall-clock measurement and it moves a little from run to run; the counts and ratios elsewhere do not. And the top-64 row is a measurement of **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes; it is a timing experiment, not a quality one.
 
@@ -707,7 +778,7 @@ The demo backpropagates one token through layer 0's MoE block and counts what re
 
 All 64 router rows receive gradient, exactly the router's eight chosen experts do and no others, and the formula agrees with autograd to within 1.5e-8 against gradient entries as large as 0.168. The loss in this check is $v \cdot y$ for a fixed random vector $v$, standing in for whatever the rest of the network would send back, so it depends on nothing outside this one block. **The router learns because the routing weights multiply, not because the selection itself is differentiable.**
 
-Specialization is emergent from that process. Nobody assigns expert 17 to code. It becomes whatever it becomes, because it happened to be picked slightly more often for certain inputs early on and improved at them, which made it get picked more. That is the same runaway dynamic [§8](#load-balance)'s auxiliary loss exists to keep from going too far.
+Specialization is emergent from that process. Nobody assigns expert 17 to code, or to mathematics. It becomes whatever it becomes, because it happened to be picked slightly more often for certain inputs early on and improved at them, which made it get picked more. That is the same runaway dynamic [§8](#load-balance)'s auxiliary loss exists to keep from going too far.
 
 Not every MoE is trained this way. An **upcycled** model, as [Setup](#why-this-model) described, starts from a finished dense model's FFN copied into every expert. That is much cheaper than starting over, since it inherits everything the dense model learned. The tradeoff shows up in [§4](#what-the-router-learns)'s measurement: upcycled models are reported to specialize noticeably less ([Muennighoff et al.](https://arxiv.org/abs/2409.02060) compare OLMoE against the upcycled Mixtral), which makes sense if every expert starts as a copy of the same function. OLMoE was trained sparse from scratch, which is part of why its routing is the one this post measures.
 
@@ -760,7 +831,7 @@ Half of that is right, which is what makes it dangerous.
 
 **1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident, **12.9 GiB** in bf16, because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
-**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.20×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
+**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.18×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
 
 **3. And say why the memory does not improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
