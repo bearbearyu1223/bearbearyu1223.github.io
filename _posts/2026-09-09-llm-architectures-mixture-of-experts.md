@@ -531,33 +531,116 @@ Expert 17 receives **109 of code's 1,120 slots (9.73%)** and **1 of prose's 752 
 
 It is tempting to look at that and say: **expert 17 is a code expert.** Its own block argues against that. It takes an even larger share of the *mathematics* passage, **102 of 824 slots (12.38%)**, so whatever expert 17 responds to, it is not code as such.
 
-#### Different routing is not expert specialization
+#### Different routing doesn't necessarily mean specialized experts
 
-Code and English prose differ long before we get to abstract concepts. They use different tokens, punctuation, formatting and statistical patterns, and a router responding purely to those surface differences could produce exactly the kind of result we just saw.
+The experiment above shows something real: **code, English prose, and mathematics take different routes through OLMoE.**
 
-So this experiment supports the claim:
+But does that mean we have found a "code expert," an "English expert," and a "math expert"?
 
-> **The router sends different kinds of text through different mixtures of experts.**
+Not necessarily.
 
-It does **not** establish the stronger claim:
+Imagine that Python code frequently gets sent to experts 3, 29, and 42, while English prose gets sent to experts 8, 21, and 55. From that observation, we know that **the router treats the two inputs differently**. But we still don't know what those experts actually do.
 
-> **Individual experts have learned distinct skills such as "coding" or "mathematics".**
+An expert might genuinely perform some computation that is especially useful for code. Or it might respond to patterns that simply occur more often in code: punctuation, indentation, particular token combinations, or some feature that doesn't have a neat human-readable name. The real expert 17 above is a warning about exactly this. It looked like a code expert until we checked mathematics, where it took an even larger share.
 
-Between those two claims sit three separate things, and the argument gets much clearer once they are kept apart:
+That gives us three different claims:
 
-1. **Different inputs get different routing.** This is what the measurements above show: code, prose and mathematics produce measurably different expert mixtures, and the gap widens with depth.
-2. **Different experts compute different transformations.** Plausible, and not shown here. A routing count says which experts ran. It says nothing about what they did to the token.
-3. **A particular expert holds a particular capability.** This is what "expert 17 is the code expert" would have to mean, and slot counts cannot establish it.
+1. **Different inputs get different routing.**
+   This is what our experiment shows. Code, prose, and mathematics produce measurably different mixtures of experts.
 
-Getting from the first to the third needs a different kind of evidence: an intervention. Switch expert 17 off and measure again. If the model gets worse at code and mathematics while its prose is untouched, that says something about what expert 17 does. If the loss barely moves, the routing pattern was real and the expert was replaceable. Counting slots cannot separate those two cases, because both produce the same counts.
+2. **Different experts do meaningfully different things.**
+   That's plausible, but our routing counts don't show it. We know which experts ran, not what each one contributed.
 
-That gap is why what "expert specialization" means is actively debated. Wang, Hayou and Nalisnick argue in [*The Myth of Expert Specialization in MoEs*](https://arxiv.org/abs/2604.09780) (2026) that much of what looks like specialization follows from the model's **representation space**. The router is a linear projection of each token's hidden state, so similarity in that space strongly constrains similarity in routing: their Proposition 1 bounds how far apart two tokens' router scores can be in terms of how far apart their hidden states are. The bound runs one way only. Tokens with similar hidden states must get similar experts, while tokens with different hidden states may get similar experts or different ones. So if code and prose already sit in different regions of that space, different routing follows, and it follows without any expert having learned a skill. On that view, observed routing differences largely reflect structure in the model's hidden states, rather than showing that the router has carved the model into clean, human-interpretable specialists. The paper lists OLMoE's own specialization figure (Figure 22 of [Muennighoff et al.](https://arxiv.org/abs/2409.02060)) among the evidence it questions, while granting that such figures are published for a practical reason rather than an interpretive one: to catch experts drifting into copies of one another during pre-training.
+3. **A particular expert has a recognizable skill.**
+   This is the strongest claim: "expert 17 is a coding expert." Our experiment definitely can't establish that.
 
-Work that does intervene exists, and it does not settle into a simple answer either. The same paper prunes all but the twelve most-used experts in the last layers of one model: the loss barely moves on prompt-only text, then moves a great deal once the model starts generating, so the experts that looked unnecessary were not. Other work goes after expert identity directly, such as the causal-effect method of Hu et al. ([*What Gets Activated*](https://arxiv.org/abs/2601.10159), 2026). Summarizing that line of work, Wang, Hayou and Nalisnick report a recurring pattern: a compact, domain-invariant core takes most of the routing mass in every domain, and what domain sensitivity there is sits in the peripheral experts. That is a third possibility, and it is neither of the two extremes.
+So how could we get stronger evidence?
 
-Their results also complicate the depth story above. In the models they study, deeper layers show near-identical expert activation across semantically unrelated inputs, the opposite of what this experiment finds in OLMoE. Their explanation is that token hidden states grow more correlated with depth, which leaves the router less to separate on. Two things let both results stand. Their models are larger and deeper than OLMoE's sixteen layers, so "deep" is not measuring the same thing; and their collapse is a **prefill** phenomenon that reverses during generation. Prefill is the single pass that reads the prompt, as opposed to decode, which produces one token at a time ([post 2 §6](/posts/llm-architectures-kv-cache/#prefill-vs-decode-the-whole-ballgame)).
+Instead of just **observing** expert 17, we could intervene. Turn it off and run the model again.
 
-So the limits are worth stating plainly. We can observe where the router sends tokens, and we can show that routing depends strongly on the input. What we measured is one prefill pass over fixed text with no generation, which is the same setting in which their collapse appears and then reverses. Observing a routing pattern is not the same as explaining why it exists, or proving what an expert has learned.
+If coding performance suddenly gets much worse while ordinary prose is mostly unaffected, that's evidence that expert 17 performs something particularly important for code. If almost nothing changes, perhaps other experts can easily replace it.
+
+**Counting where tokens go tells us about routing. Changing where they go and measuring what breaks tells us much more about function.**
+
+#### Why different text might route differently anyway
+
+There is another reason to be careful about interpreting our results.
+
+The router doesn't literally read a token and think:
+
+> "This is Python. Send it to the coding expert."
+
+By the time a token reaches an MoE layer, the transformer has already turned it into a **hidden state**: a long list of numbers representing what the model has learned about that token in its current context.
+
+One useful mental model is to imagine these hidden states as points on a giant map. Tokens represented similarly by the model tend to occupy nearby regions of this map.
+
+The router makes its decision from that hidden state.
+
+So suppose code and English prose already occupy different regions of the model's representation space. Even without cleanly specialized "code" and "English" experts, the router could naturally send them toward different experts.
+
+This is the argument Wang, Hayou and Nalisnick make in [*The Myth of Expert Specialization in MoEs*](https://arxiv.org/abs/2604.09780) (2026). They show it mathematically, and the reason is the router itself: it is the single linear map from [§2](#the-router) and nothing more. Their Proposition 1 makes the consequence precise: tokens with similar representations must receive similar routing scores.
+
+The reverse is not guaranteed. Two very different hidden states can still end up using similar experts.
+
+That changes how we should interpret plots of expert usage.
+
+A plot showing that code and prose activate different experts might look like a map of specialized skills. But it could instead be revealing something simpler: **the model already represents code and prose differently, and the router is responding to that difference.**
+
+In fact, the paper specifically points to OLMoE's own expert-specialization figure (Figure 22 of [Muennighoff et al.](https://arxiv.org/abs/2409.02060)) as an example of evidence that should be interpreted carefully.
+
+This doesn't mean experts *aren't* specialized. It means routing patterns alone aren't enough to prove that they are.
+
+#### What happens when researchers actually intervene?
+
+Researchers have also tried the stronger experiment: change the experts and see what happens.
+
+The results are more complicated than either "every expert has its own skill" or "experts are all interchangeable."
+
+For example, Wang, Hayou and Nalisnick prune away all but the twelve most-used experts in the last layers of one model. When the model is only processing the prompt, removing the final two layers' worth barely changes the loss. That might make the removed experts look unnecessary.
+
+But once the model starts generating new tokens, removing those experts hurts much more.
+
+So experts that looked unimportant from their activation patterns were actually useful under a different workload.
+
+Other work tries to measure the causal contribution of individual experts more directly. Hu et al., in [*What Gets Activated*](https://arxiv.org/abs/2601.10159) (2026), study this question using causal effects rather than routing frequency alone.
+
+One picture emerging from this line of research is more nuanced than the simple "one expert = one skill" story. A relatively small **core set of experts** may handle much of the traffic across many domains, while more specialized behavior appears in a surrounding set of less frequently used experts.
+
+So the architecture may look less like:
+
+> coding expert + math expert + French expert + reasoning expert
+
+and more like:
+
+> **shared general-purpose experts + some experts that become more important for particular kinds of inputs.**
+
+#### There's one more wrinkle: depth
+
+Our OLMoE experiment found that code, mathematics, and prose become **more differently routed in later layers**.
+
+Wang, Hayou and Nalisnick observe the opposite pattern in some of the models they study: unrelated prompts can converge toward nearly identical expert usage in deeper layers.
+
+That sounds contradictory, but the experiments aren't identical.
+
+Their models are larger and deeper than OLMoE's 16 layers, so "deep" doesn't necessarily mean the same thing. More importantly, they find that this convergence happens during **prefill** (the initial pass where the model reads the prompt) and can reverse once the model begins **decoding**, generating one new token at a time ([post 2 §6](/posts/llm-architectures-kv-cache/#prefill-vs-decode-the-whole-ballgame)).
+
+Our experiment only measures that first part: one prefill pass over fixed text. We don't generate any new tokens.
+
+That makes the disagreement interesting rather than something we need to explain away. Different models, layers, and phases of inference can produce different routing behavior.
+
+#### So what did we actually learn?
+
+We can confidently say:
+
+> **Code, mathematics, and English prose travel through OLMoE differently.**
+
+We can measure those differences, and we can see how they change across layers.
+
+What we **cannot** conclude from those measurements is that expert 17 "knows code" or expert 42 "knows mathematics."
+
+To make claims like that, we'd need to go beyond watching where tokens travel. We'd need to intervene on individual experts and measure what actually changes in the model's behavior.
+
+**Routing tells us where a token went. It doesn't, by itself, tell us what the expert knows.**
 
 ### 5. Two bills: memory and time {#two-bills}
 
