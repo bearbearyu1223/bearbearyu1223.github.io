@@ -110,8 +110,8 @@ A **mixture-of-experts** layer replaces one FFN with many smaller ones, called *
 - **The router costs almost nothing.** One matrix per layer, 64 rows each 2,048 wide, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE does not renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
 - **The router does specialize, and it can be measured.** Two halves of the *same* passage route differently by 0.216; the three pairs of different text average 0.554, **2.56×** that noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
-- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.18×** the elapsed time and zero extra bytes of weights ([§5](#two-bills)).
-- **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9** ([§6](#sparsity-and-batching)). That is why an MoE saves arithmetic without saving memory.
+- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.14×** the elapsed time and zero extra bytes of weights ([§5](#two-bills)).
+- **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9**, and **63.7** if the batch mixes domains the way a real one does ([§6](#sparsity-and-batching)). That is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
 - **Nothing keeps the experts equally busy on its own.** The busiest expert in layer 0 takes **5.71×** an even share, and four experts in the last layer go unused by the test passage ([§8](#load-balance)).
 - **Training updates every router row but only the chosen experts.** For one token, all 64 router rows get a gradient through the softmax, and only the 8 chosen experts do; a hand-derived formula matches autograd to 1.5e-8 ([§9](#how-its-trained)).
@@ -563,24 +563,32 @@ So the limits are worth stating plainly. We can observe where the router sends t
 
 "1B active, 7B total" describes two costs that behave completely differently, and confusing them is an easy practical mistake to make with these models.
 
-**Memory is billed on total parameters.** Every expert has to be resident, because the router decides at run time and any token might want any of them. There is no subset you could have left on disk. That is **12.89 GiB** in bf16 for a model whose name starts with "1B".
+**Memory is billed on total parameters.** Every expert has to be resident, because the router decides at run time and any token might want any of them. There is no subset you could have left on disk ([`two_bills`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  weights resident (bf16)            12.89 GiB
+    every expert must be in memory; the router picks at run time,
+    so there is no subset you could have left on disk.
+```
+
+That is **12.89 GiB** in bf16 for a model whose name starts with "1B".
 
 **Time is billed on active parameters**, and the cleanest way to show it is to change nothing but $k$. (The output below counts **FLOPs**, floating-point operations: the individual multiplies and adds a model performs, independent of how fast any particular chip gets through them. [Post 1](/posts/llm-architectures-attention-and-rope/#an-aside-what-a-flop-is-and-how-to-count-one) explains how to count them.) Same weights, same memory: route to all 64 experts instead of 8 and time the forward pass ([`two_bills`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         433.5     1.00x
-  64                        947.0     2.18x
+  8                         434.5     1.00x
+  64                        929.4     2.14x
 
   expert FLOPs ratio (64/8)          8x
-  measured wall-clock ratio          2.18x
+  measured wall-clock ratio          2.14x
     below 8x because attention, norms and the LM head are unchanged
 ```
 
-Eight times the expert arithmetic costs 2.18× the wall clock, and zero extra bytes of weights.
+Eight times the expert arithmetic costs 2.14× the wall clock, and zero extra bytes of weights.
 
-It is 2.18× rather than 8× because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. So "active parameters" predicts the *trend* of speed, not a clean multiplier.
+It is 2.14× rather than 8× because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. So "active parameters" predicts the *trend* of speed, not a clean multiplier.
 
 Unlike every other number in this post, this one is a wall-clock measurement and it moves a little from run to run; the counts and ratios elsewhere do not. And the top-64 row is a measurement of **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes; it is a timing experiment, not a quality one.
 
@@ -593,9 +601,11 @@ Of everything in this post, this is the result I found least obvious.
 
 Every claim so far has been about *one token*. One token uses 8 of 64 experts. But nothing is served one token at a time: you process a prompt of hundreds of tokens at once, and you batch requests from many users together. So the question that decides real cost is: how many *distinct* experts does a group of tokens need between them?
 
-Each token picks its own 8. If two tokens pick differently, the hardware has to touch the union of their choices. Counting that union over every window of a given size in a 356-token passage ([`batch_collapse`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+Each token picks its own 8. If two tokens pick differently, the hardware has to touch the union of their choices. Counting that union over every window of a given size in a 356-token passage of English prose ([`batch_collapse`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
+  passage                            356 tokens, English prose
+
   tokens together  experts needed  of 64  expert-slots used
   -----------------------------------------------------------
   1                           8.0    12%                  8
@@ -614,7 +624,32 @@ Each token picks its own 8. If two tokens pick differently, the hardware has to 
 
 Eight tokens already need half the experts. Two hundred and fifty-six need **60.9 of 64**, which is 95%.
 
-So the sparsity that makes an MoE cheap is a property of a *token*, and it evaporates the moment you process tokens together. At any realistic batch size, essentially every expert is needed by somebody, which is why all of them must be resident. The dotted line on the chart is the worst case, where no two tokens ever share an expert; it reaches all 64 by eight tokens. The measured curve sits below it because tokens do share experts, which is [§4](#what-the-router-learns)'s specialization showing up again, but it does not sit far enough below to change the conclusion.
+So the sparsity that makes an MoE cheap is a property of a *token*, and it evaporates the moment you process tokens together. The dotted line on the chart is the worst case, where no two tokens ever share an expert; it reaches all 64 by eight tokens. The measured curve sits below it because these tokens do share experts, but not far enough below to change the conclusion. At any realistic batch size essentially every expert is needed by somebody, so the residency [§5](#two-bills) described stops being a precaution against an unlucky token and becomes the ordinary case.
+
+#### One passage flatters the result {#batch-composition}
+
+That curve came from a single passage of English prose, and [§4](#what-the-router-learns) is reason enough to distrust it. If different kinds of text route differently, a batch that mixes them should need *more* of the experts, not fewer. Real batches mix them constantly: your prompt and a stranger's go through the same forward pass.
+
+So measure it instead of assuming it. Three passages are routed as separate requests and interleaved into one batch, once from three parts of the same prose and once from the prose, code and mathematics of §4. Both batches are assembled identically and take 94 tokens from each passage, so the domain mix is the only thing that differs ([`batch_composition`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+
+```text
+  tokens from each passage           94
+
+  tokens together  one domain  three domains  difference
+  --------------------------------------------------------
+  2                      14.1           14.7        +0.5
+  4                      22.4           23.7        +1.4
+  8                      32.4           34.9        +2.5
+  16                     42.2           46.6        +4.4
+  32                     49.9           55.3        +5.4
+  64                     55.5           60.2        +4.8
+  128                    59.0           62.3        +3.2
+  256                    61.5           63.7        +2.2
+```
+
+Mixing domains costs more experts at every size. The gap is widest at 32 tokens together, where three domains need **55.3 of 64** against one domain's 49.9, and by 256 tokens the mixed batch reaches **63.7 of 64**, which is 99.5%.
+
+That is worth saying plainly, because it runs the opposite way from the usual caveat about measuring on one text: the headline number above is *conservative*. A single passage understates how fast sparsity disappears, and §4's specialization is exactly why. The same routing differences that make the per-token saving real make the per-batch saving worse.
 
 That is what "1B active, 7B total" means in practice. **An MoE saves arithmetic, not memory.** Per token, 17% of the parameters multiply. Per batch, essentially 100% of them have to be in RAM and get read. That connects to [post 2](/posts/llm-architectures-kv-cache/)'s finding that generating a token is limited by memory bandwidth rather than arithmetic. For a single token an MoE reads only its eight experts, which is why it generates quickly; for a batch it reads nearly all of them, so at serving batch sizes the bandwidth saving mostly disappears.
 
@@ -649,6 +684,8 @@ The catch follows directly from [§6](#sparsity-and-batching). Routing is per to
 How much traffic that is depends entirely on how scattered the routing is, which is measurable from the routing indices alone ([`experts_across_gpus`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
+  passage                            356 tokens, English prose
+
   GPUs  experts each  GPUs per token  of all  tokens needing all
   ----------------------------------------------------------------
   2               32            1.99    100%                 99%
@@ -684,9 +721,12 @@ One more consequence of letting a learned component do the choosing: nothing mak
 
 There is a degenerate outcome sitting in this architecture. If the router slightly prefers a few experts early in training, those experts get more of the **gradient** (the signal that says which way to nudge each weight to reduce the error), so they improve faster, get preferred more strongly, and the rest starve. You would end up paying for 64 experts and effectively training a handful.
 
-Measuring the spread over 2848 routing slots per layer ([`load_balance`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)). The last column is the **coefficient of variation**, the standard deviation of expert usage divided by its mean: a scale-free measure of unevenness where 0 is perfectly even and around 1.0 means the spread between experts is about as large as the average usage itself.
+The last column below is the **coefficient of variation**, the standard deviation of expert usage divided by its mean: a scale-free measure of unevenness where 0 is perfectly even and around 1.0 means the spread between experts is about as large as the average usage itself. Measured over the same prose passage's 2,848 routing slots per layer ([`load_balance`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
+  passage                            356 tokens, English prose
+  routing slots per layer            2848
+
   layer  busiest  quietest  busiest vs even  coeff of var
   ---------------------------------------------------------
   0        8.92%     0.04%            5.71x          0.88
@@ -698,7 +738,7 @@ Measuring the spread over 2848 routing slots per layer ([`load_balance`](https:/
   experts never used (last layer)    4
 ```
 
-An even share would be 1.56%. The busiest expert in layer 0 takes 8.92%, which is 5.71× that, while the quietest takes 0.04% and four experts in the last layer are never used by this passage at all. (That count is passage-dependent: a broader sample would use more of them. It is a statement about this text, not a claim that four experts are dead weight.)
+An even share would be 1.56%. The busiest expert in layer 0 takes 8.92%, which is 5.71× that, while the quietest takes 0.04% and four experts in the last layer are never used by this passage at all. (That count is a property of this passage, not of the model: it is one domain, and [§6](#batch-composition) measured what happens when a batch stops being one domain. A broader sample uses more of them.)
 
 This is why MoE training carries **auxiliary losses**: extra penalty terms added to the training objective. OLMoE's objective has three terms ([Muennighoff et al.](https://arxiv.org/abs/2409.02060), §2):
 
@@ -841,7 +881,7 @@ Half of that is right, which is what makes it dangerous.
 
 **1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident, **12.9 GiB** in bf16, because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
-**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.18×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
+**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.14×** the wall clock, because attention and the LM head do not scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
 
 **3. And say why the memory does not improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
