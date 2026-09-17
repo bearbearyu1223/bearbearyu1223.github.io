@@ -110,7 +110,7 @@ A **mixture-of-experts** layer replaces one FFN with many smaller ones, called *
 - **The router costs almost nothing.** One matrix per layer, 64 rows each 2,048 wide, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE doesn't renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
 - **The router does specialize, and it can be measured.** Two halves of the *same* passage route differently by 0.216; the three pairs of different text average 0.554, **2.56×** that noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
-- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.14×** the elapsed time and zero extra bytes of weights ([§5](#two-bills)).
+- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.21×** the elapsed time and zero extra bytes of weights ([§5](#two-bills)).
 - **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9**, and **63.7** if the batch mixes domains the way a real one does ([§6](#sparsity-and-batching)). That is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
 - **Nothing keeps the experts equally busy on its own.** The busiest expert in layer 0 takes **5.71×** an even share, and four experts in the last layer go unused by the test passage ([§8](#load-balance)).
@@ -644,39 +644,67 @@ To make claims like that, we'd need to go beyond watching where tokens travel. W
 
 ### 5. Two bills: memory and time {#two-bills}
 
-"1B active, 7B total" describes two costs that behave completely differently, and confusing them is an easy practical mistake to make with these models.
+"1B active, 7B total" describes two costs that behave completely differently, and confusing them is an easy practical mistake to make with these models. Both bills come from numbers we already have, so this section is mostly arithmetic you can follow line by line.
 
-**Memory is billed on total parameters.** Every expert has to be resident, because the router decides at run time and any token might want any of them. There is no subset you could have left on disk ([`two_bills`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+**Memory is billed on total parameters.** Every expert has to be resident, because the router decides at run time and any token might want any of them. There's no subset you could have left on disk.
+
+Turning that into gigabytes takes two steps. Every parameter is stored in bfloat16, which is **2 bytes** each, so the model's bytes are its parameter count doubled. Then a **GiB** is $1{,}073{,}741{,}824$ bytes, which is $2^{30}$, so dividing by that gives the figure a memory budget is written in ([`two_bills`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
-  weights resident (bf16)            12.89 GiB
-    every expert must be in memory; the router picks at run time,
-    so there is no subset you could have left on disk.
+  Memory is billed on every parameter, run or not:
+
+  step                                    result
+  ------------------------------------------------------------
+  parameters in the model          6,919,161,856  parameters
+  x 2 bytes each (bfloat16)       13,838,323,712       bytes
+  / 1,073,741,824 bytes in a GiB           12.89         GiB
 ```
 
-That is **12.89 GiB** in bf16 for a model whose name starts with "1B".
+**12.89 GiB** for a model whose name starts with "1B". The parameter count on the first row is [§1](#where-the-parameters-actually-are)'s census, unchanged.
 
-**Time is billed on active parameters**, and the cleanest way to show it is to change nothing but $k$. (The output below counts **FLOPs**, floating-point operations: the individual multiplies and adds a model performs, independent of how fast any particular chip gets through them. [Post 1](/posts/llm-architectures-attention-and-rope/#an-aside-what-a-flop-is-and-how-to-count-one) explains how to count them.) Same weights, same memory: route to all 64 experts instead of 8 and time the forward pass ([`two_bills`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+**Time is billed on active parameters.** The way to see that is to leave everything else alone and change only $k$, the number of experts each token is routed to. Only the expert term moves when $k$ does, and it moves in proportion: one expert is 6,291,456 parameters, eight of them is eight times that, and all 64 is sixty-four times it. So going from $k = 8$ to $k = 64$ is exactly **8× the expert arithmetic**:
+
+```text
+  step                             result
+  -----------------------------------------------------
+  one expert                    6,291,456  parameters
+  x 8 chosen per token         50,331,648  parameters
+  x 64 if every expert ran    402,653,184  parameters
+  ratio of expert arithmetic           8x
+```
+
+That is the prediction. Now the measurement. Same weights, same memory, $k$ raised from 8 to 64, and the forward pass timed ([`two_bills`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         434.5     1.00x
-  64                        929.4     2.14x
+  8                         420.8     1.00x
+  64                        930.0     2.21x
 
-  expert FLOPs ratio (64/8)          8x
-  measured wall-clock ratio          2.14x
+  expert arithmetic ratio            8x
+  measured wall-clock ratio          2.21x
     below 8x because attention, norms and the LM head are unchanged
 ```
 
-Eight times the expert arithmetic costs 2.14× the wall clock, and zero extra bytes of weights.
+Eight times the expert arithmetic costs **2.21×** the wall clock, and zero extra bytes of weights.
 
-It is 2.14× rather than 8× because only the expert multiplies grew; attention, the norms and the LM head are unchanged, and on a 94-token forward pass those are a large share of the total. So "active parameters" predicts the *trend* of speed, not a clean multiplier.
+The gap between 8× and 2.21× is the whole point. Only the expert multiplies grew. Attention, the norms and the LM head did exactly as much work in both runs, and on a 94-token forward pass they're a large share of the total, so they dilute the part that octupled. That's why "active parameters" predicts the *trend* of speed and not a clean multiplier: the number is real, but what it scales is one term out of several.
 
-Unlike every other number in this post, this one is a wall-clock measurement and it moves a little from run to run; the counts and ratios elsewhere don't. And the top-64 row is a measurement of **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes; it's a timing experiment, not a quality one.
+Two warnings about that table. Unlike every other number in this post, these are wall-clock measurements and they move a little from run to run; the counts and ratios elsewhere don't. And the top-64 row measures **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes, so it's a timing experiment, not a quality one.
 
-> A 7B-total, 1B-active model is *not* a drop-in replacement for a 1B dense model: it needs about 5.9 times the memory (6.92B parameters resident against 1.18B active). It is also not equivalent to a 7B dense model, since it does a fraction of the arithmetic. It buys the quality that comes with more parameters at close to the speed that comes with fewer, and it pays for that in RAM.
-{: .prompt-tip }
+Put the two bills together and you get the practical warning. The model is not a drop-in replacement for either dense model its name suggests:
+
+```text
+  step                        result
+  ------------------------------------------------
+  resident parameters  6,919,161,856  parameters
+  active parameters    1,178,994,688  parameters
+  resident / active            5.87x
+    so it needs 5.9x the memory of a dense model
+    its active size, while doing a fraction of a 6.9B model's work
+```
+
+Against a **1B dense model** it needs about **5.9 times** the memory, which is the resident count divided by the active one. Against a **7B dense model** it does a fraction of the arithmetic, so it isn't that either. What it buys is the quality that comes with more parameters at close to the speed that comes with fewer, and it pays for that in RAM.
 
 ### 6. Sparsity does not survive a batch {#sparsity-and-batching}
 
@@ -964,7 +992,7 @@ Half of that is right, which is what makes it dangerous.
 
 **1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident, **12.9 GiB** in bf16, because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
-**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.14×** the wall clock, because attention and the LM head don't scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
+**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.21×** the wall clock, because attention and the LM head don't scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
 
 **3. And say why the memory doesn't improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
