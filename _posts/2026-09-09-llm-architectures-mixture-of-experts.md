@@ -110,7 +110,7 @@ A **mixture-of-experts** layer replaces one FFN with many smaller ones, called *
 - **The router costs almost nothing.** One matrix per layer, 64 rows each 2,048 wide, 2.10M parameters, **0.030%** of the model, deciding how the other 93% get spent ([§2](#the-router)).
 - **Routing is a softmax, a cut, and a weighted sum** (softmax turns raw scores into probabilities that add to 1), and OLMoE doesn't renormalize after the cut. The eight kept weights on the token walked through in [§3](#one-token-routed) sum to **0.4281**, not 1, so the router's confidence becomes a scale on the layer's output.
 - **The router does specialize, and it can be measured.** Two halves of the *same* passage route differently by 0.216; the three pairs of different text average 0.554, **2.56×** that noise floor, and the gap widens with depth ([§4](#what-the-router-learns)).
-- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.21×** the elapsed time and zero extra bytes of weights ([§5](#two-bills)).
+- **Active parameters predict time; total parameters predict memory.** Forcing all 64 experts on costs **2.12×** the elapsed time and zero extra bytes of weights ([§5](#two-bills)).
 - **Per-token sparsity is not batch sparsity.** One token needs 8 experts of 64. Two hundred and fifty-six tokens together need **60.9**, and **63.7** if the batch mixes domains the way a real one does ([§6](#sparsity-and-batching)). That is why an MoE saves arithmetic without saving memory.
 - **Splitting the experts across GPUs makes the router a network problem.** With 64 experts on 8 GPUs, one token's eight experts land on **5.54** different GPUs on average ([§7](#across-gpus)).
 - **Nothing keeps the experts equally busy on its own.** The busiest expert in layer 0 takes **5.71×** an even share, and four experts in the last layer go unused by the test passage ([§8](#load-balance)).
@@ -678,17 +678,17 @@ That is the prediction. Now the measurement. Same weights, same memory, $k$ rais
 ```text
   experts per token  forward (ms)  vs top-8
   -------------------------------------------
-  8                         420.8     1.00x
-  64                        930.0     2.21x
+  8                         439.7     1.00x
+  64                        932.2     2.12x
 
   expert arithmetic ratio            8x
-  measured wall-clock ratio          2.21x
+  measured wall-clock ratio          2.12x
     below 8x because attention, norms and the LM head are unchanged
 ```
 
-Eight times the expert arithmetic costs **2.21×** the wall clock, and zero extra bytes of weights.
+Eight times the expert arithmetic costs **2.12×** the wall clock, and zero extra bytes of weights.
 
-The gap between 8× and 2.21× is the whole point. Only the expert multiplies grew. Attention, the norms and the LM head did exactly as much work in both runs, and on a 94-token forward pass they're a large share of the total, so they dilute the part that octupled. That's why "active parameters" predicts the *trend* of speed and not a clean multiplier: the number is real, but what it scales is one term out of several.
+The gap between 8× and 2.12× is the whole point. Only the expert multiplies grew. Attention, the norms and the LM head did exactly as much work in both runs, and on a 94-token forward pass they're a large share of the total, so they dilute the part that octupled. That's why "active parameters" predicts the *trend* of speed and not a clean multiplier: the number is real, but what it scales is one term out of several.
 
 Two warnings about that table. Unlike every other number in this post, these are wall-clock measurements and they move a little from run to run; the counts and ratios elsewhere don't. And the top-64 row measures **cost only**. Because `norm_topk_prob` is false, routing to all 64 experts changes what the model computes, so it's a timing experiment, not a quality one.
 
@@ -712,7 +712,9 @@ Of everything in this post, this is the result I found least obvious.
 
 Every claim so far has been about *one token*. One token uses 8 of 64 experts. But nothing is served one token at a time: you process a prompt of hundreds of tokens at once, and you batch requests from many users together. So the question that decides real cost is: how many *distinct* experts does a group of tokens need between them?
 
-Each token picks its own 8. If two tokens pick differently, the hardware has to touch the union of their choices. Counting that union over every window of a given size in a 356-token passage of English prose ([`batch_collapse`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+Each token picks its own 8. If two tokens pick differently, the hardware has to touch the union of their choices.
+
+Measuring that takes one decision worth spelling out, because it's what makes the numbers below look odd at first. Cut the passage into consecutive blocks of the size you care about, two tokens at a time, then four, and so on, and count the distinct experts each block needs between them. Every layer routes independently, so each block yields 16 counts rather than one, and the table averages all of them. That's why a column headed "experts needed" holds 13.1: it's a mean over blocks and layers, not a count of any particular block. The "of 64" column is that mean as a share of the experts there are, and the last column is simply the block size times 8, the routing slots those tokens fill ([`batch_collapse`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   passage                            356 tokens, English prose
@@ -728,6 +730,9 @@ Each token picks its own 8. If two tokens pick differently, the hardware has to 
   64                         53.9    84%                512
   128                        58.0    91%               1024
   256                        60.9    95%               2048
+    'experts needed' is a mean over consecutive blocks of that size
+    and all 16 layers, so it is not a whole number.
+    'expert-slots used' is the block size x 8.
 ```
 
 ![Distinct experts required against tokens processed together: 8 for one token, 61 for 256](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/batch-collapse-light.png){: .light width="1000" height="550" }
@@ -792,7 +797,9 @@ There are two ways to split a transformer, and MoE makes the second one natural.
 
 The catch follows directly from [§6](#sparsity-and-batching). Routing is per token, and a token's eight experts are wherever the router says they are. If those eight live on five different GPUs, that token has to be sent to five GPUs and its results gathered back, at every layer and for every token. That exchange is the **all-to-all**, and it's one of the central engineering problems in serving MoE models.
 
-How much traffic that is depends entirely on how scattered the routing is, which is measurable from the routing indices alone ([`experts_across_gpus`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
+How much traffic that is depends entirely on how scattered the routing is, and that's measurable from the routing indices alone, without owning a single GPU.
+
+The arrangement is the simple one expert parallelism uses: deal the 64 experts out in contiguous blocks, so at four GPUs the first holds experts 0 to 15, the second 16 to 31, and so on. Then take one token at one layer, look at where its eight experts landed, and count the distinct GPUs among them. Averaging that over every token and all 16 layers gives the **GPUs per token** column. **Of all** is that average as a share of the GPUs there are, and **tokens needing all** is how often a token's eight experts reach every GPU in the machine ([`experts_across_gpus`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d05_moe.py)):
 
 ```text
   passage                            356 tokens, English prose
@@ -803,13 +810,17 @@ How much traffic that is depends entirely on how scattered the routing is, which
   4               16            3.67     92%                 68%
   8                8            5.54     69%                  0%
   16               4            6.84     43%                  0%
+    experts are dealt to GPUs in contiguous blocks, as expert
+    parallelism does. 'GPUs per token' counts the distinct GPUs one
+    token's 8 experts land on, averaged over every token and
+    all 16 layers; 'of all' is that as a share of the GPUs there are.
 ```
 
 Split across four GPUs, the average token needs **3.67 of them**, and **68%** of tokens need all four. At two GPUs, 99% of tokens need both; the router almost never keeps a token's work on one side.
 
 The number of GPUs a token needs climbs while the share falls. Going from 8 GPUs to 16 raises the GPUs a token must reach from 5.54 to 6.84, so each token's work is spread thinner and communicated wider. It can't exceed 8, because a token only picks 8 experts, which is why the "of all" column drops. This is [§6](#sparsity-and-batching)'s finding again, counted in GPUs: a token's choices are scattered, so nothing about them stays local.
 
-> **What this section does and does not measure.** The routing is real, measured on the actual model. The GPU assignment is arithmetic on top of it (experts dealt out in contiguous blocks), not a benchmark on a multi-GPU host, which isn't something a laptop can honestly produce. What it gives you is the quantity that *determines* the communication cost, rather than the cost itself, which depends on the serving stack and on **interconnect bandwidth**: how fast the links between GPUs can carry data, as distinct from how fast the GPUs compute.
+> **What this section does and does not measure.** The routing is real, measured on the actual model. The GPU assignment is arithmetic on top of it, not a benchmark on a multi-GPU host, which isn't something a laptop can honestly produce. What it gives you is the quantity that *determines* the communication cost, rather than the cost itself, which depends on the serving stack and on **interconnect bandwidth**: how fast the links between GPUs can carry data, as distinct from how fast the GPUs compute.
 {: .prompt-info }
 
 For scale, here is how OLMoE sits next to two models built the same way. These are published values rather than measurements of mine, from each model's configuration ([OLMoE](https://huggingface.co/allenai/OLMoE-1B-7B-0924/blob/main/config.json), [Qwen3-30B-A3B](https://huggingface.co/Qwen/Qwen3-30B-A3B/blob/main/config.json), [DeepSeek-V3](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json)) and, for the active counts, each model's name or report:
@@ -992,7 +1003,7 @@ Half of that is right, which is what makes it dangerous.
 
 **1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident, **12.9 GiB** in bf16, because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
-**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.21×** the wall clock, because attention and the LM head don't scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
+**2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.12×** the wall clock, because attention and the LM head don't scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
 
 **3. And say why the memory doesn't improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
