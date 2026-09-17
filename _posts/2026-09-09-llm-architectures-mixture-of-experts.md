@@ -1169,6 +1169,8 @@ Every one of the 16 layers is the same size, which the demo checks, so each role
   equals the checkpoint's count?     yes
 ```
 
+One row needs a note, because the layer table near the top of this appendix listed 8,192 parameters' worth of norms per layer and this one says 4,096. **Norms** here means the two layer norms only. `q_norm` and `k_norm` are RMSNorms too, but they belong to attention and are counted there, which is what the attention step table showed when it totalled 16,781,312 rather than the 16,777,216 of the four matrices alone.
+
 The roles sum to 6,919,161,856, which equals the checkpoint's own count. Each share in §1's census table is one role divided by that total; for the experts, $6{,}442{,}450{,}944 \div 6{,}919{,}161{,}856 = 93.1\%$.
 
 ### Appendix: all notation {#appendix-all-notation}
@@ -1182,7 +1184,7 @@ Every symbol this post uses, in one place. [Post 1's appendix](/posts/llm-archit
 | $$d_{model}$$ | the model's width, the length of one token's vector | 2048 |
 | $$W_r$$ | the **router** matrix, one per layer | 64 rows, each 2,048 wide |
 | $z$ | **router logits**: one raw score per expert, any real number | $(64,)$ |
-| $$p_e$$ | expert $e$'s logit after softmax; over all $E$ experts they sum to 1 | one per expert |
+| $$p_e$$ | expert $e$'s score turned into a probability by softmax; over all $E$ experts they sum to 1 | one per expert |
 | $\mathcal{K}$ | the set of experts that survive the top-k cut | 8 of 64 |
 | $$\text{FFN}_e$$ | expert $e$, an ordinary SwiGLU feed-forward network | 6.29M parameters |
 | total parameters | every weight in the model, all of which must be resident | 6.919B |
@@ -1200,7 +1202,10 @@ Every symbol this post uses, in one place. [Post 1's appendix](/posts/llm-archit
 | $$g_e$$ | how much the loss changes if expert $e$'s output grows, $$\frac{\partial \mathcal{L}}{\partial y} \cdot \mathrm{FFN}_e(x)$$ | one per chosen expert |
 | auxiliary loss | an extra training penalty that grows when routing is lopsided | coefficient 0.01 |
 | expert parallelism | splitting the *experts* across GPUs, rather than slicing every matrix | 64 experts over 2–16 GPUs |
+| tensor parallelism | the alternative: slicing every matrix, so each GPU holds a piece of all of them and sees every token | §7's contrast, not measured here |
 | all-to-all | the exchange that sends each token to whichever GPUs hold its experts, and gathers the results back | 5.54 GPUs per token at 8 |
+| all-reduce | tensor parallelism's exchange instead: each GPU sends its partial result to all the others and comes away with the total | twice a layer, once after attention and once after the FFN |
+| redundant experts | extra copies of the busiest experts, held so one GPU is not the bottleneck | 32 in DeepSeek-V3's prefill unit |
 | shared expert | an extra expert every token uses, on top of its top-k | none in OLMoE; 1 in DeepSeek-V3 |
 | noisy routing | random noise added to router scores during training, so it explores | not used in OLMoE |
 | expert capacity | a cap on how many tokens one expert accepts per batch; the overflow is dropped or passed through | a consequence of §8's imbalance |
