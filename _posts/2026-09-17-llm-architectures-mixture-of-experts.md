@@ -1,6 +1,6 @@
 ---
 title: "LLM Architecture Refresh [5]: Mixture-of-Experts, and Why Sparsity Doesn't Survive a Batch"
-date: 2026-09-09 09:00:00 -0700
+date: 2026-09-17 09:00:00 -0700
 categories: [LLM Architecture Refresh, Inference]
 tags: [mixture-of-experts, moe, routing, sparsity, olmoe, load-balancing, pytorch]
 description: >-
@@ -9,8 +9,6 @@ description: >-
   bill, and where per-token sparsity quietly disappears.
 math: true
 pin: true
-# Unpublished draft: delete this line to publish, and restore post 1's link to this post.
-published: false
 ---
 
 ## A model that mostly declines to run
@@ -47,8 +45,8 @@ The arithmetic is strange the first time you see it. The model in this post has 
 
 The whole architecture is on one page below, and every number on it is measured later in the post. Panel 1 is the whole model and panel 2 opens up one MoE layer. The grid of numbered boxes in panel 2 is that layer's **64 experts, one box per FFN**, and the eight filled boxes are the experts selected for one real token.
 
-![Mixture-of-experts end to end: the whole model, one MoE layer in detail, what is inside one expert, the key numbers, and what happens to a single token](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/moe-architecture-light.png){: .light width="1100" height="1372" }
-![Mixture-of-experts end to end: the whole model, one MoE layer in detail, what is inside one expert, the key numbers, and what happens to a single token](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/moe-architecture-dark.png){: .dark width="1100" height="1372" }
+![Mixture-of-experts end to end: the whole model, one MoE layer in detail, what is inside one expert, the key numbers, and what happens to a single token](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/moe-architecture-light.png){: .light width="1100" height="1372" }
+![Mixture-of-experts end to end: the whole model, one MoE layer in detail, what is inside one expert, the key numbers, and what happens to a single token](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/moe-architecture-dark.png){: .dark width="1100" height="1372" }
 
 The rest of this post is about how the model decides which eight to wake up, and what letting the other fifty-six sleep actually buys, and costs.
 
@@ -125,8 +123,8 @@ Start with the question [post 4](/posts/llm-architectures-quantization/) opened 
 
 For quantization the answer was "nearly all of it, a bit at a time." For mixture-of-experts the answer is that it touches one component, the FFN, and replaces it with sixty-four smaller ones.
 
-![A dense block beside an MoE block, row for row: the one FFN becomes a router, 64 experts with 8 selected for this token, and a weighted combination](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/moe-block-light.png){: .light width="1000" height="636" }
-![A dense block beside an MoE block, row for row: the one FFN becomes a router, 64 experts with 8 selected for this token, and a weighted combination](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/moe-block-dark.png){: .dark width="1000" height="636" }
+![A dense block beside an MoE block, row for row: the one FFN becomes a router, 64 experts with 8 selected for this token, and a weighted combination](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/moe-block-light.png){: .light width="1000" height="636" }
+![A dense block beside an MoE block, row for row: the one FFN becomes a router, 64 experts with 8 selected for this token, and a weighted combination](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/moe-block-dark.png){: .dark width="1000" height="636" }
 
 The two columns line up row for row, so the only difference is the feed-forward part: attention and the next block are unchanged, and the single FFN becomes a router, 64 experts and a weighted combination. The eight filled boxes are the experts this post's own demo routed the word `' harbour'` to in layer 0, so the picture and [§3](#one-token-routed)'s table are the same measurement.
 
@@ -150,8 +148,8 @@ Counting the parameters by role ([`where_the_parameters_are`](https://github.com
   active share                       17.0%
 ```
 
-![Where OLMoE-1B-7B's 6.9B parameters live: a single bar, 93.1% of it experts](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/weight-census-light.png){: .light width="1000" height="317" }
-![Where OLMoE-1B-7B's 6.9B parameters live: a single bar, 93.1% of it experts](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/weight-census-dark.png){: .dark width="1000" height="317" }
+![Where OLMoE-1B-7B's 6.9B parameters live: a single bar, 93.1% of it experts](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/weight-census-light.png){: .light width="1000" height="317" }
+![Where OLMoE-1B-7B's 6.9B parameters live: a single bar, 93.1% of it experts](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/weight-census-dark.png){: .dark width="1000" height="317" }
 
 Every number in that table is a **parameter count**: how many learned numbers the model stores. Each one comes from multiplying out the shapes of the model's weights, since a matrix of $R$ rows, each $W$ numbers wide, holds $R \times W$ parameters. [Appendix: counting every parameter](#appendix-counting-parameters) does that for every tensor in the checkpoint, from the query projection to the final norm, and checks the total against the checkpoint's own count. The number that matters here comes straight out of it: one expert holds 6,291,456 parameters, and 64 experts in each of 16 layers make 6,442,450,944 of them, the 93.1%.
 
@@ -288,8 +286,8 @@ $$z = W_r\,x \qquad p_e = \frac{e^{z_e}}{\sum_{j=1}^{64} e^{z_j}} \qquad \mathca
 
 The figure below follows one token, the word `' harbour'`, through one MoE layer in eight numbered steps. Each step's math is on the left, the data in the middle, and this token's real numbers on the right. Steps 2 to 7 are the formula above. Steps 1 and 8, the norm in front of the router and the add back into the residual stream after it, are written out in [the whole layer](#the-layer-formula) further down.
 
-![One token through one MoE layer in eight numbered steps: normalize, score all 64 experts, softmax, keep the top 8, run each chosen expert, weight each output, add the eight, add back into the residual stream](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/token-flow-light.png){: .light width="1000" height="1240" }
-![One token through one MoE layer in eight numbered steps: normalize, score all 64 experts, softmax, keep the top 8, run each chosen expert, weight each output, add the eight, add back into the residual stream](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/token-flow-dark.png){: .dark width="1000" height="1240" }
+![One token through one MoE layer in eight numbered steps: normalize, score all 64 experts, softmax, keep the top 8, run each chosen expert, weight each output, add the eight, add back into the residual stream](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/token-flow-light.png){: .light width="1000" height="1240" }
+![One token through one MoE layer in eight numbered steps: normalize, score all 64 experts, softmax, keep the top 8, run each chosen expert, weight each output, add the eight, add back into the residual stream](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/token-flow-dark.png){: .dark width="1000" height="1240" }
 
 In words: normalize the token's vector (1), score it against all 64 experts (2), turn the scores into probabilities (3), and keep the eight highest (4). Run those eight experts, each on the same vector (5), scale each output by its probability (6), and add the eight together (7). Finally, add that sum back into the residual stream (8). The other 56 experts never run for this token. The numbers in the figure are the ones in the table below.
 
@@ -392,8 +390,8 @@ Expert 41 has only the third-largest weight but makes the largest contribution, 
 
 The same thing in shapes, with the real numbers underneath:
 
-![The router as a pipeline of tensor shapes, and all 64 routing probabilities for one real token with the 8 that survive the cut](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/router-flow-light.png){: .light width="1000" height="640" }
-![The router as a pipeline of tensor shapes, and all 64 routing probabilities for one real token with the 8 that survive the cut](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/router-flow-dark.png){: .dark width="1000" height="640" }
+![The router as a pipeline of tensor shapes, and all 64 routing probabilities for one real token with the 8 that survive the cut](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/router-flow-light.png){: .light width="1000" height="640" }
+![The router as a pipeline of tensor shapes, and all 64 routing probabilities for one real token with the 8 that survive the cut](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/router-flow-dark.png){: .dark width="1000" height="640" }
 
 The lower panel shows where the missing 0.5719 went. Eight bars are tall, and the other fifty-six are each small but together larger than the eight. That is what a softmax over sixty-four options looks like when the model has a mild preference rather than a strong one.
 
@@ -509,8 +507,8 @@ At **layer 0**, different kinds of text are only **1.7×** farther apart than th
 
 So deeper in this model, routing becomes more consistent within a kind of text and more different across kinds. One possible interpretation is that early routing responds to surface features such as individual tokens, punctuation and formatting, while later layers route on richer representations of what the text is about. That is an interpretation, though, not something this experiment proves.
 
-![The same 64 experts used differently by different text, with two halves of one passage on top as the noise floor](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/specialization-light.png){: .light width="1000" height="382" }
-![The same 64 experts used differently by different text, with two halves of one passage on top as the noise floor](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/specialization-dark.png){: .dark width="1000" height="382" }
+![The same 64 experts used differently by different text, with two halves of one passage on top as the noise floor](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/specialization-light.png){: .light width="1000" height="382" }
+![The same 64 experts used differently by different text, with two halves of one passage on top as the noise floor](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/specialization-dark.png){: .dark width="1000" height="382" }
 
 The top two rows are the same prose passage split in half; the bottom two are code and mathematics. The comparison to make by eye is row 1 against row 2 (noise) versus row 1 against row 3 (signal).
 
@@ -735,8 +733,8 @@ Measuring that takes one decision worth spelling out, because it's what makes th
     'expert-slots used' is the block size x 8.
 ```
 
-![Distinct experts required against tokens processed together: 8 for one token, 61 for 256](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/batch-collapse-light.png){: .light width="1000" height="550" }
-![Distinct experts required against tokens processed together: 8 for one token, 61 for 256](/assets/picture/2026-09-09-llm-architectures-mixture-of-experts/batch-collapse-dark.png){: .dark width="1000" height="550" }
+![Distinct experts required against tokens processed together: 8 for one token, 61 for 256](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/batch-collapse-light.png){: .light width="1000" height="550" }
+![Distinct experts required against tokens processed together: 8 for one token, 61 for 256](/assets/picture/2026-09-17-llm-architectures-mixture-of-experts/batch-collapse-dark.png){: .dark width="1000" height="550" }
 
 Eight tokens already need half the experts. Two hundred and fifty-six need **60.9 of 64**, which is 95%.
 
