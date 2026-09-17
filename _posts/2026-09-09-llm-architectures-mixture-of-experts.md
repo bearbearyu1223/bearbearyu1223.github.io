@@ -929,6 +929,8 @@ The sums come out at 8 and 1, as the definitions require, and the hand computati
 
 Weighted by their coefficients, the two penalties add 0.0817 and 0.0116 to a cross-entropy of 2.7381, about 3% and 0.4%. That is small on purpose: the balancing term is there to stop a collapse, not to drive the model, and setting it too high would trade away prediction quality to make a histogram look tidy. Even with that penalty applied throughout training, the busiest expert still runs about five times as often as an even share. The auxiliary loss keeps the distribution from collapsing; it doesn't make it flat.
 
+What's left over stops being a training concern and becomes a hardware one, which is where [§7](#across-gpus) comes back. If the busiest expert runs five times as often as an even share, the GPU holding that expert does five times the work, and the whole batch waits for it. DeepSeek-V3's [report](https://arxiv.org/abs/2412.19437) (§3.4) describes the countermeasure: it serves **redundant experts**, extra copies of the busiest ones, so that each of the 32 GPUs in a prefill unit holds one spare on top of its eight, and it rearranges which experts sit where according to the load it actually observes in production. The balancing loss narrows the distribution during training. Whatever survives, the serving stack pays for.
+
 ### 9. How an MoE is trained, and where "mid-training" fits {#how-its-trained}
 
 Two different things often get talked about in the same breath here: mixture-of-experts is an **architecture**, while pre-training, mid-training and post-training are **stages in a model's life**. They are different dimensions, not alternatives. You can ask "is this model MoE?" and "what stage is it in?" independently.
