@@ -791,9 +791,24 @@ All 64 experts are called, which is this section's finding seen from the hardwar
 
 Everything so far assumed the model fits on one machine. OLMoE does, at 12.89 GiB. The models this architecture exists for don't: [DeepSeek-V3](https://arxiv.org/abs/2412.19437) has 671B parameters, over a terabyte of weights in bf16, so it has to be split across many GPUs.
 
-There are two ways to split a transformer, and MoE makes the second one natural.
+There are two ways to split a transformer across machines, and MoE makes the second one natural.
 
-**Tensor parallelism** cuts every matrix into pieces and gives each GPU a slice, so all GPUs work on every token. **Expert parallelism** cuts along the experts instead: GPU 0 gets experts 0–7, GPU 1 gets experts 8–15, and so on. Nobody has to slice a matrix, because the experts were already separate objects.
+**Tensor parallelism** cuts the matrices themselves. Take one weight matrix, slice it into as many pieces as you have GPUs, and give each GPU a piece. Every GPU then sees every token and multiplies it by the slice it holds, so each ends up with a *partial* result: a piece of the answer, correct as far as it goes but missing the contributions of every other slice. Those partials have to be added together before the layer can continue, and that sum is a collective operation called an **all-reduce**, in which every GPU sends its partial to all the others and comes away with the total. A transformer layer pays for one after attention and one after the FFN.
+
+**Expert parallelism** cuts along the experts instead, leaving every matrix whole. GPU 0 gets experts 0 to 7, GPU 1 gets experts 8 to 15, and so on. Nothing needs slicing, because the experts were already separate objects: no arithmetic in an MoE layer ever crosses from one expert to another, so the seam is already there in the model. What travels now is not partial results but the tokens themselves. A token has to be sent to each GPU holding one of its chosen experts, and the outputs sent back, which is the **all-to-all** exchange described above, twice per MoE layer.
+
+The difference that matters in practice is what decides the bill:
+
+| | tensor parallelism | expert parallelism |
+| --- | --- | --- |
+| what gets split | every matrix, along one dimension | the experts, each kept whole |
+| what moves between GPUs | partial results, all-reduced | tokens, all-to-all |
+| how much moves | fixed by the model's shape | decided by the router, per token |
+| is the load even? | yes, by construction | only if the router cooperates |
+
+Tensor parallelism is predictable. Its communication is the same on every batch, because it follows from the shape of the matrices and nothing else, and every GPU does an equal share of the arithmetic. Expert parallelism is contingent. Its communication depends on where the router happens to send things, which is what the table above measures, and its load depends on whether the experts are evenly popular, which [§8](#load-balance) shows they are not.
+
+In practice these aren't rival choices so much as tools for different parts of the same model, and a real deployment uses both at once. DeepSeek-V3's [report](https://arxiv.org/abs/2412.19437) (§3.4) describes serving it on 32 GPUs for prefill, with attention on 4-way tensor parallelism and the MoE layers on 32-way expert parallelism, and on 320 GPUs for decoding, where the MoE part is 320-way expert-parallel and each GPU holds a single expert. Attention has no expert seam to exploit, so it gets tensor parallelism; the MoE part has nothing else that splits so cleanly, so it gets expert parallelism. The report also notes that they keep **redundant experts**, extra copies of the busiest ones, rearranged between GPUs according to the load actually observed, which is §8's imbalance turning into a hardware countermeasure. During training they avoided tensor parallelism altogether, calling it costly.
 
 The catch follows directly from [§6](#sparsity-and-batching). Routing is per token, and a token's eight experts are wherever the router says they are. If those eight live on five different GPUs, that token has to be sent to five GPUs and its results gathered back, at every layer and for every token. That exchange is the **all-to-all**, and it's one of the central engineering problems in serving MoE models.
 
