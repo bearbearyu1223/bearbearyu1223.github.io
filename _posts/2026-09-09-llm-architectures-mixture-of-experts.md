@@ -1175,7 +1175,7 @@ The roles sum to 6,919,161,856, which equals the checkpoint's own count. Each sh
 
 ### Appendix: all notation {#appendix-all-notation}
 
-Every symbol this post uses, in one place. [Post 1's appendix](/posts/llm-architectures-attention-and-rope/#appendix-all-notation) covers attention's own notation, [post 2's](/posts/llm-architectures-kv-cache/#appendix-all-notation) the memory and serving terms, and [post 4's](/posts/llm-architectures-quantization/#appendix-all-notation) the quantization formats.
+The terms and symbols this post leans on, in one place; anything not listed is defined where it first appears. [Post 1's appendix](/posts/llm-architectures-attention-and-rope/#appendix-all-notation) covers attention's own notation, [post 2's](/posts/llm-architectures-kv-cache/#appendix-all-notation) the memory and serving terms, and [post 4's](/posts/llm-architectures-quantization/#appendix-all-notation) the quantization formats.
 
 | Symbol | Means | In this post's runs |
 | --- | --- | --- |
