@@ -967,7 +967,9 @@ The demo backpropagates one token through layer 0's MoE block and counts what re
 
 All 64 router rows receive gradient, exactly the router's eight chosen experts do and no others, and the formula agrees with autograd to within 1.5e-8 against gradient entries as large as 0.168. The loss in this check is $v \cdot y$ for a fixed random vector $v$, standing in for whatever the rest of the network would send back, so it depends on nothing outside this one block. **The router learns because the routing weights multiply, not because the selection itself is differentiable.**
 
-Specialization is emergent from that process. Nobody assigns expert 17 to code, or to mathematics. It becomes whatever it becomes, because it happened to be picked slightly more often for certain inputs early on and improved at them, which made it get picked more. That is the same runaway dynamic [§8](#load-balance)'s auxiliary loss exists to keep from going too far.
+Whatever specialization there is emerges from that process rather than from any instruction. Nobody assigns expert 17 to code, or to mathematics. The usual account is a rich-get-richer one: an expert that happened to be picked slightly more often for certain inputs early on got better at them, which made it get picked more often still.
+
+Two cautions about that story, both of which matter more after [§4](#what-the-router-learns). It's an account of a mechanism, not a measurement of one, and §4 gave the reason to hold it loosely: different routing can also follow from where the transformer already places these inputs in its representation space, with no expert having specialized at all. And it isn't the same claim as [§8](#load-balance)'s, though the two are easy to run together. That a few experts come to take more of the **traffic** is well attested, and is exactly what the balancing loss exists to limit. That the traffic they take is organized by **content** is the part still being argued about.
 
 Not every MoE is trained this way. An **upcycled** model, as [Setup](#why-this-model) described, starts from a finished dense model's FFN copied into every expert. That is much cheaper than starting over, since it inherits everything the dense model learned. The tradeoff shows up in [§4](#what-the-router-learns)'s measurement: upcycled models are reported to specialize noticeably less ([Muennighoff et al.](https://arxiv.org/abs/2409.02060) compare OLMoE against the upcycled Mixtral), which makes sense if every expert starts as a copy of the same function. OLMoE was trained sparse from scratch, which is part of why its routing is the one this post measures.
 
@@ -1018,11 +1020,11 @@ Half of that is right, which is what makes it dangerous.
 
 **A better answer comes in four moves.**
 
-**1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident, **12.9 GiB** in bf16, because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
+**1. Separate the two bills immediately.** Memory is billed on **total** parameters and compute on **active** ones. You need all 6.9B resident, **12.89 GiB** in bf16, because the router chooses at run time and any token can want any expert. Speed is the part that tracks the 1B figure.
 
 **2. Then refuse the "1B-dense speed" claim as stated.** Active parameters predict the trend, not a clean multiplier. Measured on the same weights with only $k$ changed, 8× the expert arithmetic produced **2.12×** the wall clock, because attention and the LM head don't scale with $k$. How close you get to 1B-dense speed depends on sequence length and batch size.
 
-**3. And say why the memory doesn't improve with batching.** One token needs 8 of 64 experts; 256 tokens together need **60.9**. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
+**3. And say why the memory doesn't improve with batching.** One token needs 8 of 64 experts; 256 tokens of a single passage together need **60.9**, and **63.7** once the batch mixes kinds of text, which is what a served batch does. Sparsity is per token, so at any serving batch size essentially every expert is live. If the interviewer's real question is "can I fit this on a smaller card," the answer is no, and the reason is that the union of what a batch needs is nearly everything.
 
 **4. And if they follow up with "so shard it across more GPUs".** That helps with capacity and hurts with communication. Splitting 64 experts over 8 GPUs leaves the average token needing **5.54** of them at every layer, so the all-to-all exchange grows as you spread out. Expert parallelism converts a memory problem into a bandwidth problem; it doesn't make the problem go away.
 
