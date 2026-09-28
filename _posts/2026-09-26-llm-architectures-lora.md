@@ -34,13 +34,15 @@ The other two belong to the optimizer, the rule that turns gradients into change
 
 So a full fine-tune holds four model-sized blocks of memory, the weights, the gradient and the two moments, before it stores a single activation from the forward pass. They're only the same size when every number is stored in the same precision, and this post keeps them all in fp32, 4 bytes each, so the rest of it calls them **four copies** of the model for short. [§1](#where-a-fine-tunes-cost-is) measures it: **7.36 GiB** for a model whose weights are 1.84 GiB. The usual large-scale setup, mixed precision, stores the weights and gradients in 2-byte bf16 but keeps the moments, and usually a master copy of the weights, in 4-byte fp32. That comes to about 16 bytes per parameter, eight times the bf16 weights rather than four.
 
-**LoRA attacks exactly that.** The name is short for *Low-Rank Adaptation*, from [Hu et al.](https://arxiv.org/abs/2106.09685) in 2021. It freezes every weight the model shipped with, so none of them need a gradient or a moment, and trains a small pair of new matrices beside each one. The trained pair is called an **adapter**. What you keep at the end is the adapter, and in this post's configuration that's **16.8 MiB** next to a 1.84 GiB model.
+**LoRA attacks exactly that.** The name stands for *Low-Rank Adaptation*, introduced by [Hu et al.](https://arxiv.org/abs/2106.09685) in 2021.
 
-Think of the frozen model as a printed map, and the adapter as a transparent overlay laid over it. The map is what it is, and no one is reprinting it. The overlay adds the route, and it's cheap to store, cheap to send to someone, and easy to swap for a different one. When you're certain you want one particular route forever, you can print the overlay into the map, after which there's no overlay left to carry and looking something up costs exactly what it always did.
+The idea is simple. Freeze every weight the model shipped with, so none of them need a gradient or either of AdamW's moments. Then, beside some of those weight matrices, add a small pair of new matrices and train only those. In this post that's the seven projection matrices in each of the model's 24 layers, 168 in all, and [§3](#where-the-adapters-go) says why those and not the rest. Together, the trained pairs are called an **adapter**. At the end, the adapter is all you keep: in this post's setup, **16.8 MiB** next to a 1.84 GiB model.
 
-The catch, and the subject of most of this post, is the sense in which the overlay is thin. It isn't thin because the changes it makes are small. It's thin because of a constraint on what kind of marks it's allowed to draw at all, and the practical question is whether the change you need happens to be drawable under that constraint.
+Think of the frozen model as a printed map, and the adapter as a transparent overlay on top of it. The overlay draws your route. It's cheap to store, cheap to share, and easy to swap for another. If you decide you want one route permanently, you can print the overlay onto the map. Then there's nothing extra to carry, and using the map costs exactly what it did before.
 
-That constraint is **rank**, and it's the one word you need before the rest of this makes sense.
+The catch, and the subject of most of this post, is what the overlay is allowed to draw. Its changes aren't necessarily small; they can be large. What's limited is their shape: the overlay can only draw certain kinds of marks. The practical question is whether the change you need is one of them.
+
+That limit is called **rank**, and it's the one idea you need for the rest of this post.
 
 ### What rank means, in one paragraph
 
