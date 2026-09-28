@@ -68,16 +68,26 @@ The catch, and the subject of most of this post, is what the overlay is allowed 
 
 That limit is called **rank**, and it's the one idea you need for the rest of this post.
 
-### What rank means, in one paragraph
+### What rank means
 
-A matrix is a grid of numbers, and its **rank** is how many genuinely independent directions of information it holds. A grid of 896 rows and 896 columns *could* hold 896 independent directions, and that's the most it could have. It might hold far fewer: if every row of a matrix is just some multiple of one single row, then however large the grid is, it carries one direction's worth of information, and its rank is 1. **Low rank means a big grid whose contents are simpler than its size suggests.**
+A matrix is a grid of numbers, so start with a small one:
 
-The useful thing is that a low-rank grid can be *built* out of two thin ones. Multiply a grid of 896 rows and 8 columns by a grid of 8 rows and 896 columns and you get a full 896 × 896 grid back, but one that can never have rank above 8, because the 8 in the middle is a bottleneck everything has to squeeze through. That product is what LoRA trains. It's the same shape as the weight it modifies, and [§2](#the-mechanism) shows it's **56× smaller** to store.
+$$
+\begin{pmatrix} 1 & 2 & 3 \\ 2 & 4 & 6 \\ 3 & 6 & 9 \end{pmatrix}
+$$
 
-So the adapter is not an approximation of the model. It's a *complete* change to the weights, drawn under a restriction on how complicated that change may be.
+It has nine numbers, but it isn't really holding nine pieces of information. Every row is just the first row times something: ×1, ×2, ×3. Once you know the row 1 2 3 and the multipliers 1, 2, 3, you can rebuild the whole grid. That's six numbers instead of nine.
 
-![One adapted matrix: the frozen weight on top, the two trainable matrices below it squeezing through a rank-8 bottleneck, the alpha/r scaling, and the sum of the two paths](/assets/picture/2026-09-26-llm-architectures-lora/lora-mechanism-light.png){: .light width="1000" height="521" }
-![One adapted matrix: the frozen weight on top, the two trainable matrices below it squeezing through a rank-8 bottleneck, the alpha/r scaling, and the sum of the two paths](/assets/picture/2026-09-26-llm-architectures-lora/lora-mechanism-dark.png){: .dark width="1000" height="521" }
+That's what **rank** measures: how many independent rows a grid really has, once you set aside the ones you can build by adding up multiples of the others. This grid has rank 1.
+
+Notice how we rebuilt it: a column (the multipliers) times a row. A thin piece times a thin piece gives a full grid. The general rule is that if you multiply a tall, thin grid by a short, wide one, the result is full-sized, but its rank can't exceed the width the two pieces share, because everything has to squeeze through that narrow middle. The figure's middle row shows it with two columns times two rows. The result has three rows, but the third is the first two added together, so its rank is 2.
+
+![What rank means: a 3 by 3 grid rebuilt as a column times a row, a rank-2 grid whose third row is the sum of the first two, and LoRA's 896 by 8 times 8 by 896 product](/assets/picture/2026-09-26-llm-architectures-lora/rank-explained-light.png){: .light width="1000" height="807" }
+![What rank means: a 3 by 3 grid rebuilt as a column times a row, a rank-2 grid whose third row is the sum of the first two, and LoRA's 896 by 8 times 8 by 896 product](/assets/picture/2026-09-26-llm-architectures-lora/rank-explained-dark.png){: .dark width="1000" height="807" }
+
+Now scale up. Take `q_proj`, one of the weight matrices in this post's model: 896 × 896, about 800,000 numbers. LoRA adds two thin matrices beside it, one 896 × 8 and one 8 × 896, and trains only those. Their product is a full 896 × 896 change to the weight, but it can have rank at most 8, and the two thin pieces take 56× less storage than the full grid ([§2](#the-mechanism) counts it).
+
+So the adapter isn't a blurry or partial copy of the model. It's a change to every entry of the full weight matrix, restricted to rank 8. That also makes it an approximation of something else: the change a full fine-tune would have made, which is free to use any rank. Whether the restriction matters depends on whether the change you need is simple enough to fit, and [§6](#why-low-rank-works) measures how far a real full fine-tune's change is from fitting.
 
 The rest of the post asks what that restriction costs. It turns out to depend almost entirely on what you're trying to teach the model, and [§5](#what-rank-buys) measures two tasks that answer the question in opposite directions.
 
@@ -185,6 +195,9 @@ $$y = W x + \frac{\alpha}{r}\,B\,A\,x$$
 Read it right to left. The token's vector $x$ goes two ways. Down the frozen path it meets $W$ and produces exactly what the base model would have produced. Down the trainable path it meets $A$ first, which squeezes 896 numbers down to 8, then $B$, which expands those 8 back out to 896. The two results are added, and the sum is what the next layer sees.
 
 **The bottleneck is the idea.** Everything the adapter can ever do to this matrix has to pass through those 8 numbers in the middle. That's what makes $BA$ a rank-8 matrix no matter how its entries are trained, and it's what makes the adapter small.
+
+![One adapted matrix: the frozen weight W on top; below, A narrows 896 numbers down to 8 and B widens them back to 896, scaled by alpha over r, and the two paths are added](/assets/picture/2026-09-26-llm-architectures-lora/lora-mechanism-light.png){: .light width="1000" height="624" }
+![One adapted matrix: the frozen weight W on top; below, A narrows 896 numbers down to 8 and B widens them back to 896, scaled by alpha over r, and the two paths are added](/assets/picture/2026-09-26-llm-architectures-lora/lora-mechanism-dark.png){: .dark width="1000" height="624" }
 
 Three details decide whether an implementation is right, and the demo checks each ([`the_mechanism`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
 
