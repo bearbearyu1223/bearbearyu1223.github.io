@@ -24,6 +24,30 @@ Not one of them changed a single weight. They changed how the weights are stored
 
 The obvious way to do it is to keep training every parameter, which is called a **full fine-tune**. It works, and its bill is worse than it looks. The model isn't the expensive part.
 
+### The short version {#the-short-version}
+
+Fine-tuning means continuing to train a model that has already been trained, on data you care about. Done the obvious way it's expensive, and not mainly because of the model's size: training keeps three more numbers for every weight. For this post's 494-million-parameter model, a full fine-tune in fp32 holds **7.36 GiB** for weights that take 1.84 GiB ([§1](#where-a-fine-tunes-cost-is)).
+
+LoRA avoids most of that by never changing the original weights. It freezes them, and beside 168 of the model's weight matrices it trains a small pair of new matrices whose product is added to the frozen one. The pair is held to a low **rank**, which in plain terms means it can only change a matrix along a few independent directions, and that limit is what makes it small. The rest of the post measures what the limit saves and what it costs.
+
+Three findings are about cost:
+
+- **The adapter is 0.89% of the model**: 4,399,104 parameters, **16.8 MiB** ([§3](#where-the-adapters-go)).
+- **But training memory falls 3.9×, not 112×.** The gradients and optimizer state go away; the frozen weights don't, and in fp32 they cap the saving at 4× ([§4](#what-training-costs)).
+- **And a step gets about three times faster, not a hundred.** The backward pass still carries the gradient through every frozen weight, and most of the time saved is the optimizer's ([§4](#what-training-costs)).
+
+Three are about what rank buys:
+
+- **It depends on the task.** A date-reformatting rule is learned perfectly at **rank 1**, and rank 32 adds nothing. On 64 memorized facts, every rank gets 37 to 40 right across three seeds, and rank shows up in the loss instead, which falls about 390× from rank 1 to rank 16 ([§5](#what-rank-buys)).
+- **Where the adapters go matters too.** On attention alone at rank 8 they fell well short; on the MLP alone they did as well as on all seven kinds of matrix ([§5](#where-adapters-pay)).
+- **A full fine-tune's change is not low-rank.** Across all 168 matrices, 90% of it needs 10 to 280 directions, never 8 or fewer. It is far more concentrated than the weights it changes, though, and a rank-8 change that solves the task exists anyway ([§6](#why-low-rank-works)).
+
+And three are about living with it:
+
+- **On these tasks LoRA didn't forget less.** At the learning rate each needs, a rank-8 adapter and a full fine-tune disturbed unrelated text about equally. Forgetting grew with rank, and a full fine-tune at LoRA's learning rate wrecked it ([§6](#what-it-forgot)).
+- **Merging is exact enough to be free.** Folding the adapter into the weights moves the largest logit by 2.6e-06 of its size and doesn't change the predicted token. Kept separate, it costs 1.16× to 1.21× a merged forward pass ([§7](#merging)).
+- **Fifty fine-tunes cost 92.0 GiB; fifty adapters over one base cost 2.66 GiB**, **34.6× less**. One batch can serve several adapters at once, for about a fifth more compute per forward pass ([§8](#fifty-finetunes)).
+
 ### The thing that makes fine-tuning expensive
 
 Training keeps three more numbers for every parameter, on top of the weight itself.
@@ -103,21 +127,6 @@ Skip to [the short version](#the-short-version) for the findings without the der
 10. [Sidebar: the probe](#sidebar-the-probe)
 
 Plus two appendices: [counting the adapter parameters](#appendix-counting-adapters), which derives §3's census matrix by matrix, and [all notation](#appendix-all-notation).
-
----
-
-### The short version {#the-short-version}
-
-A **LoRA adapter** freezes a trained weight matrix $W$ and trains a small pair of matrices beside it, adding $(\alpha/r)BA$ to whatever $W$ computes. The pair can only ever produce a change of **rank $r$**, which is what makes it small, and $B$ starts at zero, so the adapted model starts out identical to the base model.
-
-- **A fine-tune's cost is four copies of the model, not one.** Weights, gradient, and AdamW's two moments: 7.36 GiB in fp32 for a model whose weights are 1.84 GiB ([§1](#where-a-fine-tunes-cost-is)).
-- **The adapter is 0.89% of the model.** 4,399,104 parameters across 168 matrices, **16.8 MiB** against the model's 1.84 GiB ([§3](#where-the-adapters-go)).
-- **But training memory falls 3.9×, not 112×.** The gradient and the two moments go away; the frozen weights don't, and they're the largest single piece ([§4](#what-training-costs)).
-- **What rank buys depends entirely on the task.** A date-reformatting rule is learned perfectly at **rank 1**, and rank 32 adds nothing. On 64 memorized facts every rank gets 37 to 40 right across three seeds, and rank shows up in the loss instead, which falls about 390× from rank 1 to rank 16. Untrained, the model scores 0 of 40 on both ([§5](#what-rank-buys)).
-- **A full fine-tune's update is not low-rank.** Across all 168 adapted matrices, 90% of the change a full fine-tune made needs 10 to 280 directions, never 8 or fewer. What *is* true is that it's far more concentrated than the weight it modifies, and that a rank-8 change exists that solves the task anyway ([§6](#why-low-rank-works)).
-- **On these tasks LoRA didn't forget less.** At the learning rate each needs, a rank-8 adapter and a full fine-tune disturbed unrelated text about equally. Forgetting grew with rank, and a full fine-tune at LoRA's learning rate wrecked it ([§6](#what-it-forgot)).
-- **Merging is exact enough to be free.** Folding all 168 adapters into the weights moves the largest logit by 2.6e-06 of its size and doesn't change the predicted token ([§7](#merging)).
-- **Fifty fine-tunes cost 92.0 GiB; fifty adapters over one base cost 2.66 GiB**, which is **34.6× less**, and only while they stay unmerged. One batch can serve several adapters at once, at about a fifth more compute per forward pass ([§8](#fifty-finetunes)).
 
 ---
 
