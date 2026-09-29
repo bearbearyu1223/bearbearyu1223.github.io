@@ -274,6 +274,57 @@ That exclusion is a real choice rather than an oversight, and it's the same 27.6
 
 ### 4. What training actually costs {#what-training-costs}
 
+Before comparing costs, here's what training on `recall` actually involves, since every number in this section comes from it. The task is the 64 made-up facts from [Setup](#two-tasks), each a question with a one-word answer: `Q: Where is the amber anchor archive?` is answered `Sofia`.
+
+Each fact becomes one training example, the question and the answer joined into a single run of tokens. At every position the model does what it always does, predicting the next token, and training grades some of those predictions ([`the_training_run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
+
+```text
+  One recall example as the trainer builds it. The prompt is
+  'Q: Where is the amber anchor archive?\nA:'
+  and the answer is 'Sofia':
+
+  position            token  graded on predicting
+  -------------------------------------------------
+  0                     'Q'            not graded
+  1                     ':'            not graded
+  2                ' Where'            not graded
+  3                   ' is'            not graded
+  4                  ' the'            not graded
+  5                ' amber'            not graded
+  6               ' anchor'            not graded
+  7              ' archive'            not graded
+  8                   '?\n'            not graded
+  9                     'A'            not graded
+  10                    ':'            not graded
+  11                    ' '                   'S'
+  12                    'S'                  'of'
+  13                   'of'                  'ia'
+  14                   'ia'       '<|endoftext|>'
+  15        '<|endoftext|>'            not graded
+
+  4 of 16 positions are graded: the three that predict the
+  answer's pieces, and the one that predicts end-of-text, which is
+  what teaches the model to stop.
+```
+
+Only the answer is graded. Positions 0 to 10 still run through the model, because the answer needs them as context, but what they predict doesn't count: the point is to teach the model to answer the question, not to recite it. Notice that `Sofia` is three tokens, not one. The tokenizer splits words it hasn't seen often into pieces, and the model has to get all three right, then predict end-of-text so it stops.
+
+Each graded prediction is scored by the **loss**: the negative logarithm of the probability the model gave the correct token, averaged over the graded positions. A correct token given probability 1 scores 0, a coin flip (1 in 2) scores 0.69, and a 1-in-1,000 chance scores 6.9. Lower is better, and training is the business of pushing it down.
+
+One **step** takes 8 examples, runs them through the model, computes the loss, works backward to get a gradient for every trainable number, and has AdamW nudge each of them. Two hundred steps is this much data ([`the_training_run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py) again):
+
+```text
+  step               result
+  ---------------------------------------------------
+  examples per step       8         drawn at random
+  x 200 steps         1,600           examples seen
+  / 64 facts           25.0  times each, on average
+```
+
+The 8 are drawn at random with replacement, so some facts come up more than 25 times and some fewer. After the last step the model is scored by **exact match**: give it each question, let it pick its highest-scoring token at every position until it stops, and check that the answer is exactly right. It's scored on 40 of the 64 facts.
+
+Why `recall` and not `format`? The memory and time this section measures depend on *what's trainable*, not on what's being learned, so one task is enough, and `recall` is the one that asks more of an adapter ([§5](#what-rank-buys)).
+
 Now train the thing twice, on the same task, with the same data in the same order, and change only what's trainable. The task is `recall`, 200 steps, batch of 8 ([`what_training_costs`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
 
 ```text
@@ -290,7 +341,7 @@ Now train the thing twice, on the same task, with the same data in the same orde
   seconds per step                        0.67       0.21
 ```
 
-Both runs learn the task: 40 of 40 facts recalled exactly. The full fine-tune ends at a slightly lower loss, and both are far below where they started.
+Both runs learn the task: 40 of 40 facts recalled exactly. The loss says the same thing in more detail. At step 0 it's 6.93: on average, the untrained model gave a correct answer token about a 1-in-1,000 chance. By the end it's 0.0002 for the full fine-tune and 0.0013 for LoRA, an average above 99.8% for both. The full fine-tune ends slightly lower, and both are far below where they started.
 
 The memory rows are the ones to read carefully, because they're where the usual summary of LoRA goes wrong. **Both columns hold the weights.** A frozen parameter is still a parameter the forward pass has to multiply by, so it lives in memory either way, and the 1,884.6 MiB row is identical in both columns by construction. What LoRA removes is the *per-trainable-parameter* cost: the gradient and AdamW's two moments, 12 bytes each in fp32 ([`what_training_costs`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py) again):
 
