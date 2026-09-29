@@ -229,7 +229,14 @@ The last line is the scaling. $\alpha/r$ multiplies the update, and with $\alpha
 
 ### 3. Where the adapters go {#where-the-adapters-go}
 
-An adapter is attached to a matrix, so "using LoRA" means choosing *which* matrices. This post adapts all seven of the projections in each block: attention's four ($W_q$, $W_k$, $W_v$, $W_o$) and the MLP's three (`gate_proj`, `up_proj`, `down_proj`), in all 24 layers ([`where_the_adapters_go`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
+An adapter is attached to a matrix, so "using LoRA" means choosing *which* matrices. This post adapts all seven of the projections in each block: attention's four ($W_q$, $W_k$, $W_v$, $W_o$) and the MLP's three (`gate_proj`, `up_proj`, `down_proj`), in all 24 layers. The figure shows where that puts them in this model.
+
+![Where the adapters go in Qwen2.5-0.5B: the whole model on the left, one decoder layer opened up on the right with an adapter beside each of its seven projection matrices, and a to-scale strip of the model's parameters](/assets/picture/2026-09-26-llm-architectures-lora/adapter-placement-light.png){: .light width="1000" height="1060" }
+![Where the adapters go in Qwen2.5-0.5B: the whole model on the left, one decoder layer opened up on the right with an adapter beside each of its seven projection matrices, and a to-scale strip of the model's parameters](/assets/picture/2026-09-26-llm-architectures-lora/adapter-placement-dark.png){: .dark width="1000" height="1060" }
+
+On the left is the whole model, top to bottom: the embedding table turns token ids into vectors, 24 identical decoder layers transform them, and the output head turns the result into a score for every token in the vocabulary. The head *is* the embedding table, read the other way, which is what "tied" means here. On the right, one of those 24 layers is opened up. Each blue badge is an adapter, attached to one of the seven projection matrices and labelled with how many numbers it holds; attention's four go by their code names there, `q_proj` for $W_q$ and so on. Everything gray is frozen and gets no adapter: the two norms, the small bias vectors on `q_proj`, `k_proj` and `v_proj`, and the embedding table. Attention itself and the MLP's step that scales `up` by `gate` have no weights at all, so there's nothing there to adapt. The lines down the left edge carry each half's input around it and add it back afterwards, as in every transformer block [post 1](/posts/llm-architectures-attention-and-rope/) took apart. The strip at the bottom puts the whole thing to scale.
+
+The badge sizes come from the census ([`where_the_adapters_go`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
 
 ```text
   target     in x out  count    each  parameters
