@@ -514,7 +514,7 @@ The demo runs the same fine-tune at six ranks, on both [tasks](#two-tasks), with
   prose, which section 6 reads; lower is better.
 ```
 
-The `none` row is the control, and it's what makes the rest of the table readable: before training, the model gets **0 of 40** on both tasks. Everything below that row was bought.
+The `none` row is the control, and it's what makes the rest of the table readable: before training, the model gets **0 of 40** on both tasks. Everything below that row was bought. Its `recall` loss, 7.25, isn't the 6.93 [§4](#full-vs-lora) reported for step 0, though both describe the same untrained model. The `none` row's loss averages the first ten batches of training data, to match how the trained rows average their last ten steps, while 6.93 is the first of those ten batches alone; each batch draws a different eight facts, and some are harder to guess than others.
 
 ![What rank buys on two tasks: a rule learned perfectly at rank 1, and memorization whose loss keeps falling as rank grows](/assets/picture/2026-09-26-llm-architectures-lora/rank-sweep-light.png){: .light width="1000" height="419" }
 ![What rank buys on two tasks: a rule learned perfectly at rank 1, and memorization whose loss keeps falling as rank grows](/assets/picture/2026-09-26-llm-architectures-lora/rank-sweep-dark.png){: .dark width="1000" height="419" }
