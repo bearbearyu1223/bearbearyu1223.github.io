@@ -274,13 +274,19 @@ That exclusion is a real choice rather than an oversight, and it's the same 27.6
 
 ### 4. What training actually costs {#what-training-costs}
 
-Before comparing costs, here's what training on `recall` actually involves, since every number in this section comes from it. The task is the 64 made-up facts from [Setup](#two-tasks), each a question with a one-word answer: `Q: Where is the amber anchor archive?` is answered `Sofia`.
+Every number in this section comes from training on `recall`, so it's worth being clear about what that is before reading any of them.
 
-Each fact becomes one training example, the question and the answer joined into a single run of tokens. At every position the model does what it always does, predicting the next token, and training grades some of those predictions ([`the_training_run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
+**`recall` is the name of a task, not the recall metric.** If you've met *precision and recall* from classification, set that aside; this post never uses it. `recall` is the memorization task from [Setup](#two-tasks): 64 made-up facts, each a question with a one-word answer. `Q: Where is the amber anchor archive?` is answered `Sofia`, and nothing in the question hints at the city, so the only way to answer is to have stored it. The task is named for what the model has to do, recall a fact it was shown.
+
+**How it's scored: exact match.** After training, the model is given each question and writes an answer one token at a time, always taking the token it scores highest. It may write up to two tokens more than the answer needs, spaces and line breaks at either end are trimmed off, and the answer counts only if what's left is exactly `Sofia`. `Sof` is wrong, `Sofia, Bulgaria` is wrong, and a near miss earns nothing. The score is the number of questions answered exactly right, out of 40: the first 40 of the 64 facts. They're facts the model was trained on, deliberately. There's no rule connecting an archive to a city, so a fact it never saw would be a guess for any model, and the only thing worth testing is whether training stored what it was given. 40 of 40 means every answer came back letter for letter.
+
+**Why `recall`, and not `format`?** The memory and time this section measures depend on *what's trainable*, not on what's being learned, so one task is enough. `recall` is the harder of the two for an adapter: [§5](#what-rank-buys) shows a rank-1 adapter already masters `format`, while `recall`'s loss keeps falling as the adapter grows from rank 1 to rank 16, because 64 unrelated facts have to be stored somewhere. If the small adapter keeps up with a full fine-tune here, it isn't because the task was too easy to tell them apart.
+
+**What training does with one fact.** Each fact becomes one training example, the question and the answer joined into a single run of tokens. At every position the model does what it always does, predicting the next token, and training grades some of those predictions ([`the_training_run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
 
 ```text
   One recall example as the trainer builds it. The prompt is
-  'Q: Where is the amber anchor archive?\nA:'
+  'Q: Where is the amber anchor archive?\nA: '
   and the answer is 'Sofia':
 
   position            token  graded on predicting
@@ -307,9 +313,9 @@ Each fact becomes one training example, the question and the answer joined into 
   what teaches the model to stop.
 ```
 
-Only the answer is graded. Positions 0 to 10 still run through the model, because the answer needs them as context, but what they predict doesn't count: the point is to teach the model to answer the question, not to recite it. Notice that `Sofia` is three tokens, not one. The tokenizer splits words it hasn't seen often into pieces, and the model has to get all three right, then predict end-of-text so it stops.
+Only the answer is graded. Positions 0 to 10 still run through the model, because the answer needs them as context, but what they predict doesn't count: the point is to teach the model to answer the question, not to recite it. The prompt ends with a space after `A:`, and the tokenizer keeps that space as a token of its own (position 11), so the first graded prediction is the one made there. Notice that `Sofia` is three tokens, not one. The tokenizer splits words it hasn't seen often into pieces, and the model has to get all three right, then predict end-of-text so it stops.
 
-Each graded prediction is scored by the **loss**: the negative logarithm of the probability the model gave the correct token, averaged over the graded positions. A correct token given probability 1 scores 0, a coin flip (1 in 2) scores 0.69, and a 1-in-1,000 chance scores 6.9. Lower is better, and training is the business of pushing it down.
+**Loss: the score training steers by.** Exact match only says right or wrong, about a finished answer, so it can't tell training which way to nudge the weights. Training needs a score that improves a little with every small improvement, and that's the **loss**. For each graded position, take the probability the model gave the correct token and compute its negative logarithm, then average over all the graded positions. A correct token given probability 1 scores 0, a coin flip (1 in 2) scores 0.69, and a 1-in-1,000 chance scores 6.9. Lower is better, and training is the business of pushing it down. The tables below report both: the loss shows how sure the model became, and exact match shows whether it actually answers right.
 
 One **step** takes 8 examples, runs them through the model, computes the loss, works backward to get a gradient for every trainable number, and has AdamW nudge each of them. Two hundred steps is this much data ([`the_training_run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py) again):
 
@@ -321,9 +327,7 @@ One **step** takes 8 examples, runs them through the model, computes the loss, w
   / 64 facts           25.0  times each, on average
 ```
 
-The 8 are drawn at random with replacement, so some facts come up more than 25 times and some fewer. After the last step the model is scored by **exact match**: give it each question, let it pick its highest-scoring token at every position until it stops, and check that the answer is exactly right. It's scored on 40 of the 64 facts.
-
-Why `recall` and not `format`? The memory and time this section measures depend on *what's trainable*, not on what's being learned, so one task is enough, and `recall` is the one that asks more of an adapter ([§5](#what-rank-buys)).
+The 8 are drawn at random with replacement, so some facts come up more than 25 times and some fewer. After the last step, the model is scored by exact match as described above.
 
 Now train the thing twice, on the same task, with the same data in the same order, and change only what's trainable. The task is `recall`, 200 steps, batch of 8 ([`what_training_costs`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
 
@@ -339,6 +343,10 @@ Now train the thing twice, on the same task, with the same data in the same orde
   loss, mean of last 10 steps           0.0002     0.0013
   exact match                         40 of 40   40 of 40
   seconds per step                        0.67       0.21
+
+  Both columns hold the weights: a frozen parameter still has to be
+  in memory for the forward pass. Neither column counts the
+  activations the backward pass stores, which depend on batch size.
 ```
 
 Both runs learn the task: 40 of 40 facts recalled exactly. The loss says the same thing in more detail. At step 0 it's 6.93: on average, the untrained model gave a correct answer token about a 1-in-1,000 chance. By the end it's 0.0002 for the full fine-tune and 0.0013 for LoRA, an average above 99.8% for both. The full fine-tune ends slightly lower, and both are far below where they started.
@@ -364,12 +372,12 @@ The memory rows are the ones to read carefully, because they're where the usual 
 
 **112× fewer trainable parameters, but only 3.9× less memory.** That gap is the practical content of this section. If you read "LoRA trains 0.89% of the parameters" as "LoRA needs 0.89% of the memory", you'll size a machine wrong by a factor of thirty.
 
-And 3.9× is close to the best this comparison can ever give. [§1](#where-a-fine-tunes-cost-is) counted four copies of the model, all the same size. LoRA removes three of them almost entirely and cannot touch the fourth, because the forward pass needs the weights. **So in fp32, 4× is the ceiling**, whatever the rank, whatever the model. In mixed precision the ceiling is nearer 8×, since a full fine-tune holds about 16 bytes per parameter and a frozen bf16 weight holds 2. Measuring 3.9× means the adapters are already down in the noise; there is nothing left to win on this axis, and the next real saving has to come from making the weights themselves smaller, which is [post 7](#whats-next).
+And 3.9× is close to the best this comparison can ever give. [§1](#where-a-fine-tunes-cost-is) counted four copies of the model, all the same size. LoRA removes three of them almost entirely and cannot touch the fourth, because the forward pass needs the weights. Leaving aside activations (the in-between results the forward pass saves for the backward pass, which grow with the batch and which neither column counts), **4× is the ceiling in fp32**, whatever the rank, whatever the model. In mixed precision the ceiling is nearer 8×, since a full fine-tune holds about 16 bytes per parameter and a frozen bf16 weight holds 2. Measuring 3.9× means the adapters are already down in the noise; there is nothing left to win on this axis, and the next real saving has to come from making the weights themselves smaller, which is [post 7](#whats-next).
 
 ![Memory held while training, drawn to scale: the full fine-tune's four equal copies of the model against LoRA's one copy plus an adapter sliver too thin to see](/assets/picture/2026-09-26-llm-architectures-lora/training-memory-light.png){: .light width="1000" height="325" }
 ![Memory held while training, drawn to scale: the full fine-tune's four equal copies of the model against LoRA's one copy plus an adapter sliver too thin to see](/assets/picture/2026-09-26-llm-architectures-lora/training-memory-dark.png){: .dark width="1000" height="325" }
 
-The two runs also used different learning rates: `2e-4` for the adapters against `1e-5` for the full fine-tune. That isn't a thumb on the scale, it's a consequence, and the demo checks it by running the full fine-tune a second time at the adapters' rate ([`the_learning_rate`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
+The two runs also used different learning rates: `2e-4` for the adapters against `1e-5` for the full fine-tune. Each method got the rate it can use, which raises a fair question about whether the comparison is tilted, so the demo runs the full fine-tune a second time at the adapters' rate ([`the_learning_rate`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
 
 ```text
   full fine-tune, recall          lr 1e-05  lr 0.0002
@@ -382,17 +390,23 @@ The two runs also used different learning rates: `2e-4` for the adapters against
 
 The last two rows need a measure this post hasn't used yet. **Perplexity** is the one [post 4](/posts/llm-architectures-quantization/#perplexity-says-fine) judged quantization by: have the model predict every token of a fixed passage of ordinary prose, and ask how many tokens it is, on average, torn between. Lower is better. The passage is post 4's own, 550 tokens about harbours, photosynthesis and interest rates, so the untrained model's 20.87 is post 4's fp32 reference, and nothing in it looks like a date or a made-up archive. What happens to it is a measure of what a fine-tune did to everything it wasn't trying to change.
 
-At `1e-5` the full fine-tune learns all 40 facts, and the passage barely notices: 22.08. At `2e-4` it learns fewer of them, and the passage goes to 65,115: the model no longer predicts ordinary English. That run is also the least reproducible thing in this post. Three runs of the same program sent the passage to about 65 thousand, 3 million and 87 million, because a model knocked that far off course amplifies every rounding difference along the way. What never changed is that it ends up thousands of times worse than where it started, and learns the task less well while doing it. The adapter can take the twenty-times-larger step safely because what it's stepping on is a freshly initialized matrix beside a frozen model, not the model itself. Being able to move fast without breaking anything is part of what freezing buys.
+At `1e-5` the full fine-tune learns all 40 facts, and the passage barely notices: 22.08. At `2e-4` it learns fewer of them, and the passage goes to 65,115: the model no longer predicts ordinary English. That run is also the least reproducible thing in this post. Three runs of the same program sent the passage to about 65 thousand, 3 million and 87 million, because a model knocked that far off course amplifies every rounding difference along the way. What never changed is that it ends up thousands of times worse than where it started, and learns the task less well while doing it. The adapter takes the same twenty-times-larger step without that damage, because what it's stepping on is a pair of small new matrices beside a frozen model, not the model itself. It doesn't leave the model untouched, though: on this task the rank-8 adapter moved the passage slightly *more* than the full fine-tune did at its own rate, +7.9% against +5.8% ([§6](#what-it-forgot)). What freezing buys is that a large learning rate stops being dangerous.
 
 One number in the first table isn't the saving it appears to be. Seconds per step improve about three times, nowhere near 112×. Splitting one step into its three phases shows where the time goes ([`step_breakdown`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
 
 ```text
+  One training step, split into its three phases (ms, median of 10):
+
   phase             full fine-tune  LoRA r=8  full / LoRA
   ---------------------------------------------------------
   forward pass                  84        93         0.9x
   backward pass                186       113         1.6x
   optimizer update             406        16        25.9x
   one step                     676       221         3.1x
+
+  Wall clock, so the milliseconds move from run to run. The forward
+  pass is the same work in both columns; the backward pass is not,
+  because a frozen weight needs no gradient of its own computed.
 ```
 
 **The forward pass costs the same**, a little more for LoRA, which is the same model plus 168 small extra multiplies. **The backward pass is 1.6× cheaper, not 112×.** At every layer, backpropagation does two jobs: it passes the gradient down to the layer below, and it works out the gradient of that layer's own weights. A frozen weight skips the second job but not the first, because $A$ and $B$ down in layer 0 can only be reached by passing the gradient back through every layer above them. **The optimizer update is where the big ratio lives.** AdamW reads and rewrites four numbers for each of 494 million parameters on every step, and for 4.4 million it barely registers. Speed was never LoRA's main claim, and most of the speed-up it does deliver comes from the optimizer.
