@@ -1030,7 +1030,7 @@ What the question is really testing is whether "1B active, 7B total" is being re
 
 ### What's next {#whats-next}
 
-Post 6 is **LoRA**, and it moves this series from inference to training for the first time. Posts 2 through 4 changed how a finished model runs, and this one changed what gets built. LoRA changes how a model gets adapted: instead of updating all 6.9B parameters to teach a model a new task, it freezes them and trains a pair of much smaller matrices alongside. The questions there are what rank buys you, why the update can be low-rank at all when the weights it modifies aren't, and what it costs to serve fifty fine-tunes of the same base model at once. After [§6](#sparsity-and-batching), that should sound like a familiar kind of question.
+[Post 6](/posts/llm-architectures-lora/) is **LoRA**, and it moves this series from inference to training for the first time. Posts 2 through 4 changed how a finished model runs, and this one changed what gets built. LoRA changes how a model gets adapted: instead of updating all 6.9B parameters to teach a model a new task, it freezes them and trains a pair of much smaller matrices alongside. The questions there are what rank buys you, why the update can be low-rank at all when the weights it modifies aren't, and what it costs to serve fifty fine-tunes of the same base model at once. After [§6](#sparsity-and-batching), that should sound like a familiar kind of question.
 
 ### Appendix: counting every parameter {#appendix-counting-parameters}
 

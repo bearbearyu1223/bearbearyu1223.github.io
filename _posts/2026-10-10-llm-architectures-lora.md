@@ -1,6 +1,6 @@
 ---
 title: "LLM Architecture Refresh [6]: LoRA, and What Rank Actually Buys"
-date: 2026-09-26 09:00:00 -0700
+date: 2026-10-10 09:00:00 -0700
 categories: [LLM Architecture Refresh, Training]
 tags: [lora, fine-tuning, low-rank, peft, adapters, qwen, pytorch]
 description: >-
@@ -9,7 +9,6 @@ description: >-
   low-rank at all, and what it costs to serve fifty adaptations of one model.
 math: true
 pin: true
-published: false  # draft: publishing is a separate decision
 ---
 
 ## The first post that changes the weights
@@ -88,8 +87,8 @@ That's what **rank** measures: how many independent rows a grid really has, once
 
 Notice how we rebuilt it: a column (the multipliers) times a row. A thin piece times a thin piece gives a full grid. The general rule is that if you multiply a tall, thin grid by a short, wide one, the result is full-sized, but its rank can't exceed the width the two pieces share, because everything has to squeeze through that narrow middle. The figure's middle row shows it with two columns times two rows. The result has three rows, but the third is the first two added together, so its rank is 2.
 
-![What rank means: a 3 by 3 grid rebuilt as a column times a row, a rank-2 grid whose third row is the sum of the first two, and LoRA's 896 by 8 times 8 by 896 product](/assets/picture/2026-09-26-llm-architectures-lora/rank-explained-light.png){: .light width="1000" height="807" }
-![What rank means: a 3 by 3 grid rebuilt as a column times a row, a rank-2 grid whose third row is the sum of the first two, and LoRA's 896 by 8 times 8 by 896 product](/assets/picture/2026-09-26-llm-architectures-lora/rank-explained-dark.png){: .dark width="1000" height="807" }
+![What rank means: a 3 by 3 grid rebuilt as a column times a row, a rank-2 grid whose third row is the sum of the first two, and LoRA's 896 by 8 times 8 by 896 product](/assets/picture/2026-10-10-llm-architectures-lora/rank-explained-light.png){: .light width="1000" height="807" }
+![What rank means: a 3 by 3 grid rebuilt as a column times a row, a rank-2 grid whose third row is the sum of the first two, and LoRA's 896 by 8 times 8 by 896 product](/assets/picture/2026-10-10-llm-architectures-lora/rank-explained-dark.png){: .dark width="1000" height="807" }
 
 Now scale up. Take `q_proj`, one of the weight matrices in this post's model: 896 × 896, about 800,000 numbers. LoRA adds two thin matrices beside it, one 896 × 8 and one 8 × 896, and trains only those. Their product is a full 896 × 896 change to the weight, but it can have rank at most 8, and the two thin pieces take 56× less storage than the full grid ([§2](#the-mechanism) counts it). That smaller count is what saves you money, and it does so in two places. During training, only the thin pieces are trained, so they're the only numbers that need a gradient and two moments: the training bill from above shrinks with them. After training, they're all you keep: the adapter you save and share is those two thin pieces, not a new 896 × 896 grid. The full grid is never even built unless you choose to merge it ([§7](#merging)): the adapter multiplies the input by the short, wide piece first, down to 8 numbers, and then by the tall, thin one, back up to 896. That's the reverse of the order the pieces were listed in above, and of the figure's bottom row: a product of matrices acts on its input from right to left, so the piece written last is the one used first.
 
@@ -202,8 +201,8 @@ Read it right to left. The token's vector $x$ goes two ways. Down the frozen pat
 
 **The bottleneck is the idea.** Everything the adapter can ever do to this matrix has to pass through those 8 numbers in the middle. That's what makes $BA$ a rank-8 matrix no matter how its entries are trained, and it's what makes the adapter small.
 
-![One adapted matrix: the frozen weight W on top; below, A narrows 896 numbers down to 8 and B widens them back to 896, scaled by alpha over r, and the two paths are added](/assets/picture/2026-09-26-llm-architectures-lora/lora-mechanism-light.png){: .light width="1000" height="624" }
-![One adapted matrix: the frozen weight W on top; below, A narrows 896 numbers down to 8 and B widens them back to 896, scaled by alpha over r, and the two paths are added](/assets/picture/2026-09-26-llm-architectures-lora/lora-mechanism-dark.png){: .dark width="1000" height="624" }
+![One adapted matrix: the frozen weight W on top; below, A narrows 896 numbers down to 8 and B widens them back to 896, scaled by alpha over r, and the two paths are added](/assets/picture/2026-10-10-llm-architectures-lora/lora-mechanism-light.png){: .light width="1000" height="624" }
+![One adapted matrix: the frozen weight W on top; below, A narrows 896 numbers down to 8 and B widens them back to 896, scaled by alpha over r, and the two paths are added](/assets/picture/2026-10-10-llm-architectures-lora/lora-mechanism-dark.png){: .dark width="1000" height="624" }
 
 Three details decide whether an implementation is right, and the demo checks each ([`the_mechanism`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
 
@@ -237,8 +236,8 @@ The last line is the scaling. $\alpha/r$ multiplies the update, and with $\alpha
 
 An adapter is attached to a matrix, so "using LoRA" means choosing *which* matrices. This post adapts all seven of the projections in each block: attention's four ($W_q$, $W_k$, $W_v$, $W_o$) and the MLP's three (`gate_proj`, `up_proj`, `down_proj`), in all 24 layers. The figure shows where that puts them in this model.
 
-![Where the adapters go in Qwen2.5-0.5B: the whole model on the left, one decoder layer opened up on the right with an adapter beside each of its seven projection matrices, and a to-scale strip of the model's parameters](/assets/picture/2026-09-26-llm-architectures-lora/adapter-placement-light.png){: .light width="1000" height="1060" }
-![Where the adapters go in Qwen2.5-0.5B: the whole model on the left, one decoder layer opened up on the right with an adapter beside each of its seven projection matrices, and a to-scale strip of the model's parameters](/assets/picture/2026-09-26-llm-architectures-lora/adapter-placement-dark.png){: .dark width="1000" height="1060" }
+![Where the adapters go in Qwen2.5-0.5B: the whole model on the left, one decoder layer opened up on the right with an adapter beside each of its seven projection matrices, and a to-scale strip of the model's parameters](/assets/picture/2026-10-10-llm-architectures-lora/adapter-placement-light.png){: .light width="1000" height="1060" }
+![Where the adapters go in Qwen2.5-0.5B: the whole model on the left, one decoder layer opened up on the right with an adapter beside each of its seven projection matrices, and a to-scale strip of the model's parameters](/assets/picture/2026-10-10-llm-architectures-lora/adapter-placement-dark.png){: .dark width="1000" height="1060" }
 
 On the left is the whole model, top to bottom: the embedding table turns token ids into vectors, 24 identical decoder layers transform them, a final norm rescales the result, and the output head turns it into a score for every token in the vocabulary.
 
@@ -425,8 +424,8 @@ Under the deliberately simple accounting this demo uses, with every number in fp
   ratio of totals                                  3.9x        less
 ```
 
-![Why 112x fewer trainable parameters becomes only 3.9x less model-state memory: drawn to scale, the full fine-tune's weights, gradient and two AdamW moments as four equal blocks, against LoRA's frozen weights plus an adapter sliver too thin to see](/assets/picture/2026-09-26-llm-architectures-lora/training-memory-light.png){: .light width="1000" height="325" }
-![Why 112x fewer trainable parameters becomes only 3.9x less model-state memory: drawn to scale, the full fine-tune's weights, gradient and two AdamW moments as four equal blocks, against LoRA's frozen weights plus an adapter sliver too thin to see](/assets/picture/2026-09-26-llm-architectures-lora/training-memory-dark.png){: .dark width="1000" height="325" }
+![Why 112x fewer trainable parameters becomes only 3.9x less model-state memory: drawn to scale, the full fine-tune's weights, gradient and two AdamW moments as four equal blocks, against LoRA's frozen weights plus an adapter sliver too thin to see](/assets/picture/2026-10-10-llm-architectures-lora/training-memory-light.png){: .light width="1000" height="325" }
+![Why 112x fewer trainable parameters becomes only 3.9x less model-state memory: drawn to scale, the full fine-tune's weights, gradient and two AdamW moments as four equal blocks, against LoRA's frozen weights plus an adapter sliver too thin to see](/assets/picture/2026-10-10-llm-architectures-lora/training-memory-dark.png){: .dark width="1000" height="325" }
 
 The figure draws those rows to scale, and the factor of four is visible in it. The full fine-tune's bar is four equal blocks; LoRA keeps only the first, plus the adapters' own weights and training state, too thin to see. Activations, temporary tensors and framework overhead are left out of both bars, so neither is a peak GPU-memory measurement.
 
@@ -522,8 +521,8 @@ The demo runs the same fine-tune at six ranks, on both [tasks](#two-tasks), with
 
 The `none` row is the control, and it's what makes the rest of the table readable: before training, the model gets **0 of 40** on both tasks. Everything below that row was bought. Its `recall` loss, 7.25, isn't the 6.93 [§4](#full-vs-lora) reported for step 0, though both describe the same untrained model. The `none` row's loss averages the first ten batches of training data, to match how the trained rows average their last ten steps, while 6.93 is the first of those ten batches alone; each batch draws a different eight facts, and some are harder to guess than others.
 
-![What rank buys on two tasks: a rule learned perfectly at rank 1, and memorization whose loss falls with rank until 200 steps runs out at rank 32](/assets/picture/2026-09-26-llm-architectures-lora/rank-sweep-light.png){: .light width="1000" height="419" }
-![What rank buys on two tasks: a rule learned perfectly at rank 1, and memorization whose loss falls with rank until 200 steps runs out at rank 32](/assets/picture/2026-09-26-llm-architectures-lora/rank-sweep-dark.png){: .dark width="1000" height="419" }
+![What rank buys on two tasks: a rule learned perfectly at rank 1, and memorization whose loss falls with rank until 200 steps runs out at rank 32](/assets/picture/2026-10-10-llm-architectures-lora/rank-sweep-light.png){: .light width="1000" height="419" }
+![What rank buys on two tasks: a rule learned perfectly at rank 1, and memorization whose loss falls with rank until 200 steps runs out at rank 32](/assets/picture/2026-10-10-llm-architectures-lora/rank-sweep-dark.png){: .dark width="1000" height="419" }
 
 **The two tasks answer the question differently, and that's the finding.**
 
@@ -589,8 +588,8 @@ So measure it. Fine-tune the model **fully**, with no low-rank constraint anywhe
 
 Reading singular values needs one more idea on top of [§2](#the-mechanism)'s. Square every entry of a matrix and add them up, and you get a single number for how big the matrix is overall, which this post calls its **energy**. The useful fact is that the energy splits exactly across the matrix's independent directions: square each singular value, and those squares add up to the same total. So each direction carries a measurable share of the matrix, its singular value squared over the sum of all of them. A matrix whose energy sits almost entirely in a few directions behaves like a low-rank matrix even when its other singular values aren't exactly zero, because those directions carry almost nothing.
 
-![Energy worked through on two 4 by 4 matrices: one spreads its energy over all four directions and needs all of them for 90%, the other puts 49 of its 60 in one direction and needs two](/assets/picture/2026-09-26-llm-architectures-lora/energy-explained-light.png){: .light width="1000" height="673" }
-![Energy worked through on two 4 by 4 matrices: one spreads its energy over all four directions and needs all of them for 90%, the other puts 49 of its 60 in one direction and needs two](/assets/picture/2026-09-26-llm-architectures-lora/energy-explained-dark.png){: .dark width="1000" height="673" }
+![Energy worked through on two 4 by 4 matrices: one spreads its energy over all four directions and needs all of them for 90%, the other puts 49 of its 60 in one direction and needs two](/assets/picture/2026-10-10-llm-architectures-lora/energy-explained-light.png){: .light width="1000" height="673" }
+![Energy worked through on two 4 by 4 matrices: one spreads its energy over all four directions and needs all of them for 90%, the other puts 49 of its 60 in one direction and needs two](/assets/picture/2026-10-10-llm-architectures-lora/energy-explained-dark.png){: .dark width="1000" height="673" }
 
 The figure works this through on two small matrices with four directions each. Square the entries of either one and add them up, then do the same with its singular values, and you get the same total both ways: 68 for matrix 1, 60 for matrix 2. From there it makes the two measurements this section is about to make on the real model. The first is how many directions it takes to reach 90% of the energy. The second is how much the largest direction holds on its own, which is also how much the best possible rank-1 version of the matrix would keep. Matrix 1 spreads its energy fairly evenly and needs all four directions. Matrix 2 puts 49 of its 60 in one direction and passes 90% with two. You can't tell which is which from the entries, either: matrix 1 is mostly zeros, and matrix 2 has none. (The figure numbers them rather than lettering them so they aren't confused with LoRA's $A$ and $B$.)
 
@@ -627,8 +626,8 @@ The second is the figure's "largest direction alone" widened to the largest 8, b
   down_proj      5.4%           49.8%           54.5%
 ```
 
-![Cumulative energy against directions used: the fine-tune's change concentrates in far fewer directions than the weight it modifies](/assets/picture/2026-09-26-llm-architectures-lora/update-spectrum-light.png){: .light width="1000" height="554" }
-![Cumulative energy against directions used: the fine-tune's change concentrates in far fewer directions than the weight it modifies](/assets/picture/2026-09-26-llm-architectures-lora/update-spectrum-dark.png){: .dark width="1000" height="554" }
+![Cumulative energy against directions used: the fine-tune's change concentrates in far fewer directions than the weight it modifies](/assets/picture/2026-10-10-llm-architectures-lora/update-spectrum-light.png){: .light width="1000" height="554" }
+![Cumulative energy against directions used: the fine-tune's change concentrates in far fewer directions than the weight it modifies](/assets/picture/2026-10-10-llm-architectures-lora/update-spectrum-dark.png){: .dark width="1000" height="554" }
 
 Take `q_proj` in layer 12, the matrix [§2](#the-mechanism) walked through. It has 896 directions available to it.
 
@@ -785,8 +784,8 @@ So a real multi-tenant server keeps every adapter unmerged and pays the extra mu
 
 Here's what that looks like at one matrix, for the batch the demo runs below:
 
-![One mixed batch at one adapted matrix: both rows go through the shared W in one multiply, and each row takes its own A and B from the adapters held on the GPU](/assets/picture/2026-09-26-llm-architectures-lora/mixed-batch-light.png){: .light width="1000" height="558" }
-![One mixed batch at one adapted matrix: both rows go through the shared W in one multiply, and each row takes its own A and B from the adapters held on the GPU](/assets/picture/2026-09-26-llm-architectures-lora/mixed-batch-dark.png){: .dark width="1000" height="558" }
+![One mixed batch at one adapted matrix: both rows go through the shared W in one multiply, and each row takes its own A and B from the adapters held on the GPU](/assets/picture/2026-10-10-llm-architectures-lora/mixed-batch-light.png){: .light width="1000" height="558" }
+![One mixed batch at one adapted matrix: both rows go through the shared W in one multiply, and each row takes its own A and B from the adapters held on the GPU](/assets/picture/2026-10-10-llm-architectures-lora/mixed-batch-dark.png){: .dark width="1000" height="558" }
 
 Both rows go through $W$ together, so the expensive multiply is still one multiply, however many customers share the batch. Only the thin path is split up. Each row carries a route naming its adapter, and at every adapted matrix the route picks that adapter's $A$ and $B$ out of the ones held on the GPU. The two results are scaled by $\alpha/r$ and added back row by row, exactly as in [§2](#the-mechanism).
 
@@ -824,8 +823,8 @@ The demo routes two rows by hand, on one machine. A real server has three more q
 
 **The cap on adapters per batch is where requests wait.** `--max-loras` defaults to 1, so out of the box each batch serves one adapter, and a request for a different one waits for a later step. Raising it lets one batch mix more customers, which is what the demo above does with two. A higher `--max-lora-rank`, the largest rank the server will accept, costs more memory, so it's set to the largest rank you actually serve.
 
-![One server scheduling a batch: requests for adapters A and B go into this step's batch, while a request for C waits because the batch already has two adapters and a request for D waits while its adapter loads from disk](/assets/picture/2026-09-26-llm-architectures-lora/adapter-tiers-light.png){: .light width="1000" height="551" }
-![One server scheduling a batch: requests for adapters A and B go into this step's batch, while a request for C waits because the batch already has two adapters and a request for D waits while its adapter loads from disk](/assets/picture/2026-09-26-llm-architectures-lora/adapter-tiers-dark.png){: .dark width="1000" height="551" }
+![One server scheduling a batch: requests for adapters A and B go into this step's batch, while a request for C waits because the batch already has two adapters and a request for D waits while its adapter loads from disk](/assets/picture/2026-10-10-llm-architectures-lora/adapter-tiers-light.png){: .light width="1000" height="551" }
+![One server scheduling a batch: requests for adapters A and B go into this step's batch, while a request for C waits because the batch already has two adapters and a request for D waits while its adapter loads from disk](/assets/picture/2026-10-10-llm-architectures-lora/adapter-tiers-dark.png){: .dark width="1000" height="551" }
 
 The figure follows six requests through one step, with the cap set to 2. Requests 1, 2, 4 and 6 name adapters A and B, which are already on the GPU, so they run together in one batch. Request 3 names C, which is sitting in CPU memory and could be copied over, but the batch already uses its two adapters, so it waits a step. Request 5 names D, which is only on disk, so it waits for the load. Neither wait has anything to do with how fast the forward pass is.
 
@@ -837,8 +836,8 @@ The first splits one copy of the model across GPUs. When the base model is too b
 
 The second runs many copies of the server. To serve 1,000 requests at once you run several copies, each on its own GPU or group of GPUs, and a router spreads the requests across them. With adapters, the router should send a request to a copy that already holds the adapter it names, so that copy doesn't load it again and its batches mix fewer adapters, while still steering around a copy that's overloaded. [Ray Serve's model multiplexing](https://docs.ray.io/en/latest/serve/model-multiplexing.html) works this way: the request names its model in a header, it goes to a copy that has that model loaded, or to another copy that loads it if those are overloaded, and each copy drops its least recently used model when it's full. So popular adapters end up loaded on every copy, and rarely used ones get loaded wherever they're asked for.
 
-![Many GPUs: a router sends each request to one of three copies of the server, preferring a copy that already holds the request's adapter; each copy is split across two GPUs, each holding half of every weight matrix and the matching half of every loaded adapter](/assets/picture/2026-09-26-llm-architectures-lora/serving-cluster-light.png){: .light width="1000" height="581" }
-![Many GPUs: a router sends each request to one of three copies of the server, preferring a copy that already holds the request's adapter; each copy is split across two GPUs, each holding half of every weight matrix and the matching half of every loaded adapter](/assets/picture/2026-09-26-llm-architectures-lora/serving-cluster-dark.png){: .dark width="1000" height="581" }
+![Many GPUs: a router sends each request to one of three copies of the server, preferring a copy that already holds the request's adapter; each copy is split across two GPUs, each holding half of every weight matrix and the matching half of every loaded adapter](/assets/picture/2026-10-10-llm-architectures-lora/serving-cluster-light.png){: .light width="1000" height="581" }
+![Many GPUs: a router sends each request to one of three copies of the server, preferring a copy that already holds the request's adapter; each copy is split across two GPUs, each holding half of every weight matrix and the matching half of every loaded adapter](/assets/picture/2026-10-10-llm-architectures-lora/serving-cluster-dark.png){: .dark width="1000" height="581" }
 
 Read the figure from the top. A request for adapter D arrives, and the router sends it to copy 2, the one copy that has D loaded. Inside copy 2 the work is split across two GPUs, each holding half of every weight matrix and the matching half of every adapter it has loaded, and the two swap partial results at every layer. Adapter A is loaded on every copy because it's popular; D, E, F and G each live on one. To handle more traffic you add copies, and the router's job is to keep each copy's batches to the adapters it already holds.
 
