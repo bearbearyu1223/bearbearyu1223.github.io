@@ -26,27 +26,33 @@ The obvious way to do it is to keep training every parameter, which is called a 
 
 ### The short version {#the-short-version}
 
-Fine-tuning means continuing to train a model that has already been trained, on data you care about. Done the obvious way it's expensive, and not mainly because of the model's size: training keeps three more numbers for every weight. For this post's 494-million-parameter model, a full fine-tune in fp32 holds **7.36 GiB** for weights that take 1.84 GiB ([§1](#where-a-fine-tunes-cost-is)).
+I fine-tuned the same 494-million-parameter model two ways. The usual way trains every weight, which is called a **full fine-tune**. **LoRA** freezes every weight and trains a small add-on instead, an **adapter**: beside 168 of the model's weight matrices it adds a pair of thin matrices whose product is added to the frozen one. How many independent directions that product can change a matrix along is its **rank**, and it's the one dial LoRA has. Here's what each way cost and what it bought, every number measured by the demo:
 
-LoRA avoids most of that by never changing the original weights. It freezes them, and beside 168 of the model's weight matrices it trains a small pair of new matrices whose product is added to the frozen one. The pair is held to a low **rank**, which in plain terms means it can only change a matrix along a few independent directions, and that limit is what makes it small. The rest of the post measures what the limit saves and what it costs.
+| | full fine-tune | LoRA, rank 8 |
+|---|---|---|
+| parameters trained | 494,032,768 | 4,399,104, **0.89%** of the model |
+| training memory: weights, gradients, optimizer | 7,538.3 MiB | 1,951.7 MiB, **3.9× less** |
+| time per training step | 0.66 s | 0.21 s, **about 3× faster** |
+| facts recalled after training | 40 of 40 | 40 of 40 |
+| what you keep afterwards | a whole model, 1.84 GiB | the adapter, **16.8 MiB** |
+| fifty fine-tunes held for serving | 92.0 GiB | 2.66 GiB, **34.6× less** |
 
-Three findings are about cost:
+**What it costs.** LoRA trains 112× fewer parameters, but training memory falls only 3.9×, because the frozen weights still have to sit in memory for every forward pass; under this post's fp32 accounting the saving can't reach 4× ([§4](#where-memory-goes)). A step gets about three times faster, not a hundred times, because the gradient still has to travel back through every frozen weight to reach the adapters ([§4](#where-the-time-goes)). The memory figures count weights, gradients and optimizer state only; activations come on top.
 
-- **The adapter is 0.89% of the model**: 4,399,104 parameters, **16.8 MiB** ([§3](#where-the-adapters-go)).
-- **But model-state memory falls 3.9×, not 112×.** The gradients and optimizer state go away; the frozen weights don't, and under this post's fp32 accounting that keeps the saving below 4×. That counts weights, gradients and optimizer moments only; activations come on top ([§4](#where-memory-goes)).
-- **And a step gets about three times faster, not a hundred.** The backward pass still carries the gradient through every frozen weight, and most of the time saved is the optimizer's ([§4](#where-the-time-goes)).
+**What rank buys.** It depends on what you're teaching.
 
-Three are about what rank buys:
+- **A rule needs almost no rank.** Rewriting dates as `1944-04-22` is learned perfectly at **rank 1**, by 549,888 parameters, 0.11% of the model, and 32 times the rank adds nothing ([§5](#what-rank-buys)).
+- **Facts need room.** On 64 arbitrary facts every rank gets 37 to 40 right, but the loss falls about **390×** from rank 1 to rank 16 as the adapter gets room to hold them firmly ([§5](#what-rank-buys)).
+- **Where the adapter goes matters as much as its size.** On attention alone at rank 8 it fell well short; on the MLP alone it did as well as on all seven kinds of matrix ([§5](#where-adapters-pay)).
+- **The usual explanation doesn't hold.** LoRA is often said to work because a fine-tune's change is low-rank anyway. Measured, a full fine-tune's change needs **10 to 281 directions** to carry 90% of it, in every one of the 168 matrices, never 8 or fewer. What is true is narrower: the change is far more concentrated than the weights, and a rank-8 change that solves the task exists anyway ([§6](#why-low-rank-works)).
 
-- **It depends on the task.** A date-reformatting rule is learned perfectly at **rank 1**, and rank 32 adds nothing. On 64 memorized facts, every rank gets 37 to 40 right across three seeds, and rank shows up in the loss instead, which falls about 390× from rank 1 to rank 16 ([§5](#what-rank-buys)).
-- **Where the adapters go matters too.** On attention alone at rank 8 they fell well short; on the MLP alone they did as well as on all seven kinds of matrix ([§5](#where-adapters-pay)).
-- **A full fine-tune's change is not low-rank.** Across all 168 matrices, 90% of it needs 10 to 280 directions, never 8 or fewer. It is far more concentrated than the weights it changes, though, and a rank-8 change that solves the task exists anyway ([§6](#why-low-rank-works)).
+**Living with it.**
 
-And three are about living with it:
+- **On these tasks LoRA didn't forget less.** At the learning rate each needs, the rank-8 adapter disturbed unrelated text about as much as the full fine-tune did, slightly more on one task, and forgetting grew with rank. A full fine-tune given LoRA's learning rate made that text thousands of times harder to predict ([§4](#learning-rates), [§6](#what-it-forgot)).
+- **Merging makes the adapter free at inference.** Folding it into the weights moves the largest logit by 2.6e-06 of its size and changes no predicted token. Kept separate, it costs 1.16× to 1.21× a merged forward pass ([§7](#merging)).
+- **Serving is where LoRA pays off most.** Fifty fine-tunes as whole models need more memory than an 80 GB GPU has; one base model with fifty adapters fits in 2.66 GiB. One batch can mix customers, each row using its own adapter, for about a fifth more time per pass, and a fleet of GPUs scales that by routing each request to a server that already holds its adapter ([§8](#fifty-finetunes)).
 
-- **On these tasks LoRA didn't forget less.** At the learning rate each needs, a rank-8 adapter disturbed unrelated text about as much as a full fine-tune did, and slightly more on one task. Forgetting grew with rank, and a full fine-tune at LoRA's learning rate wrecked it ([§6](#what-it-forgot)).
-- **Merging is exact enough to be free.** Folding the adapter into the weights moves the largest logit by 2.6e-06 of its size and doesn't change the predicted token. Kept separate, it costs 1.16× to 1.21× a merged forward pass ([§7](#merging)).
-- **Fifty fine-tunes cost 92.0 GiB; fifty adapters over one base cost 2.66 GiB**, **34.6× less**. One batch can serve several adapters at once, for about a fifth more time per forward pass ([§8](#fifty-finetunes)).
+Put together: LoRA's training savings are real but much smaller than its parameter count suggests, and its biggest win is what you keep and serve afterwards.
 
 ### The thing that makes fine-tuning expensive
 
@@ -382,7 +388,7 @@ The other difference, the learning rate, gets [its own check](#learning-rates) b
   loss at step 0                        6.9305     6.9305
   loss, mean of last 10 steps           0.0002     0.0013
   exact match                         40 of 40   40 of 40
-  seconds per step                        0.67       0.21
+  seconds per step                        0.66       0.21
 
   Both columns hold the base weights: a frozen parameter still has
   to be in memory for the forward pass. This counts model state
@@ -441,15 +447,15 @@ There's one wrinkle left. The two runs used different learning rates: `2e-4` for
 ```text
   full fine-tune, recall          lr 1e-05  lr 0.0002
   -----------------------------------------------------
-  loss, mean of last 10 steps       0.0002     0.1775
-  exact match                     40 of 40   38 of 40
-  perplexity on post 4's passage     22.08     65,115
-    vs untrained                     1.06x     3,120x
+  loss, mean of last 10 steps       0.0002     0.0429
+  exact match                     40 of 40   39 of 40
+  perplexity on post 4's passage     22.08  2,291,268
+    vs untrained                     1.06x   109,785x
 ```
 
 The last two rows use a measure this post hasn't needed yet. **Perplexity** is the one [post 4](/posts/llm-architectures-quantization/#perplexity-says-fine) judged quantization by: have the model predict every token of a fixed passage of ordinary prose, and ask how many tokens it is, on average, torn between. Lower is better. The passage is post 4's own, 550 tokens about harbours, photosynthesis and interest rates, so the base model's 20.87 is post 4's fp32 reference (the tables call the base model `untrained`, meaning before any fine-tuning), and nothing in it looks like a date or a made-up archive. Here it's a rough check on whether the model's original language-modeling behavior on that one passage survived fine-tuning. One passage can't measure general ability or knowledge, but it does show when a fine-tune has disturbed something it wasn't trying to change.
 
-The higher learning rate makes the full fine-tune worse on every row. At `1e-5` it gets all 40 facts exactly right and leaves the passage close to where it was: 22.08, 1.06× the base model's 20.87. At `2e-4` it does worse on its own task, 38 of 40, and the passage goes to 65,115, more than 3,000× the base model: it no longer predicts ordinary English. That run is also the least reproducible thing in this post. Three runs of the same program sent the passage to about 65 thousand, 3 million and 87 million, because a model knocked that far off course amplifies every rounding difference along the way. What never changed is that it ended up thousands of times worse than where it started, and learned the task less well while doing it.
+The higher learning rate makes the full fine-tune worse on every row. At `1e-5` it gets all 40 facts exactly right and leaves the passage close to where it was: 22.08, 1.06× the base model's 20.87. At `2e-4` it does worse on its own task, 39 of 40, and the passage goes to 2,291,268, about 110,000× the base model: it no longer predicts ordinary English. That run is also the least reproducible thing in this post. Four runs of the same program sent the passage to about 65 thousand, 2.3 million, 3 million and 87 million, because a model knocked that far off course amplifies every rounding difference along the way. What never changed is that it ended up thousands of times worse than where it started, and learned the task less well while doing it.
 
 So giving the full fine-tune LoRA's learning rate wouldn't make the comparison fairer; it would hand the full fine-tune a setting that's bad for it. This small control can't support a general claim about catastrophic forgetting, a model losing what it already knew. What it shows is narrower: the same learning rate behaves very differently when it moves 494 million parameters than when it moves 4.4 million adapter parameters beside a frozen model. The adapter took the twenty-times-larger step without that damage. It didn't leave the model untouched, though: on this task the rank-8 adapter moved the passage slightly *more* than the full fine-tune did at its own rate, +7.9% against +5.8% ([§6](#what-it-forgot)).
 
@@ -462,10 +468,10 @@ One number in the first table isn't the saving it appears to be. Seconds per ste
 
   phase             full fine-tune  LoRA r=8  full / LoRA
   ---------------------------------------------------------
-  forward pass                  84        93         0.9x
-  backward pass                182       111         1.6x
-  optimizer update             400        24        16.7x
-  one step                     666       228         2.9x
+  forward pass                  83        92         0.9x
+  backward pass                178       109         1.6x
+  optimizer update             383        30        12.8x
+  one step                     644       231         2.8x
 
   Wall clock, so the milliseconds move from run to run. The forward
   pass is the same work in both columns; the backward pass is not,
@@ -516,20 +522,20 @@ The demo runs the same fine-tune at six ranks, on both [tasks](#two-tasks), with
 
 The `none` row is the control, and it's what makes the rest of the table readable: before training, the model gets **0 of 40** on both tasks. Everything below that row was bought. Its `recall` loss, 7.25, isn't the 6.93 [§4](#full-vs-lora) reported for step 0, though both describe the same untrained model. The `none` row's loss averages the first ten batches of training data, to match how the trained rows average their last ten steps, while 6.93 is the first of those ten batches alone; each batch draws a different eight facts, and some are harder to guess than others.
 
-![What rank buys on two tasks: a rule learned perfectly at rank 1, and memorization whose loss keeps falling as rank grows](/assets/picture/2026-09-26-llm-architectures-lora/rank-sweep-light.png){: .light width="1000" height="419" }
-![What rank buys on two tasks: a rule learned perfectly at rank 1, and memorization whose loss keeps falling as rank grows](/assets/picture/2026-09-26-llm-architectures-lora/rank-sweep-dark.png){: .dark width="1000" height="419" }
+![What rank buys on two tasks: a rule learned perfectly at rank 1, and memorization whose loss falls with rank until 200 steps runs out at rank 32](/assets/picture/2026-09-26-llm-architectures-lora/rank-sweep-light.png){: .light width="1000" height="419" }
+![What rank buys on two tasks: a rule learned perfectly at rank 1, and memorization whose loss falls with rank until 200 steps runs out at rank 32](/assets/picture/2026-09-26-llm-architectures-lora/rank-sweep-dark.png){: .dark width="1000" height="419" }
 
 **The two tasks answer the question differently, and that's the finding.**
 
-On `format`, rank 1 is already the ceiling. 549,888 trainable parameters, 0.111% of the model, and all 40 unseen dates come out right, in all three runs. Ranks 2 through 32 do exactly as well. Their losses wander between about 1e-06 and 3e-05 with no trend, which is what a loss looks like once the model is already certain of every answer. Thirty-two times the adapter buys nothing at all, because at rank 1 there was nothing left to buy.
+On `format`, rank 1 is already the ceiling. 549,888 trainable parameters, 0.111% of the model, and all 40 unseen dates come out right, in all three runs. Ranks 2 through 32 do exactly as well. Their losses all sit between about 1e-06 and 3e-05, far too small to change an answer, which is what a loss looks like once the model is already certain of every answer. Thirty-two times the adapter buys nothing at all, because at rank 1 there was nothing left to buy.
 
 On `recall`, the exact-match column is the wrong one to read, and the three seeds are what show it. Every rank gets between 37 and 40 of the facts, and the misses land anywhere: rank 1 gets all 40 on one seed, while ranks 4 and 8 each miss one on another. Which fact slips is decided by where $A$ happened to start, not by rank. A single run can't tell you that: with one run per rank, rank 4 could easily look like the threshold where recall becomes perfect, when the difference is noise.
 
-**The loss is where rank shows up.** On `recall` the median final loss falls from `1.56e-01` at rank 1 to `3.99e-04` at rank 16, about 390 times lower. Rank 1 gets nearly every fact over the line but holds them loosely, and each step up holds them more firmly. The same climb on `format` buys nothing. The adapter is buying somewhere to put the facts.
+**The loss is where rank shows up.** On `recall` the median final loss falls from `1.56e-01` at rank 1 to `3.99e-04` at rank 16, about 390 times lower. Rank 1 gets nearly every fact over the line but holds them loosely, and higher ranks hold them more firmly, though neighbouring ranks overlap across seeds (the spread bars in the figure below). The same climb on `format` buys nothing. The adapter is buying somewhere to put the facts.
 
-The pattern behind it is what transfers to a task this post didn't run. A **rule** has to be *found*, and once found it applies to every example, so what the adapter has to hold is one procedure, however many examples teach it. **Arbitrary facts** have to be *stored*, one at a time, and 64 of them need more room than 1 does. Rank behaves like capacity here, and only the second kind of task needed more of it.
+The pattern behind it is what transfers to a task this post didn't run. A **rule** has to be *found*, and once found it applies to every example, so what the adapter has to hold is one procedure, however many examples teach it. **Arbitrary facts** have to be *stored*, one at a time, and 64 of them need more room than one rule does. Rank behaves like capacity here, and only the second kind of task needed more of it.
 
-This is also why the original paper's headline about rank isn't the contradiction it might look like. [Hu et al.](https://arxiv.org/abs/2106.09685) report in §7.2 that "a rank as small as one suffices for adapting both $W_q$ and $W_v$ on these datasets", and their datasets are WikiSQL and MultiNLI, which are rule-shaped in exactly this sense. Their result and this post's `format` result are the same result. The `recall` column is what that headline doesn't cover.
+This is also why the original paper's headline about rank isn't the contradiction it might look like. [Hu et al.](https://arxiv.org/abs/2106.09685) report in §7.2 that "a rank as small as one suffices for adapting both $W_q$ and $W_v$ on these datasets", and their datasets are WikiSQL and MultiNLI, which are much closer to `format` than to `recall`: each asks for one mapping applied across many examples, not a list of unrelated facts to store. Their result and this post's `format` result are the same result. The `recall` column is what that headline doesn't cover.
 
 The last column, `passage`, is new, and [§6](#what-it-forgot) comes back to it. It scores each fine-tuned model on text that has nothing to do with either task (its perplexity, from [§4](#what-training-costs): lower is better), and it climbs with rank: from 20.93 at rank 1 to 22.90 at rank 32 on `format`, and from 21.60 to 25.39 on `recall`, against 20.87 untrained. On `format` the bigger adapter learned its task no better and disturbed more of everything else.
 
@@ -549,7 +555,7 @@ On `recall` the loss rises at rank 32, from `3.99e-04` at rank 16 to `1.20e-02`,
   data, same order; the longer runs keep going 400 more steps.
 ```
 
-At 600 steps rank 32 reaches `8.28e-05`, level with ranks 8 and 16. The rise was the step count, not the rank. A rank sweep measures rank *and* everything held fixed alongside it, and a fixed step budget favors the adapters with less to settle. How the scaling should depend on rank is a separate, open question: [Kalajdzievski](https://arxiv.org/abs/2312.03732) argues that with $\alpha$ held fixed, dividing by $r$ shrinks a high-rank adapter's updates enough to slow its learning, and proposes $\alpha/\sqrt{r}$ instead. This post sidesteps that by setting $\alpha = 2r$, so the scale is 2.0 at every rank, which means its sweep doesn't test his proposal either way.
+The 200-step column is the seed-0 run rather than the median, which is why its rank-8 and rank-16 losses differ a little from the sweep table's. At 600 steps rank 32 reaches `8.28e-05`, level with ranks 8 and 16. The rise was the step count, not the rank. A rank sweep measures rank *and* everything held fixed alongside it, and a fixed step budget favors the adapters with less to settle. How the scaling should depend on rank is a separate, open question: [Kalajdzievski](https://arxiv.org/abs/2312.03732) argues that with $\alpha$ held fixed, dividing by $r$ shrinks a high-rank adapter's updates enough to slow its learning, and proposes $\alpha/\sqrt{r}$ instead. This post sidesteps that by setting $\alpha = 2r$, so the scale is 2.0 at every rank, which means its sweep doesn't test his proposal either way.
 
 #### Where the adapters pay {#where-adapters-pay}
 
@@ -569,7 +575,7 @@ At 600 steps rank 32 reaches `8.28e-05`, level with ranks 8 and 16. The rise was
   One run each, seed 0; 'all seven' is the sweep's seed-0 run.
 ```
 
-Attention alone at rank 8 is the smallest adapter here, 1,081,344 parameters, and the only clearly worse one: it misses a fact and ends at `1.26e-01`, 35 to 100 times the loss of the other three. The MLP alone, at 3,317,760 parameters, does as well as all seven do. Attention alone at rank 32 is the same size as the all-seven adapter and ends at `3.59e-03` against `1.29e-03`, but that gap is inside the spread the three seeds produced for the all-seven adapter at rank 8, so one run each can't say it's real.
+Attention alone at rank 8 is the smallest adapter here, 1,081,344 parameters, and the only clearly worse one: it misses a fact and ends at `1.26e-01`, 35 to 100 times the loss of the other three. The MLP alone, at 3,317,760 parameters, does as well as all seven do. Attention alone at rank 32 is nearly the same size as the all-seven adapter and ends at `3.59e-03` against `1.29e-03`, but that gap is inside the spread the three seeds produced for the all-seven adapter at rank 8, so one run each can't say it's real.
 
 So on this task and this model, the measurement supports something narrower than QLoRA's advice. Attention at rank 8 is too little. Most of what the adapter needs, it can get from the MLP. Whether attention *at equal size* is worse needs more seeds than this post ran. [§6](#why-low-rank-works) finds a reason to expect the MLP to matter: what a full fine-tune changes there is much higher-rank than what it changes in attention.
 
@@ -612,13 +618,13 @@ The second is the figure's "largest direction alone" widened to the largest 8, b
 
   matrix     W itself  change, format  change, recall
   -----------------------------------------------------
-  q_proj        10.1%           63.7%           68.3%
-  k_proj        22.5%           68.4%           74.1%
+  q_proj        10.1%           63.6%           68.3%
+  k_proj        22.5%           68.3%           74.1%
   v_proj        11.1%           59.7%           67.5%
-  o_proj         7.6%           72.4%           71.2%
-  gate_proj      5.3%           50.2%           54.6%
-  up_proj        2.7%           54.3%           58.2%
-  down_proj      5.4%           49.5%           54.5%
+  o_proj         7.6%           72.5%           71.2%
+  gate_proj      5.3%           50.3%           54.6%
+  up_proj        2.7%           54.5%           58.2%
+  down_proj      5.4%           49.8%           54.5%
 ```
 
 ![Cumulative energy against directions used: the fine-tune's change concentrates in far fewer directions than the weight it modifies](/assets/picture/2026-09-26-llm-architectures-lora/update-spectrum-light.png){: .light width="1000" height="554" }
@@ -628,7 +634,7 @@ Take `q_proj` in layer 12, the matrix [§2](#the-mechanism) walked through. It h
 
 **The trained weight uses nearly all of them.** It takes 299 directions to account for 90% of $W$, and its largest 8 hold just **10.1%** of it. That's what a dense, thoroughly trained matrix looks like, and it's the reason you can't simply compress $W$ itself to rank 8 and expect a working model.
 
-**The change a full fine-tune made to that same matrix is a different shape entirely.** 90% of it fits in **68** directions for the `format` fine-tune and **38** for `recall`, four to eight times fewer than the weight it modifies. Its largest 8 directions hold **63.7%** and **68.3%** of it, against the weight's 10.1%.
+**The change a full fine-tune made to that same matrix is a different shape entirely.** 90% of it fits in **68** directions for the `format` fine-tune and **38** for `recall`, four to eight times fewer than the weight it modifies. Its largest 8 directions hold **63.6%** and **68.3%** of it, against the weight's 10.1%.
 
 Layer 12 could be a lucky pick, so the demo measures every one of the 168 matrices the adapters sit beside, 24 layers of seven kinds (also [`why_the_update_is_low_rank`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py)):
 
@@ -638,28 +644,28 @@ Layer 12 could be a lucky pick, so the demo measures every one of the 168 matric
 
   matrix          W itself  change, format  change, recall
   ----------------------------------------------------------
-  q_proj      288 (55-331)     59 (28-118)      36 (18-51)
+  q_proj      288 (55-331)     60 (29-120)      36 (18-51)
   k_proj        70 (21-81)      33 (17-44)      23 (10-29)
   v_proj      101 (71-109)      43 (26-54)      34 (22-43)
-  o_proj     311 (186-389)     57 (14-116)      42 (25-57)
-  gate_proj  640 (623-678)    203 (76-270)    122 (55-146)
+  o_proj     311 (186-389)     56 (14-116)      42 (25-57)
+  gate_proj  640 (623-678)    204 (77-270)    122 (55-146)
   up_proj    666 (643-699)    187 (61-250)     93 (48-128)
-  down_proj  632 (594-680)    197 (19-280)    106 (41-140)
+  down_proj  632 (594-680)    198 (19-281)    106 (41-140)
 
   All 168 adapted matrices at once:
 
                   need > 8 for 90%   range  top-8 median
   --------------------------------------------------------
   W itself              168 of 168  21-699          7.8%
-  change, format        168 of 168  14-280         62.7%
-  change, recall        168 of 168  10-146         61.2%
+  change, format        168 of 168  14-281         62.7%
+  change, recall        168 of 168  10-146         61.1%
 ```
 
-Each cell is the median over the 24 layers, with the smallest and largest in brackets. Layer 12 is typical: its `q_proj` change needed 68 and 38 directions, and the medians across all 24 layers are 59 and 36. The bottom table is the one that settles it. **Every one of the 168 changes, on both tasks, needs more than 8 directions to carry 90% of its energy.** The lowest-rank change anywhere in the model still needs 10.
+Each cell is the median over the 24 layers, with the smallest and largest in brackets. Layer 12 is typical: its `q_proj` change needed 68 and 38 directions, and the medians across all 24 layers are 60 and 36. The bottom table is the one that settles it. **Every one of the 168 changes, on both tasks, needs more than 8 directions to carry 90% of its energy.** The lowest-rank change anywhere in the model still needs 10.
 
 **So the hypothesis is half right, and the half that's wrong is the interesting half.**
 
-The change really is *far* more concentrated than the weight it modifies. Across all 168 matrices the largest 8 directions hold a median of 62.7% of the `format` change and 61.2% of the `recall` change, against 7.8% of the weight. That much is not subtle, and it's the part of the low-rank story that holds up.
+The change really is *far* more concentrated than the weight it modifies. Across all 168 matrices the largest 8 directions hold a median of 62.7% of the `format` change and 61.1% of the `recall` change, against 7.8% of the weight. That much is not subtle, and it's the part of the low-rank story that holds up.
 
 But it is not rank 8, and it isn't close. If LoRA's job were to reproduce what a full fine-tune does, rank 8 would capture around three fifths of it and miss the rest.
 
@@ -669,20 +675,20 @@ That distinction stops being academic as soon as a task gets harder. [Biderman e
 
 Two smaller results in those tables.
 
-**The MLP's updates are markedly higher-rank than attention's.** Across all 24 layers of the `format` fine-tune, attention's four kinds of matrix have medians of 33 to 59 directions for 90% of their change; the MLP's three have 187 to 203. That isn't just because `k_proj` and `v_proj` are narrow: `q_proj` and `o_proj` have the same 896 directions available as the MLP's matrices, and their changes still need only 59 and 57. The `recall` fine-tune shows the same split at lower numbers. So "how low-rank is the update" isn't one number for a model, it's a number per kind of matrix, and the wide ones are the stubborn ones. That bears directly on where adapters should go, and [§5](#where-adapters-pay) points the same way: adapters on the MLP alone did as well as adapters on all seven, while attention alone at rank 8 fell well short.
+**The MLP's updates are markedly higher-rank than attention's.** Across all 24 layers of the `format` fine-tune, attention's four kinds of matrix have medians of 33 to 60 directions for 90% of their change; the MLP's three have 187 to 204. That isn't just because `k_proj` and `v_proj` are narrow: `q_proj` and `o_proj` have the same 896 directions available as the MLP's matrices, and their changes still need only 60 and 56. The `recall` fine-tune shows the same split at lower numbers. So "how low-rank is the update" isn't one number for a model, it's a number per kind of matrix, and the wide ones are the stubborn ones. That bears directly on where adapters should go, and [§5](#where-adapters-pay) points the same way: adapters on the MLP alone did as well as adapters on all seven, while attention alone at rank 8 fell well short.
 
 **And depth changes the answer, for the weight as much as for the change.** Here is `q_proj` at four depths, from the same [`why_the_update_is_low_rank`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d06_lora.py):
 
 ```text
   q_proj    W itself  change, format  change, recall
   ----------------------------------------------------
-  layer 0         55              28              18
-  layer 8        321              89              50
+  layer 0         55              29              18
+  layer 8        321              90              50
   layer 16       191              30              26
-  layer 23       239              43              35
+  layer 23       239              44              35
 ```
 
-Layer 0's weight needs only 55 directions for 90% of itself, against 321 at layer 8 and 239 at the last layer: the first layer's weight is a simpler object than the ones above it. Its change is the lowest-rank of the four too, at 28 directions for `format` and 18 for `recall`. Nothing in that column suggests one rank is right for every layer, which is what per-layer rank allocation methods such as [AdaLoRA](https://arxiv.org/abs/2303.10512) exist to exploit.
+Layer 0's weight needs only 55 directions for 90% of itself, against 321 at layer 8 and 239 at the last layer: the first layer's weight is a simpler object than the ones above it. Its change is the lowest-rank of the four too, at 29 directions for `format` and 18 for `recall`. Nothing in that column suggests one rank is right for every layer, which is what per-layer rank allocation methods such as [AdaLoRA](https://arxiv.org/abs/2303.10512) exist to exploit.
 
 A last note on what this measurement is *not*. [Shuttleworth et al.](https://arxiv.org/abs/2410.21228) run a spectral analysis that sounds similar and asks something different: they look at the singular vectors of the *resulting weight matrix*, not of the change, and find that LoRA introduces "new, high-ranking singular vectors, which we call intruder dimensions" that a full fine-tune doesn't, then show by intervening on them that those dimensions cause forgetting. That's a claim about how the two methods differ in where they leave the model, and this section's measurement, which is about the shape of the change a full fine-tune makes, neither supports nor contradicts it. They're worth reading together, and easy to conflate.
 
@@ -695,7 +701,7 @@ Biderman et al.'s title makes two claims, *learns less* and *forgets less*, and 
   ------------------------------------------------------------
   untrained                              20.87
   LoRA r=8, format           40 of 40    21.28         +1.9%
-  full fine-tune, format     40 of 40    21.18         +1.5%
+  full fine-tune, format     40 of 40    21.17         +1.4%
   LoRA r=8, recall           40 of 40    22.51         +7.9%
   full fine-tune, recall     40 of 40    22.08         +5.8%
 
@@ -707,7 +713,7 @@ Biderman et al.'s title makes two claims, *learns less* and *forgets less*, and 
 
 Every model in the table learned its task completely, 40 of 40, so a difference in the `passage` column isn't a difference in how well the task was learned.
 
-**On these tasks, LoRA did not forget less.** On `format` the two land a tenth of a point apart, 21.28 against 21.18. On `recall` the rank-8 adapter moved the passage *more* than the full fine-tune did, +7.9% against +5.8%. Each method ran at the learning rate it needs, and that condition matters. At LoRA's rate, [§4](#what-training-costs) showed the full fine-tune taking the passage to 65,115. At its own small learning rate, the full fine-tune disturbed the passage only a little.
+**On these tasks, LoRA did not forget less.** On `format` the two land a tenth of a point apart, 21.28 against 21.17. On `recall` the rank-8 adapter moved the passage *more* than the full fine-tune did, +7.9% against +5.8%. Each method ran at the learning rate it needs, and that condition matters. At LoRA's rate, [§4](#what-training-costs) showed the full fine-tune taking the passage to 2,291,268. At its own small learning rate, the full fine-tune disturbed the passage only a little.
 
 Two things keep this from contradicting Biderman et al. Their fine-tunes ran on billions of tokens of programming and mathematics, far enough to move a model a long way; these ran 200 steps on toy tasks, where neither method moves it far. And [§5](#what-rank-buys)'s `passage` column shows the variable their result turns on: forgetting climbs with rank, from 21.60 at rank 1 to 25.39 at rank 32 on `recall`. A lower-rank adapter forgets less than a higher-rank one, here as there. What a model this small, trained this briefly, can't show is how rank 8 compares with a full fine-tune pushed hard enough for the difference to matter.
 
@@ -743,8 +749,8 @@ Merging also changes the speed, and the timings below are from the same program,
 ```text
   forward pass, ms         merged  separate  separate / merged
   --------------------------------------------------------------
-  prefill, 8 x 256 tokens   840.8    1018.4              1.21x
-  decode, 8 x 1 token        34.5      40.1              1.16x
+  prefill, 8 x 256 tokens   840.8    1014.8              1.21x
+  decode, 8 x 1 token        34.8      40.5              1.16x
 ```
 
 Keeping the adapters separate costs **1.21×** a merged pass on prefill and **1.16×** on decode. Those are wall clock, so the digits move between runs, but the direction won't: an unmerged adapter does two extra matrix multiplies in each of 168 places, and a merged one does none. Each extra multiply is small, 8 numbers wide in the middle, but there are 336 of them, and on a model this small they are a real share of the work.
@@ -798,13 +804,13 @@ The demo does it the simplest correct way. It loads the rank-8 adapters §5 trai
 
   forward pass, ms         merged  separate   mixed  mixed / merged
   -------------------------------------------------------------------
-  prefill, 8 x 256 tokens   840.8    1018.4  1026.8           1.22x
-  decode, 8 x 1 token        34.5      40.1    42.0           1.22x
+  prefill, 8 x 256 tokens   840.8    1014.8  1037.7           1.23x
+  decode, 8 x 1 token        34.8      40.5    42.3           1.22x
 ```
 
 Both rows give the answer their own adapter gives when served alone, and both are right. The `swapped` column is the control: the same batch with the two routes exchanged hands the date to the facts adapter and the question to the dates adapter, and both answers turn to nonsense. The answers come from the routing, not from the prompts.
 
-The bottom table is the price. A mixed batch costs **1.22×** a merged forward pass on prefill and **1.22×** on decode, slightly more than one unmerged adapter, the difference being the gather. That's the running cost behind the 34.6×: fifty customers fit in 2.66 GiB, and every forward pass they share takes about a fifth longer than one merged model's would. S-LoRA's custom kernels exist to shrink that fifth.
+The bottom table is the price. A mixed batch costs **1.23×** a merged forward pass on prefill and **1.22×** on decode, slightly more than one unmerged adapter, the difference being the gather. That's the running cost behind the 34.6×: fifty customers fit in 2.66 GiB, and every forward pass they share takes about a fifth longer than one merged model's would. S-LoRA's custom kernels exist to shrink that fifth.
 
 Post 5 ended on a version of this same shape, so put the two side by side. There, per-token sparsity was real and batch sparsity wasn't, because a batch needs the union of what its tokens want. Here, the single-adapter saving is real and the multi-adapter saving is smaller than it looks, because a batch needs the union of what its *requests* want. Batching is where clean per-item stories go to be complicated.
 
@@ -818,13 +824,23 @@ The demo routes two rows by hand, on one machine. A real server has three more q
 
 **The cap on adapters per batch is where requests wait.** `--max-loras` defaults to 1, so out of the box each batch serves one adapter, and a request for a different one waits for a later step. Raising it lets one batch mix more customers, which is what the demo above does with two. A higher `--max-lora-rank`, the largest rank the server will accept, costs more memory, so it's set to the largest rank you actually serve.
 
-**Faster kernels shrink the per-pass cost.** The 1.22× above comes from the demo's plain gather. [Punica](https://arxiv.org/abs/2310.18547) wrote a GPU kernel that batches different adapters' multiplies together, and reports 12× the throughput of the serving systems it compared against while adding about 2 ms of latency per token. Those are their numbers on their hardware, not this post's.
+![One server scheduling a batch: requests for adapters A and B go into this step's batch, while a request for C waits because the batch already has two adapters and a request for D waits while its adapter loads from disk](/assets/picture/2026-09-26-llm-architectures-lora/adapter-tiers-light.png){: .light width="1000" height="551" }
+![One server scheduling a batch: requests for adapters A and B go into this step's batch, while a request for C waits because the batch already has two adapters and a request for D waits while its adapter loads from disk](/assets/picture/2026-09-26-llm-architectures-lora/adapter-tiers-dark.png){: .dark width="1000" height="551" }
+
+The figure follows six requests through one step, with the cap set to 2. Requests 1, 2, 4 and 6 name adapters A and B, which are already on the GPU, so they run together in one batch. Request 3 names C, which is sitting in CPU memory and could be copied over, but the batch already uses its two adapters, so it waits a step. Request 5 names D, which is only on disk, so it waits for the load. Neither wait has anything to do with how fast the forward pass is.
+
+**Faster kernels shrink the per-pass cost.** The 1.23× and 1.22× above come from the demo's plain gather. [Punica](https://arxiv.org/abs/2310.18547) wrote a GPU kernel that batches different adapters' multiplies together, and reports 12× the throughput of the serving systems it compared against while adding about 2 ms of latency per token. Those are their numbers on their hardware, not this post's.
 
 **More than one GPU.** Two kinds of scaling combine, and adapters fit into both.
 
 The first splits one copy of the model across GPUs. When the base model is too big for one GPU, each weight matrix is cut into pieces and each GPU multiplies by its own piece, which is called tensor parallelism. S-LoRA cuts each adapter's $A$ and $B$ to line up with how the base matrix is cut, so each GPU applies its share of the adapter to its share of the work. The extra communication is a few exchanges per layer, which its authors call negligible next to the base model's, because $r$ is far smaller than the model's width. vLLM by default splits only half of the adapter computation this way, and `--fully-sharded-loras` splits all of it.
 
 The second runs many copies of the server. To serve 1,000 requests at once you run several copies, each on its own GPU or group of GPUs, and a router spreads the requests across them. With adapters, the router should send a request to a copy that already holds the adapter it names, so that copy doesn't load it again and its batches mix fewer adapters, while still steering around a copy that's overloaded. [Ray Serve's model multiplexing](https://docs.ray.io/en/latest/serve/model-multiplexing.html) works this way: the request names its model in a header, it goes to a copy that has that model loaded, or to another copy that loads it if those are overloaded, and each copy drops its least recently used model when it's full. So popular adapters end up loaded on every copy, and rarely used ones get loaded wherever they're asked for.
+
+![Many GPUs: a router sends each request to one of three copies of the server, preferring a copy that already holds the request's adapter; each copy is split across two GPUs, each holding half of every weight matrix and the matching half of every loaded adapter](/assets/picture/2026-09-26-llm-architectures-lora/serving-cluster-light.png){: .light width="1000" height="581" }
+![Many GPUs: a router sends each request to one of three copies of the server, preferring a copy that already holds the request's adapter; each copy is split across two GPUs, each holding half of every weight matrix and the matching half of every loaded adapter](/assets/picture/2026-09-26-llm-architectures-lora/serving-cluster-dark.png){: .dark width="1000" height="581" }
+
+Read the figure from the top. A request for adapter D arrives, and the router sends it to copy 2, the one copy that has D loaded. Inside copy 2 the work is split across two GPUs, each holding half of every weight matrix and the matching half of every adapter it has loaded, and the two swap partial results at every layer. Adapter A is loaded on every copy because it's popular; D, E, F and G each live on one. To handle more traffic you add copies, and the router's job is to keep each copy's batches to the adapters it already holds.
 
 None of this changes the arithmetic at the start of this section. Each copy of the server still stores the base model once, each adapter still costs 16.8 MiB, and every forward pass that mixes adapters still pays for the extra multiplies.
 
@@ -836,7 +852,7 @@ None of this changes the arithmetic at the start of this section. Each copy of t
 
 **"The update is low-rank" is not what the measurement says.** What a full fine-tune actually does to a matrix is high-rank. What §5 shows is that a low-rank update can reach the same behavior, which is a claim about the existence of a good solution, not about the shape of the one gradient descent finds unaided. [Biderman et al.](https://arxiv.org/abs/2405.09673) found the gap matters on programming and mathematics, tasks that ask far more of a model than these two toy ones.
 
-**And the serving story is the reason LoRA won.** One base model plus a directory of 16.8 MiB adapters is a different operational shape from fifty copies of a model, and it's why serving systems such as [vLLM](https://docs.vllm.ai/en/latest/features/lora.html) can run many adapters over one base model. The cost is that an adapter kept unmerged runs extra multiplies on every forward pass, and a batch that mixes adapters forces exactly that: LoRA's "no additional inference latency" holds only once an adapter is merged.
+**And the serving story is the reason LoRA won.** One base model plus a directory of 16.8 MiB adapters is a different operational shape from fifty copies of a model, and it's why serving systems such as [vLLM](https://docs.vllm.ai/en/latest/features/lora.html) can run many adapters over one base model, across as many GPUs as the traffic needs ([§8](#serving-at-scale)). The cost is that an adapter kept unmerged runs extra multiplies on every forward pass, and a batch that mixes adapters forces exactly that: LoRA's "no additional inference latency" holds only once an adapter is merged.
 
 ### 10. Sidebar: the probe {#sidebar-the-probe}
 
@@ -854,7 +870,7 @@ Both halves are half right, and they fail in different directions.
 
 **3. Refuse "rank 8" as a default.** This post's two tasks disagree completely about what rank buys. A systematic rule was learned perfectly at rank 1. Sixty-four arbitrary facts kept improving up to rank 16, where rank behaved like room to store them. Each sweep run costs about a third of a full fine-tune's step time and a quarter of its model-state memory, so measure rank rather than inherit it.
 
-**4. Then say what serving fifty actually costs.** Fifty whole fine-tunes are 92.0 GiB of weights; fifty adapters over one shared base are 2.66 GiB, **34.6× less**. That is real, and it's the reason multi-adapter serving exists. The asterisk is that this only holds while the adapters stay *unmerged*, and an unmerged adapter costs extra work on every forward pass. A batch that mixes customers can't merge any of them, which is the case production systems are built around ([S-LoRA](https://arxiv.org/abs/2311.03285) keeps adapters in host memory and batches them with custom kernels).
+**4. Then say what serving fifty actually costs.** Fifty whole fine-tunes are 92.0 GiB of weights; fifty adapters over one shared base are 2.66 GiB, **34.6× less**. That is real, and it's the reason multi-adapter serving exists. The asterisk is that this only holds while the adapters stay *unmerged*, and an unmerged adapter costs extra work on every forward pass. A batch that mixes customers can't merge any of them, which is the case production systems are built around ([S-LoRA](https://arxiv.org/abs/2311.03285) keeps adapters in host memory and batches them with custom kernels). And the request has to name its adapter, the server can only mix so many adapters per batch, and at scale a router has to send each request to a GPU that already holds its adapter ([§8](#serving-at-scale)).
 
 What the question is really testing is whether "1% of the parameters" is being read as one number that describes training cost, memory, latency and serving all at once, or as what it is: a statement about how many numbers receive a gradient.
 
