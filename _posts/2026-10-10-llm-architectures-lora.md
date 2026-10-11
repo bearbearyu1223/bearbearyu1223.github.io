@@ -114,7 +114,7 @@ And its numbers come from training runs rather than from arithmetic on a fixed c
 
 The model is **Qwen2.5-0.5B**, the same one [post 4](/posts/llm-architectures-quantization/) quantized: [the weights](https://huggingface.co/Qwen/Qwen2.5-0.5B), [the report](https://arxiv.org/abs/2412.15115). Using post 4's model twice is deliberate. Post 4 measured what happens when you make each of its weights smaller; this post measures what happens when you change them, and the two results describe the same 494 million numbers.
 
-Everything runs in **fp32**, four bytes per number. Post 5 ran in bf16 to fit a 7B model on a laptop, but this post compares training runs against each other, and mixed precision would add a second reason for two runs to differ. [Post 7](#whats-next) takes precision up properly, since that's exactly what QLoRA is about.
+Everything runs in **fp32**, four bytes per number. Post 5 ran in bf16 to fit a 7B model on a laptop, but this post compares training runs against each other, and mixed precision would add a second reason for two runs to differ. QLoRA, which comes [later in the series](#whats-next), takes precision up properly, since that's exactly what it's about.
 
 #### Two tasks, chosen to disagree {#two-tasks}
 
