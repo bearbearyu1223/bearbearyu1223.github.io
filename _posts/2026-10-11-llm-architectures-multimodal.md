@@ -28,7 +28,33 @@ A model that takes more than one kind of input, here pictures and text, is calle
 
 ### The short version {#the-short-version}
 
-<!-- TODO-RESULTS: short version -->
+I built a small vision-language model from three parts: a frozen picture encoder (SigLIP-base), a frozen text model (Qwen2.5-0.5B, the model from posts 4 and 6), and a small **connector** between them, the only part trained from scratch. It was taught on generated pictures of colored shapes in two stages, first to describe them and then to answer questions about them. Every number is measured by the demo:
+
+| measured | result |
+|---|---|
+| one picture becomes | **49 image tokens** |
+| connector size | 3,557,120, **0.7%** of the LM |
+| stage 1 captions exactly right | **87 of 120** (blank: 1) |
+| "color of the triangle?", no stage 1 | **63** of 100 |
+| the same, after stage 1 | **97** of 100 |
+| looking adds, over the controls | **44 to 81** points |
+| KV cache per picture (bf16) | **0.57 MiB** (196 tokens: 2.30) |
+
+**How it works.** A picture enters a transformer the way text does, as a sequence of vectors. The encoder cuts it into 16 × 16-pixel patches and turns each into a vector ([§1](#pixels-to-patches)). The connector merges neighbouring patches and reshapes them to the language model's width, and those vectors go into the sequence where words would be ([§2](#the-connector)). The language model doesn't change at all to read them.
+
+**What training buys.**
+
+- **The connector alone gets a long way.** With both big models frozen, 3.6 million trained parameters teach the model to caption new pictures exactly right 87 times out of 120 ([§3](#stage-one)).
+- **Captions first is what teaches binding.** Tying a color to the right shape reached a median of 97 of 100 after a captioning stage, against 63 when the same number of steps went to the questions alone. Counting didn't need it ([§4](#stage-two)).
+- **LoRA added little here.** Once stage 1 was done, letting the language model adapt moved two of the three questions by 2 points or less, and position by 10 at the median, within the spread of three seeds ([§4](#stage-two)).
+
+**Living with it.**
+
+- **A score means nothing without a control.** Asked with a blank picture, the models still got about 29 of 100 counting questions right by guessing. Every number here is read against that ([§5](#is-it-looking)).
+- **Pictures cost tokens.** 49 tokens is sixteen times as many positions as this picture's three-word caption. Merging 196 patches into 49 made a training step 3× faster, and here it didn't cost accuracy ([§6](#what-an-image-costs)).
+- **This is one design of four.** Others summarize the picture into a fixed number of tokens, read it through cross-attention, or turn it into a vocabulary of image tokens ([§7](#other-designs)).
+
+The pictures are simple, generated shapes, so these numbers describe how the mechanism behaves, not how good the model is on photographs.
 
 ### Setup
 
@@ -42,7 +68,9 @@ uv sync && uv run demo07
 
 The code is in [`demos/d07_multimodal.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py), and the model itself is in [`vlm.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/vlm.py): the patch cutting, the connector, and the code that splices a picture into a sentence are all written out rather than imported, because this series builds the thing it's explaining. Every number this post quotes is printed by that program, and each block of its output, which I call a **receipt**, names the function that printed it.
 
-<!-- TODO-RESULTS: runtime and reproducibility -->
+A warning about time: the demo *trains*, eleven times, and takes about **two hours** on my Mac. Most of that is stage 2's three seeds of three versions, and one stage 1 run on 196 tokens per picture, which is three times slower than the rest. `uv run demo07 --figures` redraws every figure from the last run's saved scores in seconds.
+
+Each training run starts from a fixed seed, so it's repeatable on the same machine: I stopped and restarted the demo partway through, and stage 1 and the first stage-2 run printed identical scores both times. Expect a different machine to move some scores by a point or two, since floating-point sums can be ordered differently.
 
 **The three parts.**
 
@@ -237,7 +265,13 @@ Here's stage 1, from [`stage_one`](https://github.com/bearbearyu1223/llm-archite
   after stage 1              87              1              0
 ```
 
-<!-- TODO-RESULTS: stage 1 discussion -->
+Read it top to bottom. The loss starts at 3.82, which means that, on average, the model gave the right next word of a caption a probability of about 2% ($e^{-3.82}$); it ends near 0.09, about 91% ($e^{-0.09}$). Before training it gets **no** caption right. That's what a random connector should do: the language model is reading 49 vectors of noise. After 400 steps it gets **87 of 120** exactly right on pictures it never saw, every shape named in the right order with the right color. Exact match is strict: one wrong word in `a blue triangle, a green square and a purple square` and the whole caption counts as wrong.
+
+The two control columns say the 87 isn't luck. With a blank picture the model gets 1 caption right, and with another scene's picture none. A caption names every shape and its position, so there's nothing to guess from: the model either reads the picture or fails.
+
+Remember what changed to get here: 3.6 million numbers in the connector. The encoder and the language model are bit-for-bit the models that were downloaded. The connector learned to hand Qwen vectors that make it write `a green square` when there's a green square in the picture, from 400 batches of examples.
+
+The first three test pictures, as the model describes them:
 
 <!-- RECEIPT: s3b -->
 ```text
@@ -251,7 +285,7 @@ Here's stage 1, from [`stage_one`](https://github.com/bearbearyu1223/llm-archite
   model: a purple circle and a green triangle
 ```
 
-<!-- TODO-RESULTS: stage 1 samples discussion -->
+All three are exactly right, including the three-shape picture with two squares, where the colors have to stay attached to the right shapes. That's binding, and the next section shows it's the thing stage 1 teaches best. The demo prints only these three, so the 33 misses aren't shown.
 
 
 ---
@@ -314,7 +348,7 @@ Read the table one question at a time, because the three disagree.
 
 **Position benefits from both.** Leftmost improves with stage 1 (median 72 without it, 82 with it) and again with LoRA (92). Its spread is the widest in the table: the connector-only runs scored 81, 82 and 95 depending on the seed, which is why a single run would have told two different stories here.
 
-**What LoRA adds is small.** With stage 1 done, letting the language model adapt through a rank-8 adapter leaves count where it was and moves binding by 2. Leftmost gains 10 at the median and its runs become far more consistent, 90 to 93 against 81 to 95, though one connector-only run beat all three LoRA runs, so three seeds can't call it settled. That's a narrower result than "fine-tune the language model too", which is what LLaVA does, and it's worth saying why it might be. These questions have one-word answers and a fixed format, so once the connector hands over the right information, the frozen language model already knows how to say `purple`. Questions that need the language model to *reason* about the picture would give an adapter more to do, and [Idefics2](https://arxiv.org/abs/2405.02246)'s experiments found LoRA useful for exactly that kind of training at scale: "Leveraging LoRA still adds expressivity to the training and stabilizes it" (Finding 3).
+**What LoRA adds is small.** With stage 1 done, letting the language model adapt through a rank-8 adapter leaves count where it was and moves binding by 2. Leftmost gains 10 at the median and its runs become far more consistent, 90 to 93 against 81 to 95, though one connector-only run beat all three LoRA runs, so three seeds can't call it settled. That's a narrower result than "fine-tune the language model too", which is what LLaVA does. A likely reason is the questions: these have one-word answers and a fixed format, so once the connector hands over the right information, the frozen language model already knows how to say `purple`. Questions that need the language model to *reason* about the picture would give an adapter more to do, and [Idefics2](https://arxiv.org/abs/2405.02246)'s experiments found LoRA useful for exactly that kind of training at scale: "Leveraging LoRA still adds expressivity to the training and stabilizes it" (Finding 3).
 
 ---
 
@@ -347,7 +381,15 @@ The gap between the right picture and the better of the two controls is how much
             connector + LoRA             92            18   74
 ```
 
-<!-- TODO-RESULTS: is it looking discussion -->
+Every trained model is reading the picture: the smallest gap is 44 points. But the controls are far from zero, and they're worth reading.
+
+**Blank pictures still score.** Shown nothing, the trained models answer about 29 of 100 counting questions right. Pictures have two, three or four shapes, so a model that answers the same number every time is right about a third of the time; with no picture to read, the models fall back on a guess like that. On the two color questions, a blank picture scores 13 to 18, close to what guessing one of six colors would get, about 17.
+
+**Wrong pictures score for a different reason.** A different scene shares the count with the question's scene about a third of the time, so 34 to 35 right on counting is the model correctly reading the *wrong* picture. On leftmost, wrong pictures score only 6 to 9, below the blank picture's 13 to 18, which is exactly what reading the picture predicts: the model answers with the wrong picture's leftmost color, and that's rarely the right scene's.
+
+**The gap shows what stage 1 did.** On binding, the model trained without stage 1 is 44 points above its controls, the stage-1 models 79 and 81. The no-stage-1 model looks at the picture too, it just reads less from it. And the stage-1 model asked questions it was never trained on (`stage 1 only` in §4) scores 15 on binding and 23 on leftmost, against 0 with a blank picture: it already reads the colors and positions, it just hasn't learned to answer in one word. On counting it scores 0, whatever it writes, it isn't the single word `three`.
+
+The same check at benchmark scale is where it gets uncomfortable. The MMStar authors report that GeminiPro scored 42.9% on the MMMU benchmark "without any visual input". This post's controls are the cheap version of their test, and any evaluation of a VLM should run one.
 
 ---
 
@@ -370,7 +412,11 @@ For Qwen2.5-0.5B the per-position cost is small and fixed: keys and values, for 
   caption: "a red triangle"
 ```
 
-<!-- TODO-RESULTS: costs discussion -->
+A picture costs the same no matter what's in it. The demo's first test picture is one red triangle, whose caption is three tokens; its 49 image tokens take sixteen times as many positions. At 196 tokens it would be 65 times as many.
+
+That's small per picture for a 0.5B model, but it adds up the way post 2's cache did: a conversation with ten pictures at 196 tokens holds 23 MiB of cache for the pictures alone, and the cost per token grows with the model. Real models use far more tokens per picture than this one. LLaVA-1.5's encoder takes 336-pixel pictures in 14-pixel patches, which is $(336/14)^2 = 576$ tokens per picture, the last line of the receipt. That's why so much design effort goes into cutting the count: Qwen2-VL's 2 × 2 merge, which this post copies, SmolVLM's "pixel shuffle", which cuts tokens "by a factor of r²" and finds small models "benefit from more aggressive visual token compression", and the fixed-size summaries of [§7](#other-designs).
+
+Does merging cost accuracy? The demo trains stage 1 again on all 196 patch vectors, same seed, same data, same 400 steps:
 
 <!-- RECEIPT: s6b -->
 ```text
@@ -384,7 +430,7 @@ For Qwen2.5-0.5B the per-position cost is small and fixed: keys and values, for 
   LLaVA-1.5: 336 px, 14 px patches   (336 / 14)^2 = 576 tokens
 ```
 
-<!-- TODO-RESULTS: costs discussion 2 -->
+The merged model did *better*: 87 captions right against 70, with a lower final loss, at a third of the time per step. But that's not a clean comparison, and the reason is in the first row. Without the merge, the connector's first layer takes 768 numbers per vector instead of 3,072, so it has 1.49 million parameters instead of 3.56 million. The comparison changed two things at once, the number of tokens and the size of the connector, and one run can't say which one mattered. What it does show is the thing that matters in practice: cutting the picture to a quarter of the tokens cost nothing here, and made training three times faster. [Idefics2](https://arxiv.org/abs/2405.02246) reports the same direction at scale, where learned pooling from 729 to 64 tokens "increases the performance by 8.5 points on average" (§3.3).
 
 ---
 
@@ -410,7 +456,16 @@ Which is best? There's no single answer. Idefics2's most useful finding is a con
 
 ### 8. What follows from all this {#what-follows}
 
-<!-- TODO-RESULTS: what follows -->
+Six things, in the order the post found them.
+
+1. **A picture is just more vectors.** A vision encoder turns patches into vectors the way an embedding table turns tokens into vectors, and after that it's a transformer like any other. Nothing about the language model had to change to read a picture.
+2. **The connector is the whole adaptation.** 3.6 million trained parameters, about 0.7% of the language model, were enough to get captions exactly right 87 times in 120. The two big models stayed exactly as they were downloaded.
+3. **What you train on first matters more than what you train.** Captions taught binding, a color attached to its shape, far better than the questions themselves did with the same number of steps: 97 against 63. At this scale the first stage wasn't a formality.
+4. **LoRA was the smallest lever here.** After stage 1 it moved scores by a few points, within or near the spread between seeds. That's a statement about one-word answers on simple pictures, where the frozen language model already knows how to say the answer, not about LoRA in general.
+5. **Controls are part of the result.** A blank picture still answered counting questions right 29 times in 100. Without that column, a 50% score would look like partial vision instead of a guess.
+6. **Tokens are the cost.** Every picture is a fixed number of positions in the sequence and the KV cache, and the field's designs are largely different answers to how few positions a picture can be squeezed into.
+
+And three limits, stated plainly. The pictures are generated shapes, much easier than photographs, so the scores say how the mechanism behaves, not how good the model is. Everything is one small language model and one small encoder, trained for minutes. And the encoder was frozen throughout, so this post says nothing about what training it would add, which some large models do ([Llama 3](https://arxiv.org/abs/2407.21783) trains its image encoder, §7.2).
 
 ---
 
