@@ -173,18 +173,46 @@ Two things in that receipt are worth reading slowly.
 So far the encoder has been a box. Opened up, it's a transformer, built from the same parts [post 1](/posts/llm-architectures-attention-and-rope/) took apart in the language model, stacked 12 times:
 
 <!-- FIGURE: encoder-inside -->
+![Inside the vision encoder: patch vectors go through 12 identical layers of LayerNorm, self-attention, LayerNorm and MLP, each adding its input back, then a final LayerNorm, giving 196 vectors; beside it, an attention grid where every patch reads every patch, against the language model's triangle where each token reads only itself and earlier ones](/assets/picture/2026-10-11-llm-architectures-multimodal/encoder-inside-light.png){: .light width="1000" height="639" }
+![Inside the vision encoder: patch vectors go through 12 identical layers of LayerNorm, self-attention, LayerNorm and MLP, each adding its input back, then a final LayerNorm, giving 196 vectors; beside it, an attention grid where every patch reads every patch, against the language model's triangle where each token reads only itself and earlier ones](/assets/picture/2026-10-11-llm-architectures-multimodal/encoder-inside-dark.png){: .dark width="1000" height="639" }
 
 Each of the 12 layers does two things, in order. **Self-attention** lets every patch vector gather information from the others: the patch on the edge of a circle can find out that the patches around it are orange too. Then an **MLP** works on each patch vector by itself, the same small network applied to all 196. Before each step a **LayerNorm** rescales every vector to a standard size, and after each step the step's input is **added back** to its output, so a layer only has to learn a correction rather than rebuild the vector from scratch. If that sounds like a language model's layer, it is: post 1's block has the same two steps, the same normalization before each, the same adding back.
 
 Here are the two models side by side, every row read from the loaded modules rather than typed in ([`inside_the_encoder`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
 <!-- RECEIPT: s1b -->
+```text
+                        vision encoder  language model
+  ------------------------------------------------------
+  layers                            12              24
+  width                            768             896
+  attention heads                   12              14
+    key/value heads                 12               2
+  MLP width                      3,072           4,864
+  MLP matrices                       2               3
+  MLP activation     gelu_pytorch_tanh            silu
+  norm                       LayerNorm         RMSNorm
+  position           learned, 196 rows          rotary
+  causal mask                       no             yes
+
+  Change only the last position; how far does the first one's output move?
+
+  model                               what changed  first output moved
+  ----------------------------------------------------------------------
+  vision encoder    patch 196 of 196 painted black               12.4%
+  language model  token 7 of 7: square -> triangle           exactly 0
+
+  >> The encoder is a transformer much like the language model, with one
+     difference that matters: no causal mask. Every patch reads every
+     other patch, so the first patch's vector moves when only the last one
+     changes; the language model's first word can't see the last.
+```
 
 Most of the differences are small choices that two teams made differently. The encoder uses LayerNorm where Qwen uses RMSNorm, a cheaper variant that skips subtracting the mean. Its MLP is two matrices with a GELU between them, where Qwen's is three matrices with a SiLU gate ([post 1's FFN](/posts/llm-architectures-attention-and-rope/#the-ffn)). It gives each patch a learned position vector, one row per grid position, where Qwen rotates its queries and keys (RoPE, [post 1](/posts/llm-architectures-attention-and-rope/)). And it uses all 12 heads for keys and values, where Qwen shares 2 key/value heads among 14 query heads to keep its KV cache small, a saving an encoder doesn't need because it never generates anything.
 
 **The difference that matters is the last row: the encoder has no causal mask.** A language model writes one token at a time, left to right, so when it's computing a position it must not see the positions after it, which don't exist yet when it generates. Post 1 enforced that with a **causal mask**, which blocks every position from attending to later ones. A picture isn't written left to right. All 196 patches are there at once, so the encoder lets every patch attend to every other one, in both directions.
 
-The second half of the receipt measures exactly that. Paint only the last patch, bottom right, black, and the *first* patch's output vector, top left, moves by double digits of percent, because the first patch read the last one in every layer. Change only the last word of a sentence and the language model's first output doesn't move at all, because nothing at position 1 ever reads position 7.
+The second half of the receipt measures exactly that. Paint only the last patch, bottom right, black, and the *first* patch's output vector, top left, moves by 12.4%, because the first patch read the last one in every layer. Change only the last word of a sentence and the language model's first output doesn't move at all, because nothing at position 1 ever reads position 7.
 
 #### Why the encoder already knows what it's looking at {#why-frozen}
 
@@ -275,7 +303,7 @@ Here's stage 1, from [`stage_one`](https://github.com/bearbearyu1223/llm-archite
   training                           400 steps x 16 captions, lr 0.001
   loss at step 1                     3.8180
   loss at the end (mean of last 10)  0.0899
-  time per step                      1.02 s
+  time per step                      0.99 s
 
   Captions exactly right, on 120 new pictures:
 
@@ -333,7 +361,7 @@ Each trained version is run three times from different random starts (the **seed
 
   model             starts from  steps  trainable  s/step
   ---------------------------------------------------------
-  no stage 1             random    800  3,557,120    0.91
+  no stage 1             random    800  3,557,120    0.88
   connector only        stage 1    400  3,557,120    0.92
   connector + LoRA      stage 1    400  7,956,224    1.11
 ```
@@ -420,6 +448,8 @@ Everything so far fed the model one picture and a question. A real multimodal mo
 It doesn't, and the reason is [§2](#where-the-picture-goes): the language model only ever sees one sequence of vectors. Text pieces become vectors through the vocabulary table, each picture becomes 49 vectors through the encoder and connector, and the pieces are laid end to end in whatever order the input has them:
 
 <!-- FIGURE: input-mixes -->
+![Three inputs to the same model: text only, with no image vectors; one picture's 49 vectors followed by the question; and two pictures' vectors, each after its own Image: marker, followed by the question](/assets/picture/2026-10-11-llm-architectures-multimodal/input-mixes-light.png){: .light width="1000" height="344" }
+![Three inputs to the same model: text only, with no image vectors; one picture's 49 vectors followed by the question; and two pictures' vectors, each after its own Image: marker, followed by the question](/assets/picture/2026-10-11-llm-architectures-multimodal/input-mixes-dark.png){: .dark width="1000" height="344" }
 
 - **Text only.** No picture, so no image vectors, and the encoder and connector aren't run at all. What's left is the language model reading text, exactly as it would on its own.
 - **One picture and text.** This post's training format.
@@ -428,8 +458,31 @@ It doesn't, and the reason is [§2](#where-the-picture-goes): the language model
 The demo's [`interleave`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/vlm.py) builds any of these from a list of text and pictures, and here's what each costs in positions ([`text_pictures_or_both`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
 <!-- RECEIPT: s6t -->
+```text
+  input                  positions  from pictures
+  -------------------------------------------------
+  text only                     10              0
+  one picture and text          62             49
+  two pictures and text        114             98
 
-<!-- TODO-RESULTS: text-only discussion -->
+  Text only, post 4's passage: perplexity after each kind of training
+  (lower is better; median of the seeds, range in brackets):
+
+  model                          passage perplexity
+  ---------------------------------------------------
+  Qwen2.5-0.5B as downloaded                20.8706
+  no stage 1                                20.8706
+  connector only                            20.8706
+  connector + LoRA            20.6978 (20.57-20.88)
+
+  >> Text alone is just the language model's ordinary input. Where the
+     language model stayed frozen, its text is exactly what it was; LoRA
+     bought its small gains in stage 2 by changing that.
+```
+
+The second table answers the question a careful reader should ask next: did teaching the model about pictures cost it anything on plain text? It scores every model on post 4's passage, the same 550 tokens of ordinary prose [post 6](/posts/llm-architectures-lora/#what-it-forgot) used to see what fine-tuning disturbed. The two arms that kept the language model frozen score 20.8706, identical to the model as downloaded, to every digit printed, and that's guaranteed rather than lucky. With no picture in the input, the encoder and connector never run, and the language model's weights are the ones it shipped with, so text goes through exactly the computation it always did. Only the LoRA arm changed the language model, so only it can move, and it did a little: a median of 20.70, with the three seeds between 20.57 and 20.88. That's a small move, mostly down, where post 6's adapters pushed the same passage up, to between 20.93 and 25.39. Either way it's the trade [§4](#stage-two) made visible. The frozen design promises the model's text behavior can't change, and the LoRA arm gave up that promise for a leftmost score a little higher, within the spread between seeds.
+
+This is a big reason so many recipes keep the language model frozen for the first stage, and some keep it frozen throughout. Train it, and its plain-text behavior is no longer guaranteed; it has to be measured, as here, on more than one passage.
 
 **What this model can't do, and real ones can.** Being *able* to read two pictures isn't the same as having *learned* to. This model only ever trained on one picture followed by one question, so it has never had to say which picture a question means, or compare two. Real models train on exactly that. [Flamingo](https://arxiv.org/abs/2204.14198) was designed to "handle sequences of arbitrarily interleaved visual and textual data" (abstract), and trained on web pages where pictures and text alternate. Real models also mark where a picture starts and stops with special tokens rather than this post's plain word `Image:`. [Qwen2-VL](https://arxiv.org/abs/2409.12191)'s `<|vision_start|>` and `<|vision_end|>` "are inserted at the start and end of the image feature sequence to demarcate the image content" (§2.2.1), and it packs pictures of different sizes into one sequence. The same idea stretches to video: Qwen2-VL samples "each video at two frames per second" and turns the frames into tokens the same way it turns pictures into tokens; for consistency it even treats a single picture as "two identical frames" (§2.1).
 
@@ -467,7 +520,7 @@ Does merging cost accuracy? The demo trains stage 1 again on all 196 patch vecto
   connector parameters       3,557,120   1,492,736
   captions right, of 120            87          70
   final loss (last-10 mean)     0.0899      0.1205
-  seconds per step                1.02        3.08
+  seconds per step                0.99        3.00
 
   LLaVA-1.5: 336 px, 14 px patches   (336 / 14)^2 = 576 tokens
 ```
