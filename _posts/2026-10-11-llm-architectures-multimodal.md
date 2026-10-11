@@ -9,6 +9,7 @@ description: >-
   two stages and checking, with control rows, whether it actually looks at the
   picture.
 math: true
+pin: true
 published: false  # draft: not yet reviewed
 ---
 
