@@ -54,14 +54,12 @@ Both models download on the first run. Everything runs in fp32, as in post 6, so
 
 #### The pictures, and what the model is asked {#the-pictures}
 
-The demo draws its own pictures: up to four colored shapes on a white square, each a circle, a square or a triangle in one of six colors. Here are the kinds of things it's taught to say about them:
+The demo draws its own pictures: up to four colored shapes on a white square, each a circle, a square or a triangle in one of six colors. Here's what it's taught to say about them, using the picture from the figure above:
 
-| | what it's given | what it must write |
-|---|---|---|
-| **stage 1: describe** | the picture, then `Caption:` | every shape, left to right: `an orange circle, a yellow circle and a purple circle` |
-| **stage 2: count** | `How many shapes are there?` | `three` |
-| **stage 2: binding** | `What color is the triangle?` (asked only when there is one triangle) | `purple` |
-| **stage 2: leftmost** | `What color is the leftmost shape?` | `orange` |
+- **Stage 1, describe.** Given the picture and `Caption:`, write every shape from left to right: `an orange circle, a yellow circle and a purple circle`.
+- **Stage 2, count.** `How many shapes are there?` is answered `three`.
+- **Stage 2, binding.** `What color is the triangle?` is answered with that triangle's color. It's only asked when the picture has exactly one triangle, so there's always one right answer. (The picture in the figures has three circles, so it never gets this question.)
+- **Stage 2, leftmost.** `What color is the leftmost shape?` is answered `orange`.
 
 **Binding** is the name for tying two facts about one object together: it's not enough to see that there's a triangle and that there's purple somewhere, the model has to know the purple belongs to the triangle.
 
@@ -108,6 +106,31 @@ Then the encoder's 12 transformer layers do what a language model's layers do: e
 Here are the numbers, from the real encoder ([`pixels_to_patches`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
 <!-- RECEIPT: s1 -->
+```text
+  step                                              result
+  ----------------------------------------------------------
+  a picture               224 x 224 pixels, 3 numbers each
+  numbers in the picture                           150,528
+  patch size                                16 x 16 pixels
+  patches                                    14 x 14 = 196
+  numbers in one patch                   16 x 16 x 3 = 768
+
+  patch embedding weight             768 x 768 = 589,824
+    as a convolution                 (768, 3, 16, 16), stride 16
+  conv vs one matmul per patch       max difference 2.3e-06
+  position embedding                 (196, 768), one per patch
+
+  encoder layers                     12, width 768, 12 heads
+  encoder parameters                 92,884,224
+    pooling head (not used here)     7,087,104
+    used to make the patch vectors   85,797,120
+  encoder output for one picture     196 vectors, each 768 wide
+
+  >> A picture reaches the transformer as 196 patch vectors, and the patch
+     embedding is an ordinary matrix multiply on each patch's pixels: the
+     same first step as looking up a word's embedding, with pixels in
+     place of a token id.
+```
 
 Two things in that receipt are worth reading slowly.
 
@@ -139,6 +162,19 @@ This post's connector is two steps, following the design [Qwen2-VL](https://arxi
 ([`the_connector`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py))
 
 <!-- RECEIPT: s2a -->
+```text
+  step                                          shape
+  -----------------------------------------------------
+  encoder output                    196 vectors x 768
+  merge each 2 x 2 block           49 vectors x 3,072
+  projector layer 1                      3,072 -> 896
+  projector layer 2                        896 -> 896
+  what the language model reads      49 vectors x 896
+  one word's embedding, for scale      1 vector x 896
+
+  projector parameters, after merge  3,557,120
+    without the merge (768 in)       1,492,736
+```
 
 The connector is 3.56 million parameters, about 0.7% of the language model, and it's the only part stage 1 trains.
 
@@ -153,6 +189,14 @@ Then comes the step that makes the whole thing work, and it's simpler than you m
 The language model is given the vectors for `Image:`, then the picture's 49 vectors, then the vectors for the question's tokens, and asked to continue. The word vectors are looked up from Qwen's vocabulary table as always. The image vectors come out of the connector instead. From the language model's side they're all just positions in one sequence, and its attention treats them all the same way: the token `leftmost` can attend to an image position exactly as it would attend to an earlier word.
 
 <!-- RECEIPT: s2b -->
+```text
+  piece         positions   kind
+  --------------------------------
+  'Image:'              2   text
+  the picture          49  image
+  the question         13   text
+  TOTAL                64
+```
 
 **The picture is never turned into words.** There's no hidden caption in the middle. The language model gets 49 vectors that don't correspond to any word in its vocabulary, and has to learn, through the connector, to make sense of them.
 
@@ -160,29 +204,187 @@ The language model is given the vectors for `Image:`, then the picture's 49 vect
 
 ### 3. Stage 1: learning to describe {#stage-one}
 
+The model now has all its parts, and two of them already know a lot: the encoder knows what's in a picture, and the language model knows how to write. The connector between them knows nothing. It starts random, so the 49 vectors it hands the language model are noise.
+
+Training happens in two stages, the recipe [LLaVA](https://arxiv.org/abs/2304.08485) made standard:
+
 <!-- FIGURE: training-stages -->
 ![The two training stages side by side: in stage 1 only the connector trains, on captions; in stage 2 it trains on questions, alone in one run and with LoRA adapters on the language model in the other](/assets/picture/2026-10-11-llm-architectures-multimodal/training-stages-light.png){: .light width="1000" height="517" }
 ![The two training stages side by side: in stage 1 only the connector trains, on captions; in stage 2 it trains on questions, alone in one run and with LoRA adapters on the language model in the other](/assets/picture/2026-10-11-llm-architectures-multimodal/training-stages-dark.png){: .dark width="1000" height="517" }
 
-<!-- TODO-RESULTS: stage 1 -->
+**Stage 1 trains only the connector, on captions.** The encoder and the language model are both frozen. The model is shown a picture and the word `Caption:`, and its target is the caption: every shape, named left to right. LLaVA's paper calls this stage "pre-training for feature alignment", and describes it the same way: "we keep both the visual encoder and LLM weights frozen, and maximize the likelihood ... with trainable parameters θ = W (the projection matrix) only" (§4.2).
+
+Why captions first? Because a caption is the most direct test of the connector's one job. The language model already knows how to write `a yellow circle`. It only needs to be handed vectors that make *that* the likely thing to write, and the only part allowed to change is the one producing those vectors. So stage 1 teaches the connector to speak the language model's language, without the language model learning anything that could cover for a bad connector.
+
+**How it learns.** Training works as in [post 6](/posts/llm-architectures-lora/#loss-and-exact-match): the model predicts each caption token, the **loss** measures how surprised it was by the right one, and each step nudges the trainable parameters to make it less surprised next time. Only the caption's tokens are scored; the picture and the prompt are context. And as in post 6, freezing a part doesn't mean the training signal skips it. To reach the connector, the gradient has to travel backwards through all 24 of the language model's frozen layers, because that's how the connector's output affected the loss. So a step costs a full forward and backward pass through the language model even though none of its weights change.
+
+Here's stage 1, from [`stage_one`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
+
+<!-- RECEIPT: s3 -->
+```text
+  trained: the connector only        3,557,120 parameters
+  frozen                             vision encoder and language model
+  training                           400 steps x 16 captions, lr 0.001
+  loss at step 1                     3.8180
+  loss at the end (mean of last 10)  0.0899
+  time per step                      1.02 s
+
+  Captions exactly right, on 120 new pictures:
+
+                  right picture  blank picture  wrong picture
+  -------------------------------------------------------------
+  before stage 1              0              0              0
+  after stage 1              87              1              0
+```
+
+<!-- TODO-RESULTS: stage 1 discussion -->
+
+<!-- RECEIPT: s3b -->
+```text
+  truth: a red triangle
+  model: a red triangle
+
+  truth: a blue triangle, a green square and a purple square
+  model: a blue triangle, a green square and a purple square
+
+  truth: a purple circle and a green triangle
+  model: a purple circle and a green triangle
+```
+
+<!-- TODO-RESULTS: stage 1 samples discussion -->
+
 
 ---
 
 ### 4. Stage 2: learning to answer {#stage-two}
 
-<!-- TODO-RESULTS: stage 2 -->
+Stage 1 taught the model to say what's in a picture. Stage 2 teaches it to answer a question about one. The three questions are counting, binding and finding the leftmost shape, introduced in [Setup](#the-pictures), on pictures with two to four shapes.
+
+Notice that a good caption already contains every answer. `an orange circle, a yellow circle and a purple circle` has three shapes in it, the first one named is the leftmost, and each color sits right next to the shape it belongs to. So a model that captions well has, in a sense, already seen what the questions ask about. Stage 2 has to teach it to *answer*: to read the question, pick out the part that matters, and say it in one word.
+
+The demo trains four versions and scores each on 100 new pictures per question:
+
+- **Stage 1 only.** The stage-1 model, asked the questions without any training on them. The base language model has never seen this question format with a picture in it, so this is the starting point.
+- **No stage 1.** A connector trained from random on the questions alone, skipping captions. It gets **800 steps**, as many as stages 1 and 2 together, so if it falls short it isn't for lack of training. This is the control for stage 1 itself: without it, there's no way to tell how much of stage 2's result came from stage 1.
+- **Connector only.** The stage-1 connector, trained 400 more steps on the questions. The language model stays frozen.
+- **Connector + LoRA.** The same, plus a rank-8 LoRA adapter on all seven kinds of matrix in the language model, exactly as in [post 6](/posts/llm-architectures-lora/#where-the-adapters-go): 4,399,104 more trainable parameters. Now the language model itself can change a little.
+
+Each trained version is run three times from different random starts (the **seeds**), because post 6 learned the hard way that a difference between two single runs can be luck. Tables show the median of the three, with the lowest and highest in brackets.
+
+([`stage_two`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py))
+
+<!-- RECEIPT: s4a -->
+```text
+  batch                              16 questions, seeds 0, 1, 2
+
+  model             starts from  steps  trainable  s/step
+  ---------------------------------------------------------
+  no stage 1             random    800  3,557,120    0.91
+  connector only        stage 1    400  3,557,120    0.92
+  connector + LoRA      stage 1    400  7,956,224    1.11
+```
+
+<!-- RECEIPT: s4b -->
+```text
+  task                 model  right picture       blank  wrong picture
+  ----------------------------------------------------------------------
+  count         stage 1 only              0           0              0
+                  no stage 1    98 (98-100)  29 (29-29)     35 (34-35)
+              connector only     96 (91-99)   29 (0-29)     34 (34-34)
+            connector + LoRA     95 (91-96)  29 (29-29)     34 (34-35)
+  binding       stage 1 only             15           0              4
+                  no stage 1     63 (49-66)  15 (12-21)     18 (15-19)
+              connector only     97 (96-97)   14 (0-21)     16 (16-18)
+            connector + LoRA    99 (95-100)   13 (8-17)     18 (17-21)
+  leftmost      stage 1 only             23           0              2
+                  no stage 1     72 (69-73)  15 (15-18)       9 (7-13)
+              connector only     82 (81-95)   13 (0-18)        6 (5-7)
+            connector + LoRA     92 (90-93)   18 (0-18)        7 (6-8)
+```
+
+<!-- FIGURE: stage-two-results -->
+![Stage 2 scores for three questions, each model scored with the right picture, a blank picture and another scene's picture](/assets/picture/2026-10-11-llm-architectures-multimodal/stage-two-results-light.png){: .light width="1000" height="477" }
+![Stage 2 scores for three questions, each model scored with the right picture, a blank picture and another scene's picture](/assets/picture/2026-10-11-llm-architectures-multimodal/stage-two-results-dark.png){: .dark width="1000" height="477" }
+
+Read the table one question at a time, because the three disagree.
+
+**Counting is easy whichever way it's trained.** Every trained version gets almost all 100 right, median 95 to 98, including the one that never saw a caption. How many things there are is something the encoder's patch vectors carry plainly, and a connector trained on nothing but counting questions learns to pass it on.
+
+**Binding is where stage 1 matters.** Trained on questions alone, for 800 steps, the connector gets a median of **63** of 100 colors right; after 400 steps of captions and 400 of questions, the same total, it gets **97**. Telling the model *which shape* the purple belongs to is exactly what a left-to-right caption drills thousands of times: `a purple triangle` puts the color next to its shape every time. Questions alone teach it far less well, even given as many steps as both stages together. This is the post's clearest result, and it cuts against a finding at much larger scale: the [Prismatic VLMs](https://arxiv.org/abs/2402.07865) study found the connector-only first stage "unnecessary" for 7B and 13B models (§4.1). The difference is plausibly in what stage 2 trains. Theirs trains every weight of the language model, which can learn binding itself; this post's connector-only arm has 3.6 million parameters to learn it with, and a frozen 0.5B model behind them.
+
+**Position benefits from both.** Leftmost improves with stage 1 (median 72 without it, 82 with it) and again with LoRA (92). Its spread is the widest in the table: the connector-only runs scored 81, 82 and 95 depending on the seed, which is why a single run would have told two different stories here.
+
+**What LoRA adds is small.** With stage 1 done, letting the language model adapt through a rank-8 adapter leaves count where it was and moves binding by 2. Leftmost gains 10 at the median and its runs become far more consistent, 90 to 93 against 81 to 95, though one connector-only run beat all three LoRA runs, so three seeds can't call it settled. That's a narrower result than "fine-tune the language model too", which is what LLaVA does, and it's worth saying why it might be. These questions have one-word answers and a fixed format, so once the connector hands over the right information, the frozen language model already knows how to say `purple`. Questions that need the language model to *reason* about the picture would give an adapter more to do, and [Idefics2](https://arxiv.org/abs/2405.02246)'s experiments found LoRA useful for exactly that kind of training at scale: "Leveraging LoRA still adds expressivity to the training and stabilizes it" (Finding 3).
 
 ---
 
 ### 5. Is it actually looking? {#is-it-looking}
 
-<!-- TODO-RESULTS: is it looking -->
+Every score in §4 comes with two more columns, and they're the most important numbers in this post.
+
+A model can answer a question about a picture correctly without looking at it. If most pictures have three shapes, "three" is a good guess for any counting question. If the language model has a favorite color, it'll be right whenever that's the answer. A score with nothing to compare it to can't tell real looking from a good guess, and this isn't a theoretical worry: the [MMStar](https://arxiv.org/abs/2403.20330) authors found that on real benchmarks "visual content is unnecessary for many samples", with more than half of one benchmark's questions answerable by a language model that was never shown the picture.
+
+So every question is asked three ways:
+
+- **With the right picture.** The real score.
+- **With a blank picture.** An all-white square, so the model sees nothing. Whatever it scores here, it scores by guessing from the question.
+- **With the wrong picture**, the next test scene's picture, which has its own shapes and colors. A model that really reads the picture should now give *that* picture's answer, which is usually wrong for the question's scene. Right answers here are the ones two scenes happen to share.
+
+The gap between the right picture and the better of the two controls is how much of the score came from looking ([`is_it_looking`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+
+<!-- RECEIPT: s5 -->
+```text
+  task                 model  right picture  best control  gap
+  --------------------------------------------------------------
+  count           no stage 1             98            35   63
+              connector only             96            34   62
+            connector + LoRA             95            34   61
+  binding         no stage 1             63            19   44
+              connector only             97            18   79
+            connector + LoRA             99            18   81
+  leftmost        no stage 1             72            15   57
+              connector only             82            13   69
+            connector + LoRA             92            18   74
+```
+
+<!-- TODO-RESULTS: is it looking discussion -->
 
 ---
 
 ### 6. What an image costs {#what-an-image-costs}
 
-<!-- TODO-RESULTS: costs -->
+A picture isn't free once it's in the sequence. Every position the language model reads costs attention work, and, as [post 2](/posts/llm-architectures-kv-cache/) measured, memory in the **KV cache**: the keys and values the model keeps for every position so it doesn't recompute them for each new token. A picture's positions count exactly like a word's.
+
+For Qwen2.5-0.5B the per-position cost is small and fixed: keys and values, for each of 24 layers, for each of its 2 key/value heads, 64 numbers each, at 2 bytes per number in bf16 ([`what_an_image_costs`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+
+<!-- RECEIPT: s6a -->
+```text
+  KV cache per token, in bf16        12,288 bytes
+    = 2 (K and V) x 24 layers x 2 heads x 64 dims x 2 bytes
+
+  the same picture as   tokens  KV cache
+  ----------------------------------------
+  196 patch vectors        196  2.30 MiB
+  49 merged vectors         49  0.57 MiB
+  its caption in words       3  0.04 MiB
+  caption: "a red triangle"
+```
+
+<!-- TODO-RESULTS: costs discussion -->
+
+<!-- RECEIPT: s6b -->
+```text
+                             49 tokens  196 tokens
+  --------------------------------------------------
+  connector parameters       3,557,120   1,492,736
+  captions right, of 120            87          70
+  final loss (last-10 mean)     0.0899      0.1205
+  seconds per step                1.02        3.08
+
+  LLaVA-1.5: 336 px, 14 px patches   (336 / 14)^2 = 576 tokens
+```
+
+<!-- TODO-RESULTS: costs discussion 2 -->
 
 ---
 
@@ -214,11 +416,25 @@ Which is best? There's no single answer. Idefics2's most useful finding is a con
 
 ### 9. Sidebar: the probe {#sidebar-the-probe}
 
-<!-- TODO-RESULTS: probe -->
+One question to close on, the kind this material gets asked, and what separates an answer that sounds right from one that is.
+
+> **"We attached a vision encoder to our language model and fine-tuned it on question-answer pairs about our product photos. It scores 90% on our test set. Is it ready?"**
+
+**The tempting answer:** *"90% is good. Ship it, and fine-tune more if users find problems."*
+
+A score alone can't answer this, and there are three things to check before it means anything.
+
+**1. Score it without the picture.** Ask every test question again with a blank image, and again with another item's photo. If the blank-picture score is high, the model is answering from the question's wording, and the 90% is partly a measure of how predictable your questions are. This post's §5 does this for every number it reports, and real benchmarks fail it: MMStar found more than half of one benchmark's questions answerable with no picture at all. The useful number is the gap between the right picture and the best control, not the score.
+
+**2. Break the score down by what the question needs.** One average hides everything. Here, three questions about the same pictures behaved completely differently: counting was learned almost however the model was trained, while binding a color to a shape depended on whether the model had first learned to describe pictures. A model that's 90% overall can be near-perfect on "what color is it?" and near-chance on "which one is on the left?", and your users will find the second kind.
+
+**3. Ask where a failure lives before training more.** A VLM has three parts and a wrong answer can come from any of them: the encoder may not represent the detail, the connector may not pass it on, or the language model may not use it. More question-answer data trains the last two at best. This post's binding result is a small example: the questions alone, given as many steps as both stages together, didn't teach binding nearly as well as captions did. And research on much larger models ([*Vision language models are blind*](https://arxiv.org/abs/2407.06581)) finds the encoders often hold information the language model fails to use.
+
+What the question is really testing is whether "90% on our test set" is being read as "it understands the photos", or as what it is: a number that means little until you know what the model scores without looking.
 
 ### What's next {#whats-next}
 
-<!-- TODO: next post -->
+Post 8 is **QLoRA**, the post this one jumped ahead of. It's [post 6](/posts/llm-architectures-lora/) and [post 4](/posts/llm-architectures-quantization/) at the same time: store the frozen base model in 4 bits, then train a LoRA adapter on top of it. This post's stage 2 did exactly the first half of that, an adapter on a frozen model, with the frozen model in full fp32. QLoRA asks what happens when the thing you froze is also compressed: whether gradients can flow back through quantized weights to reach the adapter, why the adapter stays in higher precision when the model under it doesn't, and whether the two approximations add up or stay out of each other's way.
 
 ### Appendix: all notation {#appendix-all-notation}
 
