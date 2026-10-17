@@ -611,16 +611,13 @@ uv run python acquire.py episode \
     --slug ep01_Potion-of-Flight \
     --lang en \
     --out ../data/raw
-uv run python acquire.py commentary \
-    --slug ep01_Potion-of-Flight \
-    --out ../data/raw
 ```
 
 You should end up with:
 
 ```bash
 $ ls ../data/raw/ep01-potion-of-flight/
-commentary.html  commentary.url  cover.jpg  metadata.yaml  pages/
+cover.jpg  metadata.yaml  pages/
 
 $ ls ../data/raw/ep01-potion-of-flight/pages/
 page_001.jpg  page_002.jpg  page_003.jpg
@@ -630,10 +627,12 @@ slug: ep01-potion-of-flight
 title: 'Episode 1: The Potion of Flight'
 episode_number: 1
 language: en
-published_at: 2014-05-31
+published_at: '2014-05-10'
 credits_url: https://www.peppercarrot.com/en/webcomic/ep01_Potion-of-Flight.html
-commentary_url: https://www.davidrevoy.com/...
+commentary_url: null
 ```
+
+`commentary_url` is `null` because Episode 1 has no commentary page on davidrevoy.com.
 
 **Open `page_001.jpg` in an image viewer** to confirm it's a real comic page and not (e.g.) a 404 HTML body that got saved with a `.jpg` extension. Once that opens to a hand-painted Pepper, you have real input data.
 
