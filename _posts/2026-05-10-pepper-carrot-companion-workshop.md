@@ -42,7 +42,7 @@ verification step below.
 4. [Postgres in a Container](#postgres)
 5. [Ollama: An LLM Server for Your Laptop](#ollama)
 6. [A Typed Python Project with uv, mypy, and ruff](#python-project)
-7. [Apply the First Migration](#first-migration)
+7. [Apply the Migrations](#first-migration)
 8. [Your First Episode in `data/raw/`](#first-episode)
 9. [The `.env` File That Ties It Together](#env)
 10. [Verification: The Whole Workshop, End to End](#verification)
@@ -534,18 +534,18 @@ If all three pass, the Python project is sound.
 
 ---
 
-## Apply the First Migration {#first-migration}
+## Apply the Migrations {#first-migration}
 
 > *What's a migration?* A versioned script — usually one `.py` file per change — that takes the database from one schema (the set of tables, columns, indexes, constraints) to the next. Run them in order on a fresh database and you arrive at the current schema. [**Alembic**](https://alembic.sqlalchemy.org/en/latest/) is the migration tool that ships with SQLAlchemy.
 
-The workshop starter already ships the initial migration, so applying it is one command from `backend/`:
+The workshop starter already ships two migrations, so applying them is one command from `backend/`:
 
 ```bash
 cd backend
 uv run alembic upgrade head
 ```
 
-`head` means "the latest revision." On a fresh database, that's the one initial migration — and it creates every table the app will ever use.
+`head` means "the latest revision." On a fresh database, Alembic applies every migration in order up to it: the initial one, which creates eight tables, then a second that adds the two world-graph tables. Together they create every table the app will ever use.
 
 Verify by listing tables:
 
@@ -737,7 +737,7 @@ If something fails, fix it now. Setup bugs that survive into application develop
 
 ---
 
-Next up: **Post 3 — The Data Model: Ten Tables, One Migration.** You just applied a migration that created eleven tables; the next post opens them up — how Alembic generates the migration from your models, why that beats `create_all()`, how each table maps to a product feature, and a column-by-column tour of the SQLAlchemy models.
+Next up: **Post 3 — The Data Model: Ten Tables, Two Migrations.** You just applied two migrations that created eleven tables; the next post opens them up — how Alembic generates the migration from your models, why that beats `create_all()`, how each table maps to a product feature, and a column-by-column tour of the SQLAlchemy models.
 
 The **workshop starter** that backs this post is at <https://github.com/bearbearyu1223/pepper-carrot-companion-workshop>, tagged `post-02-04-starter`. The **full source repository** and a public live-demo URL go up alongside the deploy guide near the end of the series — once it's published.
 

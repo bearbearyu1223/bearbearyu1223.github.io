@@ -1,12 +1,12 @@
 ---
-title: "Pepper & Carrot AI-powered flipbook · Part 3 — Designing the Postgres Data Model: Ten Tables, One Migration, Zero Surprises"
+title: "Pepper & Carrot AI-powered flipbook · Part 3 — Designing the Postgres Data Model: Ten Tables, Two Migrations, Zero Surprises"
 date: 2026-05-11 00:00:00 -0800
 categories: [Full-Stack, RAG, Local AI]
 tags: [postgres, sqlalchemy, alembic, data-modeling, jsonb, fastapi, peppercarrot, portfolio]
 description: >-
   Post 3 of the Pepper & Carrot AI flipbook series. Post 2 stood up
-  Postgres and applied the first migration; this post explains what that
-  migration created and why. How Alembic works, why not
+  Postgres and applied the migrations; this post explains what they
+  created and why. How Alembic works, why not
   Base.metadata.create_all(), how ten tables map one-to-one onto product
   features, four design decisions that pay off later, and a column-by-column
   tour of the SQLAlchemy 2.0 models.
@@ -35,7 +35,7 @@ column-by-column tour of the actual SQLAlchemy models.
 > - The SQLAlchemy 2.0 typed-model style, every column explained.
 >
 > **Prerequisites.** [Post 2]({% post_url 2026-05-10-pepper-carrot-companion-workshop %})
-> finished: Postgres healthy, the first migration applied, eleven tables in `\dt`.
+> finished: Postgres healthy, the migrations applied, eleven tables in `\dt`.
 
 > **Checking out the code.** The data model lives in the same workshop
 > starter as the setup — `backend/app/db/models.py`, the Alembic migration,
@@ -71,20 +71,25 @@ You don't write either from scratch. `alembic init alembic` (a one-time bootstra
 
 ### Generate the initial migration
 
+The starter already ships two migrations, and the `alembic upgrade head` you ran in Post 2 applied both of them in order. The first creates eight tables; the second adds the two world-graph tables:
+
+```
+backend/alembic/versions/63c2bf610f34_initial_schema.py
+backend/alembic/versions/c04c64861ae8_add_world_entities_and_world_.py
+```
+
+The first one was generated with this command, run against an empty database:
+
 ```bash
 cd backend
 uv run alembic revision --autogenerate -m "initial schema"
 ```
 
-This reads `backend/app/db/models.py` (the SQLAlchemy 2.0 typed declarative models), compares them against the empty database, and writes a file like:
+This reads `backend/app/db/models.py` (the SQLAlchemy 2.0 typed declarative models), compares them against the empty database, and writes the migration file. If you run it yourself now, against the database Post 2 already upgraded, autogenerate finds nothing to change and writes a new revision whose `upgrade()` is just `pass`. Delete that file.
 
-```
-backend/alembic/versions/a1b2c3d4e5f6_initial_schema.py
-```
+**Open `63c2bf610f34_initial_schema.py` and read it.** I mean it. Autogenerate is great but not perfect, and the bugs it introduces are silent and load-bearing. Specifically check:
 
-**Open that file and read it.** I mean it. Autogenerate is great but not perfect, and the bugs it introduces are silent and load-bearing. Specifically check:
-
-- All 10 application tables are present: `episodes`, `pages`, `characters`, `page_characters`, `wiki_articles`, `commentary_notes`, `chat_sessions`, `chat_messages`, `world_entities`, `world_relationships`. (An eleventh table, `alembic_version`, gets created automatically.)
+- All 8 of its application tables are present: `episodes`, `pages`, `characters`, `page_characters`, `wiki_articles`, `commentary_notes`, `chat_sessions`, `chat_messages`. The other two, `world_entities` and `world_relationships`, are in the second migration. (An eleventh table, `alembic_version`, gets created automatically.)
 - JSONB columns use `postgresql.JSONB`, **not** generic `sa.JSON`. Autogenerate sometimes downgrades these. ChromaDB metadata queries in Post 9 depend on JSONB specifically, so this matters.
 - Array columns (`mood_tags`, `aliases`) use `postgresql.ARRAY(sa.String())`.
 - The unique constraint on `(episode_id, page_number)` in `pages` exists.
@@ -92,7 +97,7 @@ backend/alembic/versions/a1b2c3d4e5f6_initial_schema.py
 
 If anything is off, edit the migration file directly rather than regenerating. Autogenerate occasionally drops things on regeneration if its inference of "current state" drifts.
 
-> *Why we have these specific tables, in one paragraph.* `episodes` and `pages` are the unit-of-content rows the flipbook UI reads from. `characters` and `page_characters` power the (future) character chips on the page indicator. `wiki_articles` holds the curated universe lore that wiki-mode chat retrieves from in Post 11. `chat_sessions` and `chat_messages` are the conversation audit log. (`commentary_notes` is a forward-looking placeholder — see the feature-to-table walk-through below for what it's for and why it's in the schema without a UI yet.) `world_entities` and `world_relationships` are the knowledge-graph tables that power the world-graph overlay in Post 12 — declared in `models.py` from day one, so this same initial migration creates them, even though nothing touches them until later. The full schema with field-by-field rationale lives in [`docs/data-model.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/docs/data-model.md) in the workshop starter.
+> *Why we have these specific tables, in one paragraph.* `episodes` and `pages` are the unit-of-content rows the flipbook UI reads from. `characters` and `page_characters` power the (future) character chips on the page indicator. `wiki_articles` holds the curated universe lore that wiki-mode chat retrieves from in Post 11. `chat_sessions` and `chat_messages` are the conversation audit log. (`commentary_notes` is a forward-looking placeholder — see the feature-to-table walk-through below for what it's for and why it's in the schema without a UI yet.) `world_entities` and `world_relationships` are the knowledge-graph tables that power the world-graph overlay in Post 12 — declared in `models.py` from day one and created by the starter's second migration, so they're in `\dt` from the start even though nothing touches them until later. The full schema with field-by-field rationale lives in [`docs/data-model.md`](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop/blob/main/docs/data-model.md) in the workshop starter.
 
 ### Why not just `Base.metadata.create_all()`? {#why-not-create-all}
 
@@ -131,7 +136,7 @@ Finally, the **conversations themselves** need to persist — a user might close
 
 Those are the seven tables driven by current product features. There's also one **forward-looking placeholder** in the schema: `commentary_notes`. The idea behind it was a small UI feature, surfacing excerpts from David Revoy's making-of blog posts (he often writes about how a specific page came together) inline with the comic. The data shape is straightforward (one row per note, tied to an `episode_id` and an optional `page_number_hint`), and the source content is already part of the archive we'll download from peppercarrot.com in Post 2. But the UI to surface it isn't built in the current version of the app, so the table is in the schema as a hook for a feature that may or may not ship later. I'm leaving it in the migration mostly because removing tables later is cheap, and provisioning them retroactively against production data is less so.
 
-Two more tables — `world_entities` and `world_relationships` — round out the schema. They power the world-graph overlay Post 12 covers in depth, but they're already declared in `models.py` and therefore created by *this* initial migration alongside everything else. We won't touch them until the world-graph phase, but they're sitting there in `\dt` from day one because there's nothing to gain from staging them in a later migration.
+Two more tables — `world_entities` and `world_relationships` — round out the schema. They power the world-graph overlay Post 12 covers in depth, but they're already declared in `models.py`, and the starter's second migration (`c04c64861ae8`) creates them. Post 2's `alembic upgrade head` applies it right after the initial one, so they're sitting there in `\dt` from day one. We won't touch them until the world-graph phase.
 
 The point of this exercise isn't to memorize the tables. It's to notice that the schema is a direct translation of the product, not a generic data model pulled off a shelf. When you're designing a schema for your own app, the same move applies: list the features the product is going to support (or might plausibly support soon) and ask what data each one needs. Let the answers cluster into tables. The result is a schema where every table can name the specific feature it exists for. You won't find generic `users` / `tags` / `permissions` / `revisions` tables sitting there "just in case", and that absence is the point. Schemas full of speculative tables are how data models calcify before the product is even shipped.
 
@@ -166,7 +171,7 @@ When you're tuning retrieval in Post 9 and a user reports "the chat answered wro
 
 ## What the SQLAlchemy Models Actually Look Like {#the-models}
 
-The migration above is autogenerated from a set of typed Python classes in `backend/app/db/models.py`, and this section shows them. The code below is exactly what Alembic's autogenerate diffs against to produce the migration you applied in Post 2: every column, type, and constraint mentioned in the design discussions above is a line of Python below.
+The migrations above are autogenerated from a set of typed Python classes in `backend/app/db/models.py`, and this section shows them. The code below is exactly what Alembic's autogenerate diffs against to produce the migrations you applied in Post 2: every column, type, and constraint mentioned in the design discussions above is a line of Python below.
 
 If you've never seen SQLAlchemy 2.0's typed style before, here's the one-sentence summary: each column is a class attribute typed with `Mapped[X]` (the Python type) and assigned to `mapped_column(...)` (the database type and constraints). The two halves are kept in agreement by [`mypy --strict`](https://mypy-lang.org/) — if you say a column is `Mapped[str]` and then map it to a column that allows NULL, the type-check fails.
 

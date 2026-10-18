@@ -411,7 +411,7 @@ what's coming.
 |---|------|----------------------------------|
 | 1 | **When Your Chunks Are Comic Pages: An AI-Powered Flipbook for Pepper & Carrot** *(this post)* | A clear picture of the series and a 20-second walkthrough of what you'll be building. |
 | 2 | Setting Up the Workshop: Postgres, Ollama, and a Project That Type-Checks | Local Postgres + Ollama running, a FastAPI scaffold passing `mypy` and `ruff`, and one episode downloaded — the environment every later post builds on. |
-| 3 | The Data Model: Ten Tables, One Migration | The schema that mirrors the app's features, the first Alembic migration applied, and a column-by-column tour of the SQLAlchemy models. |
+| 3 | The Data Model: Ten Tables, Two Migrations | The schema that mirrors the app's features, the Alembic migrations applied, and a column-by-column tour of the SQLAlchemy models. |
 | 4 | Provider Abstractions: Why Every External Service Hides Behind an Interface | A `LocalStorage` that works end-to-end, a `SentenceTransformersEmbeddingClient` producing real 1024-dim vectors, and a mental model for swapping either out without touching business logic. |
 | 5 | Claude Skills as a Vision Provider: Ingesting a Comic by Reading It | A working understanding of what a Claude Code skill is, why it beats running a vision model in production, and the `ingest-from-images` skill that describes each page. |
 | 6 | The Ingestion Pipeline: From Page JSONs to Postgres + Chroma | One full episode ingested into Postgres + Chroma + storage by the Stage-2 pipeline that consumes the skill's page descriptions. |
