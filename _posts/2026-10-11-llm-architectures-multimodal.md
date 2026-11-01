@@ -43,7 +43,7 @@ I built a small vision-language model from three parts: a frozen picture encoder
 | looking adds, over the controls | **44 to 81** points |
 | KV cache per picture (bf16) | **0.57 MiB** (196 tokens: 2.30) |
 
-**How it works.** A picture enters a transformer the way text does, as a sequence of vectors. The encoder cuts it into 16 × 16-pixel patches and turns each into a vector, and is itself a transformer much like the language model, except that every patch can read every other patch: there's no causal mask, because a picture isn't written left to right ([§1](#pixels-to-patches)). The connector merges neighbouring patches and reshapes them to the language model's width, and those vectors go into the sequence where words would be ([§2](#the-connector)). The language model doesn't change at all to read them, and since everything is one sequence, the same model takes text alone, one picture or several ([§6](#text-pictures-or-both)).
+**How it works.** A picture enters a transformer the way text does, as a sequence of vectors. The encoder cuts it into 16 × 16-pixel patches and turns each into a vector, and is itself a transformer much like the language model, except that every patch can read every other patch: there's no causal mask, because a picture isn't written left to right ([§1](#pixels-to-patches)). The connector merges neighbouring patches and reshapes them to the language model's width, and those vectors go into the sequence where words would be ([§2](#the-connector)). The language model doesn't change at all to read them, and since everything is one sequence, the same model takes text alone, one picture or several ([§7](#text-pictures-or-both)).
 
 **What training buys.**
 
@@ -54,8 +54,8 @@ I built a small vision-language model from three parts: a frozen picture encoder
 **Living with it.**
 
 - **A score means nothing without a control.** Asked with a blank picture, the models still got about 29 of 100 counting questions right by guessing. Every number here is read against that ([§5](#is-it-looking)).
-- **Pictures cost tokens.** 49 tokens is sixteen times as many positions as this picture's three-word caption. Merging 196 patches into 49 made a training step 3× faster, and here it didn't cost accuracy ([§7](#what-an-image-costs)).
-- **This is one design of four.** Others summarize the picture into a fixed number of tokens, read it through cross-attention, or turn it into a vocabulary of image tokens ([§8](#other-designs)).
+- **Pictures cost tokens.** 49 tokens is sixteen times as many positions as this picture's three-word caption. Merging 196 patches into 49 made a training step 3× faster, and here it didn't cost accuracy ([§8](#what-an-image-costs)).
+- **This is one design of four.** Others summarize the picture into a fixed number of tokens, read it through cross-attention, or turn it into a vocabulary of image tokens ([§9](#other-designs)).
 
 The pictures are simple, generated shapes, so these numbers describe how the mechanism behaves, not how good the model is on photographs.
 
@@ -96,6 +96,12 @@ The demo draws its own pictures: up to four colored shapes on a white square, ea
 
 Generated pictures are a deliberate choice, and the biggest limitation of this post. Every answer is exact, so a score of 87 of 100 means 87 answers were exactly right and nothing else. The test pictures are new ones drawn from a different random seed, so a score is a score on pictures the model has never seen. No dataset has to be downloaded or cleaned. The price is that these pictures are far easier than photographs, so the numbers here say how the mechanism behaves, not how good a VLM this is.
 
+**Three pairs are kept out of training.** Six colors and three shapes make 18 color-shape pairs. A red triangle, a green circle and a blue square never appear in any training picture, though red, green, blue, triangles, circles and squares all do. A second test set asks only about those three pairs. A new picture isn't much of a test if it's made of pairs the model trained on thousands of times, while a pair it has never seen is: to say "red" for a triangle, it has to read the color off the shape rather than remember which colors triangles come in. [§6](#pairs-never-seen) has that test.
+
+Here's the whole experiment on one page, the data, the training runs and the tests, before the sections go through each piece:
+
+<!-- FIGURE: experiment -->
+
 ### Table of Contents
 
 Skip to [the short version](#the-short-version) for the findings without the derivations.
@@ -105,11 +111,12 @@ Skip to [the short version](#the-short-version) for the findings without the der
 3. [Stage 1: learning to describe](#stage-one)
 4. [Stage 2: learning to answer](#stage-two)
 5. [Is it actually looking?](#is-it-looking)
-6. [Text, a picture, or both](#text-pictures-or-both)
-7. [What an image costs](#what-an-image-costs)
-8. [Other ways to connect a picture](#other-designs)
-9. [What follows from all this](#what-follows)
-10. [Sidebar: the probe](#sidebar-the-probe)
+6. [Pairs it never saw](#pairs-never-seen)
+7. [Text, a picture, or both](#text-pictures-or-both)
+8. [What an image costs](#what-an-image-costs)
+9. [Other ways to connect a picture](#other-designs)
+10. [What follows from all this](#what-follows)
+11. [Sidebar: the probe](#sidebar-the-probe)
 
 Plus [all notation](#appendix-all-notation) at the end.
 
@@ -234,7 +241,7 @@ This post's connector is two steps, following the design [Qwen2-VL](https://arxi
 ![The connector: four neighbouring patch vectors glued end to end into one 3,072-wide vector, then a trained two-layer MLP turns it into one 896-wide image token](/assets/picture/2026-10-11-llm-architectures-multimodal/connector-light.png){: .light width="1000" height="390" }
 ![The connector: four neighbouring patch vectors glued end to end into one 3,072-wide vector, then a trained two-layer MLP turns it into one 896-wide image token](/assets/picture/2026-10-11-llm-architectures-multimodal/connector-dark.png){: .dark width="1000" height="390" }
 
-1. **Merge each 2 × 2 block of neighbouring patches into one vector.** Four 768-wide vectors are glued end to end into one 3,072-wide vector. The 14 × 14 grid becomes a 7 × 7 grid, so 196 vectors become 49. Nothing is averaged: every number still reaches the next step. What shrinks is how many positions the language model has to read, which [§7](#what-an-image-costs) puts a price on. Qwen2-VL's paper describes the same move: "a simple MLP layer is employed after the ViT to compress adjacent 2 × 2 tokens into a single token" (§2.1).
+1. **Merge each 2 × 2 block of neighbouring patches into one vector.** Four 768-wide vectors are glued end to end into one 3,072-wide vector. The 14 × 14 grid becomes a 7 × 7 grid, so 196 vectors become 49. Nothing is averaged: every number still reaches the next step. What shrinks is how many positions the language model has to read, which [§8](#what-an-image-costs) puts a price on. Qwen2-VL's paper describes the same move: "a simple MLP layer is employed after the ViT to compress adjacent 2 × 2 tokens into a single token" (§2.1).
 2. **Pass each merged vector through a small MLP.** Two layers: 3,072 numbers in, 896 out, then 896 to 896, with a GELU between them (a smooth version of "keep positives, zero negatives", close cousin of the SiLU in [post 1's FFN](/posts/llm-architectures-attention-and-rope/#the-ffn)). The output is 896 wide, the width of one of Qwen's word embeddings. This two-layer shape is the one [LLaVA-1.5](https://arxiv.org/abs/2310.03744) found worked better than the single linear layer of the original [LLaVA](https://arxiv.org/abs/2304.08485) (§3.3).
 
 The same two steps as a formula. Call one merged vector $h$, its 3,072 numbers in a row. The first layer has a learned matrix $W_1$, 3,072 × 896, and a learned list of 896 numbers $b_1$ added after it, called a **bias**. The second layer has its own $W_2$, 896 × 896, and $b_2$. The image token $z$ that comes out is
@@ -416,17 +423,20 @@ Read the table one question at a time, because the three disagree.
 
 ### 5. Is it actually looking? {#is-it-looking}
 
-Every score in §4 comes with two more columns, and they're the most important numbers in this post.
+Every score in §4 was taken with the right picture. This section asks the same questions three more ways, and those three columns are the most important numbers in this post.
 
 A model can answer a question about a picture correctly without looking at it. If most pictures have three shapes, "three" is a good guess for any counting question. If the language model has a favorite color, it'll be right whenever that's the answer. A score with nothing to compare it to can't tell real looking from a good guess, and this isn't a theoretical worry: the [MMStar](https://arxiv.org/abs/2403.20330) authors found that on real benchmarks "visual content is unnecessary for many samples", with more than half of one benchmark's questions answerable by a language model that was never shown the picture.
 
-So every question is asked three ways:
+So every question is asked four ways:
+
+<!-- FIGURE: four-controls -->
 
 - **With the right picture.** The real score.
 - **With a blank picture.** An all-white square, so the model sees nothing. Whatever it scores here, it scores by guessing from the question.
 - **With the wrong picture**, the next test scene's picture, which has its own shapes and colors. A model that really reads the picture should now give *that* picture's answer, which is usually wrong for the question's scene. Right answers here are the ones two scenes happen to share.
+- **With no picture at all.** Only the question's words, with no `Image:` and no image vectors, so the language model reads text and nothing else. This is the test MMStar ran. It differs from the blank picture in one way: a blank picture still puts 49 vectors in the sequence, ones the connector made from an empty image, and those can push the answer around even though they show nothing.
 
-The gap between the right picture and the better of the two controls is how much of the score came from looking ([`is_it_looking`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+The **gap** between the right picture and the best of the three controls is how much of the score came from looking ([`is_it_looking`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
 <!-- RECEIPT: s5 -->
 ```text
@@ -455,7 +465,7 @@ The same check at benchmark scale is where it gets uncomfortable. The MMStar aut
 
 ---
 
-### 6. Text, a picture, or both {#text-pictures-or-both}
+### 7. Text, a picture, or both {#text-pictures-or-both}
 
 Everything so far fed the model one picture and a question. A real multimodal model takes text alone, a picture alone, several pictures with text between them, in any order. Does that need different machinery for each case?
 
@@ -467,11 +477,11 @@ It doesn't, and the reason is [§2](#where-the-picture-goes): the language model
 
 - **Text only.** No picture, so no image vectors, and the encoder and connector aren't run at all. What's left is the language model reading text, exactly as it would on its own.
 - **One picture and text.** This post's training format.
-- **Several pictures.** Each picture adds its own 49 vectors wherever it appears. Nothing in the language model limits how many, only the length of sequence it can handle and the memory [§7](#what-an-image-costs) puts a price on.
+- **Several pictures.** Each picture adds its own 49 vectors wherever it appears. Nothing in the language model limits how many, only the length of sequence it can handle and the memory [§8](#what-an-image-costs) puts a price on.
 
 The demo's [`interleave`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/vlm.py) builds any of these from a list of text and pictures, and here's what each costs in positions ([`text_pictures_or_both`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
-<!-- RECEIPT: s6t -->
+<!-- RECEIPT: s7t -->
 ```text
   input                  positions  from pictures
   -------------------------------------------------
@@ -502,13 +512,13 @@ This is a big reason so many recipes keep the language model frozen for the firs
 
 ---
 
-### 7. What an image costs {#what-an-image-costs}
+### 8. What an image costs {#what-an-image-costs}
 
 A picture isn't free once it's in the sequence. Every position the language model reads costs attention work, and, as [post 2](/posts/llm-architectures-kv-cache/) measured, memory in the **KV cache**: the keys and values the model keeps for every position so it doesn't recompute them for each new token. A picture's positions count exactly like a word's.
 
 For Qwen2.5-0.5B the per-position cost is small and fixed: keys and values, for each of 24 layers, for each of its 2 key/value heads, 64 numbers each, at 2 bytes per number in bf16 ([`what_an_image_costs`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
-<!-- RECEIPT: s6a -->
+<!-- RECEIPT: s8a -->
 ```text
   KV cache per token, in bf16        12,288 bytes
     = 2 (K and V) x 24 layers x 2 heads x 64 dims x 2 bytes
@@ -523,11 +533,11 @@ For Qwen2.5-0.5B the per-position cost is small and fixed: keys and values, for 
 
 A picture costs the same no matter what's in it. The demo's first test picture is one red triangle, whose caption is three tokens; its 49 image tokens take sixteen times as many positions. At 196 tokens it would be 65 times as many.
 
-That's small per picture for a 0.5B model, but it adds up the way post 2's cache did: a conversation with ten pictures at 196 tokens holds 23 MiB of cache for the pictures alone, and the cost per token grows with the model. Real models use far more tokens per picture than this one. LLaVA-1.5's encoder takes 336-pixel pictures in 14-pixel patches, which is $(336/14)^2 = 576$ tokens per picture, the last line of the receipt. That's why so much design effort goes into cutting the count: Qwen2-VL's 2 × 2 merge, which this post copies, SmolVLM's "pixel shuffle", which cuts tokens "by a factor of r²" and finds small models "benefit from more aggressive visual token compression", and the fixed-size summaries of [§8](#other-designs).
+That's small per picture for a 0.5B model, but it adds up the way post 2's cache did: a conversation with ten pictures at 196 tokens holds 23 MiB of cache for the pictures alone, and the cost per token grows with the model. Real models use far more tokens per picture than this one. LLaVA-1.5's encoder takes 336-pixel pictures in 14-pixel patches, which is $(336/14)^2 = 576$ tokens per picture, the last line of the receipt. That's why so much design effort goes into cutting the count: Qwen2-VL's 2 × 2 merge, which this post copies, SmolVLM's "pixel shuffle", which cuts tokens "by a factor of r²" and finds small models "benefit from more aggressive visual token compression", and the fixed-size summaries of [§9](#other-designs).
 
 Does merging cost accuracy? The demo trains stage 1 again on all 196 patch vectors, same seed, same data, same 400 steps:
 
-<!-- RECEIPT: s6b -->
+<!-- RECEIPT: s8b -->
 ```text
                              49 tokens  196 tokens
   --------------------------------------------------
@@ -543,7 +553,7 @@ The merged model did *better*: 87 captions right against 70, with a lower final 
 
 ---
 
-### 8. Other ways to connect a picture {#other-designs}
+### 9. Other ways to connect a picture {#other-designs}
 
 This post's model belongs to one family. It's worth knowing the others, because "multimodal LLM" covers several designs that differ exactly where this post's connector sits.
 
@@ -563,7 +573,7 @@ Which is best? There's no single answer. Idefics2's most useful finding is a con
 
 ---
 
-### 9. What follows from all this {#what-follows}
+### 10. What follows from all this {#what-follows}
 
 Six things, in the order the post found them.
 
@@ -578,7 +588,7 @@ And three limits, stated plainly. The pictures are generated shapes, much easier
 
 ---
 
-### 10. Sidebar: the probe {#sidebar-the-probe}
+### 11. Sidebar: the probe {#sidebar-the-probe}
 
 One question to close on, the kind this material gets asked, and what separates an answer that sounds right from one that is.
 
@@ -607,7 +617,7 @@ The terms this post leans on; anything not listed is defined where it first appe
 | Term | Means | In this post |
 | --- | --- | --- |
 | multimodal | taking in more than one kind of input, here pictures and text | |
-| VLM | vision-language model: reads pictures and text, writes text | §1 to §7 |
+| VLM | vision-language model: reads pictures and text, writes text | throughout |
 | ViT | vision transformer: a transformer whose tokens are patches of a picture | SigLIP-base, 12 layers |
 | patch | one square of the picture, treated like one token | 16 × 16 pixels, 196 per picture |
 | patch embedding | the learned matrix that turns a flattened patch's pixel numbers into a vector | 768 × 768 |
@@ -624,10 +634,10 @@ The terms this post leans on; anything not listed is defined where it first appe
 | exact match | the series' scoring rule: greedy decoding, trim spaces at the ends, compare | |
 | control | the same question scored with a picture that can't contain the answer: blank, or another scene's | §5 |
 | KV cache | the keys and values a model keeps for every position it has read ([post 2](/posts/llm-architectures-kv-cache/)) | 12,288 bytes per position in bf16 |
-| cross-attention | attention where one sequence's queries read another sequence's keys and values | §8's design 3 |
+| cross-attention | attention where one sequence's queries read another sequence's keys and values | §9's design 3 |
 | causal mask | the rule that a position may only attend to itself and earlier positions; language models have it, the encoder doesn't | §1 |
 | LayerNorm, RMSNorm | rescaling each vector to a standard size before a sublayer; RMSNorm skips subtracting the mean | encoder, language model |
-| interleaved | text and pictures mixed in one sequence, in any order | §6 |
+| interleaved | text and pictures mixed in one sequence, in any order | §7 |
 
 ### References
 
@@ -635,12 +645,12 @@ The terms this post leans on; anything not listed is defined where it first appe
 - Radford et al., [Learning Transferable Visual Models From Natural Language Supervision](https://arxiv.org/abs/2103.00020) (2021) — CLIP: an image encoder and a text encoder trained together on "400 million (image, text) pairs" (§2.2) to predict which pictures go with which captions (§2.3). The encoder most VLMs started from.
 - Zhai et al., [Sigmoid Loss for Language Image Pre-Training](https://arxiv.org/abs/2303.15343) (2023) — SigLIP, this post's encoder. It replaces CLIP's batch-wide comparison with a loss that "processes every image-text pair independently" (§3.2), which "does not require a global view of the pairwise similarities for normalization" (abstract).
 - Liu et al., [Visual Instruction Tuning](https://arxiv.org/abs/2304.08485) (2023) — LLaVA, the recipe this post follows. A frozen CLIP ViT-L/14 encoder, "a simple linear layer" as the connector (§4.1), and two stages (§4.2): the projection alone on 595K picture-caption pairs filtered from CC3M with encoder and language model frozen, then the projection and the whole language model on instruction data.
-- Liu et al., [Improved Baselines with Visual Instruction Tuning](https://arxiv.org/abs/2310.03744) (2023) — LLaVA-1.5. A two-layer MLP connector in place of the linear one, and 336-pixel input (§3.3). The paper doesn't state a token count; §7's 576 is $(336/14)^2$ from its encoder's patch size.
+- Liu et al., [Improved Baselines with Visual Instruction Tuning](https://arxiv.org/abs/2310.03744) (2023) — LLaVA-1.5. A two-layer MLP connector in place of the linear one, and 336-pixel input (§3.3). The paper doesn't state a token count; §8's 576 is $(336/14)^2$ from its encoder's patch size.
 - Wang et al., [Qwen2-VL: Enhancing Vision-Language Model's Perception of the World at Any Resolution](https://arxiv.org/abs/2409.12191) (2024) — the 2 × 2 merge this post's connector uses: "a simple MLP layer is employed after the ViT to compress adjacent 2 × 2 tokens into a single token" (§2.1), pictures of any size turned into a varying number of tokens, and the special tokens that mark where a picture starts and ends (§2.2.1). Video is sampled "at two frames per second" (§2.1).
-- Alayrac et al., [Flamingo: a Visual Language Model for Few-Shot Learning](https://arxiv.org/abs/2204.14198) (2022) — §8's designs 2 and 3, and §6's interleaving. A Perceiver Resampler "produces a fixed number of visual outputs (64)" (§2.1); gated cross-attention layers sit between frozen language-model layers, gated by $\tanh(\alpha)$ with $\alpha$ "initialized to 0" (§2.2), every fourth layer in Flamingo-9B (§3.3); and the model is built to "handle sequences of arbitrarily interleaved visual and textual data" (abstract).
+- Alayrac et al., [Flamingo: a Visual Language Model for Few-Shot Learning](https://arxiv.org/abs/2204.14198) (2022) — §9's designs 2 and 3, and §7's interleaving. A Perceiver Resampler "produces a fixed number of visual outputs (64)" (§2.1); gated cross-attention layers sit between frozen language-model layers, gated by $\tanh(\alpha)$ with $\alpha$ "initialized to 0" (§2.2), every fourth layer in Flamingo-9B (§3.3); and the model is built to "handle sequences of arbitrarily interleaved visual and textual data" (abstract).
 - Li et al., [BLIP-2: Bootstrapping Language-Image Pre-training with Frozen Image Encoders and Large Language Models](https://arxiv.org/abs/2301.12597) (2023) — the Q-Former: "32 queries" (§3.1) that read a frozen encoder's output and hand a frozen language model a fixed-size summary.
-- Grattafiori et al. (Llama Team), [The Llama 3 Herd of Models](https://arxiv.org/abs/2407.21783) (2024) — §8's design 3 at scale: cross-attention layers "applied after every fourth self-attention layer" (§7.2), the language model kept frozen on purpose (§1), the image encoder trained (§7.2).
-- Team Chameleon, [Chameleon: Mixed-Modal Early-Fusion Foundation Models](https://arxiv.org/abs/2405.09818) (2024) — §8's design 4: images quantized into discrete tokens, 1,024 per 512 × 512 picture from a codebook of 8,192 (§2.1), in one model trained on both.
+- Grattafiori et al. (Llama Team), [The Llama 3 Herd of Models](https://arxiv.org/abs/2407.21783) (2024) — §9's design 3 at scale: cross-attention layers "applied after every fourth self-attention layer" (§7.2), the language model kept frozen on purpose (§1), the image encoder trained (§7.2).
+- Team Chameleon, [Chameleon: Mixed-Modal Early-Fusion Foundation Models](https://arxiv.org/abs/2405.09818) (2024) — §9's design 4: images quantized into discrete tokens, 1,024 per 512 × 512 picture from a codebook of 8,192 (§2.1), in one model trained on both.
 - Laurençon et al., [What matters when building vision-language models?](https://arxiv.org/abs/2405.02246) (2024) — Idefics2's design study. Cross-attention wins with frozen backbones and loses once they train (Finding 2); learned pooling from 729 to 64 visual tokens "increases the performance by 8.5 points on average" (§3.3); and on training the language model, "Leveraging LoRA still adds expressivity to the training and stabilizes it" (Finding 3).
 - Karamcheti et al., [Prismatic VLMs: Investigating the Design Space of Visually-Conditioned Language Models](https://arxiv.org/abs/2402.07865) (2024) — found the connector-only first stage "unnecessary" at 7B and 13B, where single-stage training improved results and saved "20-25% of training cost" (§4.1). Their second stage trains the whole language model, not LoRA.
 - Chen et al., [Are We on the Right Way for Evaluating Large Vision-Language Models?](https://arxiv.org/abs/2403.20330) (2024) — MMStar. §5's control rows at benchmark scale: "visual content is unnecessary for many samples", with more than half of ScienceQA's questions and a fifth of MMMU's answerable by language models with no picture at all.
