@@ -41,6 +41,7 @@ I built a small vision-language model from three parts: a frozen picture encoder
 | "color of the triangle?", pairs seen in training | **98** of 100 |
 | the same, for pairs never in a training picture | **76** of 100 |
 | ... and if stage 1 is skipped | **40** of 100 |
+| stage 1 ahead there, 5 paired seeds | **5 of 5**, by a median of 74 in 300 |
 | looking adds, over the controls | **59 to 70** points |
 | KV cache per picture (bf16) | **0.57 MiB** (196 tokens: 2.30) |
 
@@ -50,7 +51,8 @@ I built a small vision-language model from three parts: a frozen picture encoder
 
 - **The connector alone gets a long way.** With both big models frozen, 3.6 million trained parameters teach the model to caption new pictures exactly right 91 times out of 120 ([§3](#stage-one)).
 - **On familiar pictures, every way of training works.** Asked the color of a shape, the three trained versions scored a median of 94 to 99 of 100, with or without the captioning stage ([§4](#stage-two)).
-- **Pairs it never saw are the real test.** Three color-shape pairs never appeared in training. Asked about them, the model scored 76 instead of 98, and the one trained without the captioning stage scored 40. Its wrong answers were nearly always the color of a different shape in the same picture ([§6](#pairs-never-seen)).
+- **Pairs it never saw are the real test.** Three color-shape pairs never appeared in training. Asked about them, the model scored 76 instead of 98, and the one trained without the captioning stage scored 40. A second run with five paired seeds and 300 fresh questions per test found the same: stage 1 came out ahead in all five ([§6](#five-seeds)). Most wrong answers were the color of a different shape in the same picture, and only the model without stage 1 leaned toward the colors a shape usually came in.
+- **More captions helped one question.** Mixing captions into stage 2 improved "what color is the leftmost shape?" in all five seeds and did nothing for binding ([§6](#five-seeds)).
 - **LoRA added nothing measurable.** Letting the language model adapt moved no score beyond the spread of three seeds ([§4](#stage-two)).
 
 **Living with it.**
@@ -73,7 +75,7 @@ uv sync && uv run demo07
 
 The code is in [`demos/d07_multimodal.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py), and the model itself is in [`vlm.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/vlm.py): the patch cutting, the connector, and the code that splices a picture into a sentence are all written out rather than imported, because this series builds the thing it's explaining. Every number this post quotes is printed by that program, and each block of its output, which I call a **receipt**, names the function that printed it.
 
-A warning about time: the demo *trains*, eleven times, and takes almost **three hours** on my Mac. Most of that is stage 2's three seeds of three versions, and one stage 1 run on 196 tokens per picture, which is three times slower than the rest. `uv run demo07 --figures` redraws every figure from the last run's saved scores in seconds.
+A warning about time: the demo *trains*, eleven times, and takes almost **three hours** on my Mac. Most of that is stage 2's three seeds of three versions, and one stage 1 run on 196 tokens per picture, which is three times slower than the rest. `uv run demo07 --figures` redraws every figure from the last run's saved scores in seconds. The five-seed check in §6 is a separate program, `uv run demo07 --followup`, which trains 20 more times and takes about three and a half hours more.
 
 Each training run starts from a fixed seed, so it's repeatable on the same machine: in an earlier version, I stopped and restarted the demo partway through, and stage 1 and the first stage-2 run printed identical scores both times. Expect a different machine to move some scores by a point or two, since floating-point sums can be ordered differently.
 
@@ -115,7 +117,7 @@ Skip to [the short version](#the-short-version) for the findings without the der
 3. [Stage 1: learning to describe](#stage-one)
 4. [Stage 2: learning to answer](#stage-two)
 5. [Is it actually looking?](#is-it-looking)
-6. [Pairs it never saw](#pairs-never-seen)
+6. [Pairs it never saw](#pairs-never-seen), and [five seeds, three checks](#five-seeds)
 7. [Text, a picture, or both](#text-pictures-or-both)
 8. [What an image costs](#what-an-image-costs)
 9. [Other ways to connect a picture](#other-designs)
@@ -528,9 +530,9 @@ Every color and every shape still appears in training, just never in those three
 
 **Binding drops, and stage 1 is the difference.** On held-out pairs, the stage-1 models get a median of **76** of 100 colors right, down from 98 and 99. The model that skipped stage 1 gets **40**, down from 94. So the captioning stage barely mattered on pairs the model had trained on, and mattered a lot on pairs it hadn't. That's the post's main result, and it puts the Prismatic finding from §4 in a different light: a first stage can look unnecessary when the test only checks familiar combinations.
 
-It's also the noisiest number in the post. The three no-stage-1 runs scored 22, 40 and 77, and the connector-only runs 40, 76 and 81, so one seed of each landed in the other's range. Two of three seeds put stage 1 far ahead, and the medians are 36 points apart, but three seeds can't make that precise.
+It's also the noisiest number in the post. The three no-stage-1 runs scored 22, 40 and 77, and the connector-only runs 40, 76 and 81, so one seed of each landed in the other's range. The medians are 36 points apart, but three seeds can't make that precise, so I ran it again with five seeds, at the [end of this section](#five-seeds).
 
-Why would captions help on a pair no caption contained? A plausible reading: a caption names *every* shape with its own color, in order, so the only way to get a caption right is to carry each shape's color separately. Questions alone reward something weaker, getting the one asked-about color right, and a shortcut through familiar pairs does that just as well until a pair is unfamiliar.
+Why would captions help on a pair no caption contained? A plausible reading: a caption names *every* shape with its own color, in order, so the only way to get a caption right is to carry each shape's color separately. Questions alone reward something weaker, getting the one asked-about color right, and a shortcut through familiar pairs does that just as well until a pair is unfamiliar. The five-seed run tests both halves of that guess.
 
 **Every model is still looking.** The gaps on held-out binding are 27, 53 and 51 points, so even the no-stage-1 model reads something from the picture. It just reads the wrong color more often.
 
@@ -595,11 +597,125 @@ Look at the pictures. Asked the color of the red triangle, the model said `yello
                       connector + LoRA     16          15          1
 ```
 
-On held-out binding, 18 of the connector-only model's 19 wrong answers were a color that was in the picture, on some other shape. It saw the colors and attached one to the wrong shape. That's a binding failure in the plainest sense, and it fits the shortcut from the top of this section: when the right color has never come with this shape before, another color from the same picture wins.
+On held-out binding, 18 of the connector-only model's 19 wrong answers were a color that was in the picture, on some other shape. It saw the colors and attached one to the wrong shape. That's a binding failure in the plainest sense. Whether it's the shortcut from the top of this section, picking the color this shape usually came in, one seed can't say; the five-seed run checks that too.
 
-The model that skipped stage 1 fails differently in one way: 9 of its 23 wrong binding answers named a color that wasn't in the picture at all. Those aren't binding failures. That model is sometimes misreading the color itself, which the stage-1 models almost never do.
+The model that skipped stage 1 fails differently in one way: 9 of its 23 wrong binding answers named a color that wasn't in the picture at all. Those aren't binding failures. That model is sometimes misreading the color itself, which the stage-1 models did only once and twice in this seed.
 
-This is the reason to look at failures and not only scores. The first seed's score of 81 says something went wrong 19 times. The wrong answers say what: the color was read and then given to the wrong shape. That points past the encoder, which saw the color, to the parts that tie a color to a shape: the connector and the language model reading it.
+This is the reason to look at failures and not only scores. The first seed's score of 81 says something went wrong 19 times. The wrong answers say what: the color was read and then given to the wrong shape. It looks like a problem in the parts that tie a color to a shape, the connector and the language model reading it, rather than in the encoder. The probe below shows that's only partly true.
+
+#### Five seeds, and three checks {#five-seeds}
+
+Three seeds left the main result uncertain, and this section has made three guesses it hasn't tested: that captions help because they make the model carry every shape's color, that the encoder saw the colors the model then gave to the wrong shape, and that wrong answers come from a shortcut through familiar pairs. A second program, `uv run demo07 --followup`, checks all four ([`d07_followup.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)). It changes three things:
+
+- **Paired seeds.** Five seeds, each training its own stage 1. Each seed then trains three versions: **no stage 1** (800 steps of questions), **connector only** (stage 1, then 400 steps of questions), and **connector + captions**, the same as connector only except that each step's 16 questions come with 4 captions mixed in. All three see the same questions in the same order, so two versions from one seed differ only in how they were trained.
+- **Bigger, fresh tests.** 300 questions per test instead of 100, drawn from seeds the main run never used.
+- **No LoRA.** It moved nothing in §4, so its place goes to the captions version.
+
+Here are the scores:
+
+<!-- RECEIPT: f1 -->
+```text
+  Median of 5 seeds, range in brackets, right of 300. Control is the
+  best of blank, wrong and no picture on held-out binding.
+
+  model                  binding seen       held out     control
+  ----------------------------------------------------------------
+  no stage 1            273 (231-298)   107 (61-205)  36 (23-76)
+  connector only        297 (286-300)  214 (140-237)  81 (44-98)
+  connector + captions  282 (212-298)  206 (115-259)  81 (40-98)
+
+  model                 leftmost seen       held out
+  ----------------------------------------------------
+  no stage 1            235 (204-260)  187 (165-239)
+  connector only        271 (265-272)  241 (234-254)
+  connector + captions  287 (279-288)  278 (264-293)
+```
+
+<!-- FIGURE: paired-seeds -->
+![Five seeds, each drawn as a line joining the same seed trained three ways, no stage 1, connector only and connector plus captions; left, binding on held-out pairs, medians 36, 71 and 69 percent; right, leftmost on held-out pairs, medians 62, 80 and 93 percent](/assets/picture/2026-10-11-llm-architectures-multimodal/paired-seeds-light.png){: .light width="1000" height="458" }
+![Five seeds, each drawn as a line joining the same seed trained three ways, no stage 1, connector only and connector plus captions; left, binding on held-out pairs, medians 36, 71 and 69 percent; right, leftmost on held-out pairs, medians 62, 80 and 93 percent](/assets/picture/2026-10-11-llm-architectures-multimodal/paired-seeds-dark.png){: .dark width="1000" height="458" }
+
+**Stage 1 helps on held-out pairs, in every seed.** On held-out binding, connector only beat no stage 1 in all five seeds, by a median of 74 questions in 300, about 25 points. Seed by seed:
+
+<!-- RECEIPT: f2 -->
+```text
+  Seed by seed, held-out pairs: how often one version beat another.
+
+  version                      against      task  ahead in  median
+  ------------------------------------------------------------------
+  connector only            no stage 1   binding    5 of 5     +74
+                                        leftmost    5 of 5     +53
+  connector + captions  connector only   binding    2 of 5      -4
+                                        leftmost    5 of 5     +31
+```
+
+So the main result holds, and it no longer rests on one seed. The medians, 214 and 107 of 300, are 71% and 36%, close to the main run's 76 and 40. Each version's median sits far above its control's, so all of them are looking.
+
+**More captions didn't help binding.** Mixing captions into stage 2 came out ahead of connector only in 2 seeds of 5, by a median of −4, and one seed fell to 115. So whatever captions do for binding, they do it in stage 1; there's no sign that more of them in stage 2 adds anything.
+
+**But they helped the leftmost question in every seed,** 278 against 241 on held-out pairs. The likeliest reason is in how captions are written: shapes go from left to right, so every caption starts with the answer to "what color is the leftmost shape?".
+
+**Is the color in the vectors at all?** A **probe** is the simplest reader there is: a linear classifier that looks at the vectors under one shape and names its color (or its kind). It's trained on shapes from training pictures, which never include a held-out pair, and tested on shapes in held-out pictures. If it can name a red triangle's color, that color is plainly there in the vectors; if it can't, a linear reader trained on familiar pairs can't find it. The demo probes three places: the encoder's output, the stage-1 connector's output, and the output of the connector-only model after stage 2, both connectors from the first seed.
+
+<!-- RECEIPT: f3 -->
+```text
+  read from               color: seen  held out  kind: seen  held out
+  ---------------------------------------------------------------------
+  encoder output (196)         100.0%     74.9%      100.0%     98.7%
+  stage 1 connector (49)       100.0%     88.9%      100.0%     90.0%
+  stage 2 connector (49)       100.0%     80.1%      100.0%     89.3%
+
+  probe trained on                   7,474 shapes in training pictures
+  tested on                          670 seen-pair, 542 held-out-pair shapes
+```
+
+On familiar pairs every layer gives color and kind perfectly. On held-out pairs, color drops to 74.9% at the encoder's output, against a chance of 1 in 6. So even the frozen encoder doesn't keep color fully apart from shape: a reader that learned "red" from circles and squares misses a red triangle a quarter of the time. Stage 1 makes color easier to read off (88.9%), though kind gets a little harder (98.7% to 90.0%), and stage 2's questions take some of the color gain back (80.1%). For the same seed, the connector-only model answered 237 of 300 held-out binding questions right, 79%. The two numbers don't count the same things, every held-out-pair shape against one question per picture, so it's a rough comparison. But it says most of what the model loses on held-out pairs is already lost in the vectors the language model receives.
+
+**Where the wrong colors came from, all five seeds.** Holding three pairs out skews the training colors. Triangles are never red, so they come green or blue more often than anything else:
+
+<!-- RECEIPT: f4 -->
+```text
+  How often each shape came in each color, over all training pictures:
+
+  shape      red  green  blue  yellow  purple  orange
+  -----------------------------------------------------
+  circle    1411      0  1379     931     868     881
+  square    1382   1368     0     939     918     921
+  triangle     0   1420  1362     957     903     930
+```
+
+That gives the shortcut a concrete form. For a triangle, the familiar colors are green and blue; for a circle, red and blue; for a square, red and green. If a model is answering from habit, its wrong colors should lean toward those. First, how many wrong answers were a color that was in the picture at all:
+
+<!-- RECEIPT: f5 -->
+```text
+  Wrong held-out binding answers, all 5 seeds:
+
+  model                 wrong  color in picture  not in it
+  ----------------------------------------------------------
+  no stage 1              944               814        130
+  connector only          499               445         54
+  connector + captions    512               502         10
+```
+
+Most were, from 86% of the no-stage-1 model's wrong answers to 98% of the captions version's. The first seed made the stage-1 models look almost immune to misreading a color; over five seeds the connector-only model named an absent color 54 times in 499. Next, for the wrong colors that were in the picture, whose color was it?
+
+<!-- RECEIPT: f6 -->
+```text
+  Of the wrong colors that were in the picture: did the color belong to
+  the nearest shape, and was it one of the two colors this kind of shape
+  came in most often in training? Beside each, what picking one of the
+  other shapes at random would give.
+
+  model                 in picture  nearest  chance  common  chance
+  -------------------------------------------------------------------
+  no stage 1                   814      506   523.2     378   303.2
+  connector only               445      274   281.8     174   169.3
+  connector + captions         502      313   320.0     150   177.7
+```
+
+The nearest shape explains nothing: every model sits at or a little below chance. The familiar colors split the models. The no-stage-1 model picked one 378 times against 303 expected by chance, so it does lean on the shortcut. The stage-1 models don't, 174 against 169 and 150 against 178. Their wrong answers look like a random pick among the other shapes in the picture.
+
+Put together: stage 1 helps on unfamiliar pairs, in every seed. Part of the reason is that the model without it falls back on the colors a shape usually came in, and the stage-1 models don't. What's left of their mistakes isn't explained by position or habit, and the probe puts part of it in the vectors before the language model reads them.
 
 ---
 
@@ -726,8 +842,8 @@ Seven things, in the order the post found them.
 
 1. **A picture is just more vectors.** A vision encoder turns patches into vectors the way an embedding table turns tokens into vectors, and after that it's a transformer like any other. Nothing about the language model had to change to read a picture.
 2. **The connector is the whole adaptation.** 3.6 million trained parameters, about 0.7% of the language model, were enough to get captions exactly right 91 times in 120. The two big models stayed exactly as they were downloaded.
-3. **Familiar test pictures hide what training did.** On pairs seen in training, every trained version answered 94 to 99 binding questions in 100, with or without the captioning stage. Only pairs it had never seen told them apart: 76 with captions first, 40 without.
-4. **The failures were binding failures.** On held-out pairs, almost every wrong color was the color of another shape in the same picture. The model saw the colors and tied one to the wrong shape.
+3. **Familiar test pictures hide what training did.** On pairs seen in training, every trained version answered 94 to 99 binding questions in 100, with or without the captioning stage. Only pairs it had never seen told them apart: 76 with captions first, 40 without, and five paired seeds put stage 1 ahead in all five.
+4. **The failures were mostly binding failures.** On held-out pairs, 86% to 98% of wrong colors, depending on the model, were the color of another shape in the same picture. Only the model without stage 1 leaned toward the colors a shape usually came in, and a probe found part of the problem already in the vectors the language model reads.
 5. **LoRA was the smallest lever here.** It moved no score beyond the spread between seeds, and it was the only version that could answer without looking. That's a statement about one-word answers on simple pictures, not about LoRA in general.
 6. **Controls are part of the result.** A blank picture still answered counting questions right 32 times in 100. Without that column, a 50% score would look like partial vision instead of a guess.
 7. **Tokens are the cost.** Every picture is a fixed number of positions in the sequence and the KV cache, and the field's designs are largely different answers to how few positions a picture can be squeezed into.
@@ -752,7 +868,7 @@ A score alone can't answer this, and there are four things to check before it me
 
 **3. Test on combinations it never trained on.** If the test photos are new shots of the same products in the same settings, a model can score well by remembering which answers go with which products. Hold some combinations out of training on purpose, say a product never shown in one of its colors, and test on those. Here, binding scored 98 on familiar color-shape pairs and 76 on held-out ones, and 40 for a model trained without the captioning stage, which looked as good as the others on familiar pairs.
 
-**4. Read the failures before training more.** A VLM has three parts and a wrong answer can come from any of them: the encoder may not represent the detail, the connector may not pass it on, or the language model may not use it. More question-answer data trains the last two at best. Reading the wrong answers is how you tell which. In §6, nearly every wrong color was the color of another shape in the same picture, so the encoder had seen it and the failure lay in tying it to the right shape, which more question data alone didn't fix. And research on much larger models ([*Vision language models are blind*](https://arxiv.org/abs/2407.06581)) finds the encoders often hold information the language model fails to use.
+**4. Read the failures before training more.** A VLM has three parts and a wrong answer can come from any of them: the encoder may not represent the detail, the connector may not pass it on, or the language model may not use it. More question-answer data trains the last two at best. Reading the wrong answers is how you tell which. In §6, most wrong colors were the color of another shape in the same picture, which looks like a failure to tie a color to its shape. But a probe showed part of it was already in the encoder's vectors, and mixing more captions into training didn't fix it. And research on much larger models ([*Vision language models are blind*](https://arxiv.org/abs/2407.06581)) finds the encoders often hold information the language model fails to use.
 
 What the question is really testing is whether "90% on our test set" is being read as "it understands the photos", or as what it is: a number that means little until you know what the model scores without looking.
 
