@@ -27,6 +27,8 @@ A model that takes more than one kind of input, here pictures and text, is calle
 ![A vision-language model from three parts: a picture goes through a frozen vision encoder into 196 vectors, a trained connector turns them into 49 vectors as wide as the language model's word vectors, and those sit in the sequence between the text tokens that the frozen language model reads](/assets/picture/2026-10-11-llm-architectures-multimodal/vlm-overview-light.png){: .light width="1000" height="488" }
 ![A vision-language model from three parts: a picture goes through a frozen vision encoder into 196 vectors, a trained connector turns them into 49 vectors as wide as the language model's word vectors, and those sit in the sequence between the text tokens that the frozen language model reads](/assets/picture/2026-10-11-llm-architectures-multimodal/vlm-overview-dark.png){: .dark width="1000" height="488" }
 
+The question this post tests is whether that's enough. With both big models frozen, can training only the small part between them get a language model to answer questions about a picture? And when it answers right, is it reading the picture, or guessing from the question?
+
 ### The short version {#the-short-version}
 
 I built a small vision-language model from three parts: a frozen picture encoder (SigLIP-base), a frozen text model (Qwen2.5-0.5B, the model from posts 4 and 6), and a small **connector** between them, the only part trained from scratch. It was taught on generated pictures of colored shapes in two stages, first to describe them and then to answer questions about them. Every number is measured by the demo:
@@ -235,6 +237,12 @@ This post's connector is two steps, following the design [Qwen2-VL](https://arxi
 1. **Merge each 2 × 2 block of neighbouring patches into one vector.** Four 768-wide vectors are glued end to end into one 3,072-wide vector. The 14 × 14 grid becomes a 7 × 7 grid, so 196 vectors become 49. Nothing is averaged: every number still reaches the next step. What shrinks is how many positions the language model has to read, which [§7](#what-an-image-costs) puts a price on. Qwen2-VL's paper describes the same move: "a simple MLP layer is employed after the ViT to compress adjacent 2 × 2 tokens into a single token" (§2.1).
 2. **Pass each merged vector through a small MLP.** Two layers: 3,072 numbers in, 896 out, then 896 to 896, with a GELU between them (a smooth version of "keep positives, zero negatives", close cousin of the SiLU in [post 1's FFN](/posts/llm-architectures-attention-and-rope/#the-ffn)). The output is 896 wide, the width of one of Qwen's word embeddings. This two-layer shape is the one [LLaVA-1.5](https://arxiv.org/abs/2310.03744) found worked better than the single linear layer of the original [LLaVA](https://arxiv.org/abs/2304.08485) (§3.3).
 
+The same two steps as a formula. Call one merged vector $h$, its 3,072 numbers in a row. The first layer has a learned matrix $W_1$, 3,072 × 896, and a learned list of 896 numbers $b_1$ added after it, called a **bias**. The second layer has its own $W_2$, 896 × 896, and $b_2$. The image token $z$ that comes out is
+
+$$z = \mathrm{GELU}(h\,W_1 + b_1)\,W_2 + b_2$$
+
+Those four pieces are the whole connector, and counting their numbers gives its size: $3{,}072 \times 896 + 896 + 896 \times 896 + 896 = 3{,}557{,}120$. Without the merge, $h$ is one 768-wide patch vector, $W_1$ shrinks to 768 × 896, and the total is 1,492,736. Both appear in the receipt below.
+
 ([`the_connector`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py))
 
 <!-- RECEIPT: s2a -->
@@ -273,6 +281,12 @@ The language model is given the vectors for `Image:`, then the picture's 49 vect
   the question         13   text
   TOTAL                64
 ```
+
+Two details of that sequence are easy to miss.
+
+**Inside the language model, the image positions obey the causal mask.** Image token 10 can read image tokens 1 to 9, but not 11 to 49, even though all 49 exist at once. That sounds like it would lose half the picture, but it doesn't: the "every patch reads every patch" of [§1](#inside-the-encoder) already happened in the encoder, so every image token carries information about the whole picture before the language model reads any of them.
+
+**The language model gets no picture layout.** The 7 × 7 grid goes in row by row, and each image token gets an ordinary next position, exactly as the next word would. Nothing tells the language model that token 8 sits directly below token 1. Whatever it knows about where things are, it learns from what the encoder put inside the vectors. Real models often add the layout back: Qwen2-VL's version of RoPE, M-RoPE, gives each image token a height and a width position along with its place in time (§2.1).
 
 **The picture is never turned into words.** There's no hidden caption in the middle. The language model gets 49 vectors that don't correspond to any word in its vocabulary, and has to learn, through the connector, to make sense of them.
 
@@ -600,6 +614,8 @@ The terms this post leans on; anything not listed is defined where it first appe
 | vision encoder | the ViT that turns a picture into patch vectors | frozen throughout |
 | pooling head | SigLIP's final layer that squeezes all patch vectors into one; unused here | |
 | connector | the trained part between encoder and language model | 2 × 2 merge + 2-layer MLP, 3,557,120 parameters |
+| $h$, $z$ | one merged vector into the connector; the image token out of it | 3,072 wide; 896 wide |
+| $W_1$, $b_1$, $W_2$, $b_2$ | the connector's learned matrices and biases | 3,072 × 896 and 896; 896 × 896 and 896 |
 | merge | gluing each 2 × 2 block of patch vectors end to end | 196 vectors of 768 → 49 of 3,072 |
 | image tokens | the connector's output vectors, placed in the sequence where word embeddings would go | 49, each 896 wide |
 | stage 1 | training the connector alone, on captions | |
