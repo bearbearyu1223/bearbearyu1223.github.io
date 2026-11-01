@@ -1,6 +1,6 @@
 ---
 title: "LLM Architecture Refresh [7]: Teaching a Language Model to See"
-date: 2026-10-11 09:00:00 -0700
+date: 2026-11-03 09:00:00 -0800
 categories: [LLM Architecture Refresh, Multimodal]
 tags: [multimodal, vision-language, vlm, llava, siglip, vision-transformer, lora, qwen, pytorch]
 description: >-
