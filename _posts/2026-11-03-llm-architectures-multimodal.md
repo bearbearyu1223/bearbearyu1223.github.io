@@ -58,7 +58,7 @@ I built a small vision-language model from three parts: a picture encoder (SigLI
 **Living with it.**
 
 - **A score means nothing without a control.** Asked with a blank picture, the models still got about 32 of 100 counting questions right by guessing. Every number here is read against that ([§5](#is-it-looking)).
-- **Pictures cost tokens.** 49 tokens is sixteen times as many positions as this picture's three-word caption. Merging 196 patches into 49 made a training step almost 3× faster, and here it didn't cost accuracy ([§8](#what-an-image-costs)).
+- **Pictures cost tokens.** 49 tokens is sixteen times as many positions as this picture's three-word caption. Merging 196 patches into 49 made a training step 3× faster, and here it didn't cost accuracy ([§8](#what-an-image-costs)).
 - **This is one design of four.** Others summarize the picture into a fixed number of tokens, read it through cross-attention, or turn it into a vocabulary of image tokens ([§9](#other-designs)).
 
 The pictures are simple, generated shapes, so these numbers describe how the mechanism behaves, not how good the model is on photographs.
@@ -75,7 +75,7 @@ uv sync && uv run demo07
 
 The code is in [`demos/d07_multimodal.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py), and the model itself is in [`vlm.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/vlm.py): the patch cutting, the connector, and the code that splices a picture into a sentence are all written out rather than imported, because this series builds the thing it's explaining. Every number this post quotes is printed by that program, and each block of its output, which I call a **receipt**, names the function that printed it.
 
-A warning about time: the demo *trains*, eleven times, and takes almost **three hours** on my Mac. Most of that is stage 2's three versions, each trained three times from different seeds, and one stage 1 run on 196 tokens per picture, which is three times slower than the rest. `uv run demo07 --figures` redraws the figures from the last run's saved scores in seconds (`--followup-figures` draws §6's five-seed figure). The five-seed check in §6 is a separate program, `uv run demo07 --followup`, which trains 20 more times and takes about three and a half hours more.
+A warning about time: the demo *trains*, eleven times, and takes over **two and a half hours** on my Mac. Most of that is stage 2's three versions, each trained three times from different seeds, and one stage 1 run on 196 tokens per picture, which is three times slower than the rest. `uv run demo07 --figures` redraws the figures from the last run's saved scores in seconds (`--followup-figures` draws §6's five-seed figure). The five-seed check in §6 is a separate program, `uv run demo07 --followup`, which trains 20 more times and takes about three and a half hours more.
 
 Each training run starts from a fixed **seed**, the number that sets its random starting weights and the order it sees examples in, so it's repeatable on the same machine: in an earlier version, I stopped and restarted the demo partway through, and stage 1 and the first stage-2 run printed identical scores both times. Expect a different machine to move some scores by a point or two, since floating-point sums can be ordered differently.
 
@@ -326,7 +326,7 @@ Here's stage 1, from [`stage_one`](https://github.com/bearbearyu1223/llm-archite
   training                           400 steps x 16 captions, lr 0.001
   loss at step 1                     3.4778
   loss at the end (mean of last 10)  0.0534
-  time per step                      1.13 s
+  time per step                      1.01 s
 
   Captions exactly right, of 120 new pictures each:
 
@@ -388,8 +388,8 @@ Each trained version is run three times from different **seeds** ([Setup](#setup
   model             starts from  steps  trainable  s/step
   ---------------------------------------------------------
   no stage 1             random    800  3,557,120    0.89
-  connector only        stage 1    400  3,557,120    0.92
-  connector + LoRA      stage 1    400  7,956,224    1.11
+  connector only        stage 1    400  3,557,120    0.91
+  connector + LoRA      stage 1    400  7,956,224    1.10
 ```
 
 And the scores, also from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
@@ -795,7 +795,7 @@ Does merging cost accuracy? The demo trains stage 1 again on all 196 patch vecto
   connector parameters       3,557,120   1,492,736
   captions right, of 120            91          76
   final loss (last-10 mean)     0.0534      0.1331
-  seconds per step                1.13        3.15
+  seconds per step                1.01        3.03
 
   LLaVA-1.5: 336 px, 14 px patches   (336 / 14)^2 = 576 tokens
 
@@ -807,7 +807,7 @@ Does merging cost accuracy? The demo trains stage 1 again on all 196 patch vecto
   448 x 448 px      784  9.19 MiB           196  2.30 MiB
 ```
 
-The merged model did *better*: 91 captions right against 76, with a lower final loss, at well under half the time per step (1.13 seconds against 3.15). But that's not a clean comparison, and the reason is in the first row. Without the merge, the connector's first layer takes 768 numbers per vector instead of 3,072, so it has 1.49 million parameters instead of 3.56 million. The comparison changed two things at once, the number of tokens and the size of the connector, and one run can't say which one mattered. What it does show is what matters in practice: cutting the picture to a quarter of the tokens cost nothing here, and made training almost three times faster. [Idefics2](https://arxiv.org/abs/2405.02246) reports the same direction at scale, where cutting 729 visual tokens to 64 improved results ([§9](#other-designs) has the details).
+The merged model did *better*: 91 captions right against 76, with a lower final loss, at a third of the time per step (1.01 seconds against 3.03). But that's not a clean comparison, and the reason is in the first row. Without the merge, the connector's first layer takes 768 numbers per vector instead of 3,072, so it has 1.49 million parameters instead of 3.56 million. The comparison changed two things at once, the number of tokens and the size of the connector, and one run can't say which one mattered. What it does show is what matters in practice: cutting the picture to a quarter of the tokens cost nothing here, and made training three times faster. [Idefics2](https://arxiv.org/abs/2405.02246) reports the same direction at scale, where cutting 729 visual tokens to 64 improved results ([§9](#other-designs) has the details).
 
 The last table is the cost of sharper pictures. Patches are a fixed 16 pixels, so doubling the picture's side to 448 pixels quadruples the patches, to 784, and the KV cache with them. The 2 × 2 merge only brings that back to 196 tokens, the same as this post's unmerged picture. Every model that reads small text in a photo pays this, which is why Qwen2-VL lets the number of patches vary with the picture's size instead of fixing it.
 
