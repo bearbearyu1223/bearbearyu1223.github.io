@@ -252,7 +252,7 @@ The same two steps as a formula. Call one merged vector $h$, its 3,072 numbers i
 
 $$z = \mathrm{GELU}(h\,W_1 + b_1)\,W_2 + b_2$$
 
-Those four pieces are the whole connector, and counting their numbers gives its size: $3{,}072 \times 896 + 896 + 896 \times 896 + 896 = 3{,}557{,}120$. Without the merge, $h$ is one 768-wide patch vector, $W_1$ shrinks to 768 × 896, and the total is 1,492,736. Both appear in the receipt below.
+Those four pieces are the whole connector, and counting their numbers gives its size: $3{,}072 \times 896 + 896$ for the first layer, plus $896 \times 896 + 896$ for the second, is $3{,}557{,}120$. Without the merge, $h$ is one 768-wide patch vector, $W_1$ shrinks to 768 × 896, and the total is 1,492,736. Both appear in the receipt below.
 
 ([`the_connector`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py))
 
@@ -337,7 +337,7 @@ Here's stage 1, from [`stage_one`](https://github.com/bearbearyu1223/llm-archite
     held-out pairs             63      0              0           0
 ```
 
-Read it top to bottom (lr is the learning rate, how big each nudge is). The loss starts at 3.48, which means that, on average, the model gave the right next word of a caption a probability of about 3% ($e^{-3.48}$); it ends near 0.05, about 95% ($e^{-0.05}$). Before training it gets **no** caption right. That's what a random connector should do: the language model is reading 49 vectors of noise. After 400 steps it gets **91 of 120** exactly right on pictures it never saw, every shape named in the right order with the right color. Exact match is strict: one wrong word in `a blue circle, a yellow triangle and an orange circle` and the whole caption counts as wrong.
+Read it top to bottom (lr is the learning rate, how big each nudge is). The loss starts at 3.48, which means that, on average, the model gave the right next word of a caption a probability of about 3% (that's $e^{-3.48}$); it ends near 0.05, about 95% (that's $e^{-0.05}$). Before training it gets **no** caption right. That's what a random connector should do: the language model is reading 49 vectors of noise. After 400 steps it gets **91 of 120** exactly right on pictures it never saw, every shape named in the right order with the right color. Exact match is strict: one wrong word in `a blue circle, a yellow triangle and an orange circle` and the whole caption counts as wrong.
 
 The three control columns ask for the same caption with an all-white picture, with another test scene's picture, and with no picture at all, only the prompt. They say the 91 isn't luck. With a blank picture the model gets 2 captions right, and with another scene's picture, or with no picture at all, none. A caption names every shape and its position, so there's little to guess from: the model either reads the picture or fails. ([§5](#is-it-looking) uses the same controls on the questions, where they matter more.)
 
