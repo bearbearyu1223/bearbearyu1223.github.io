@@ -12,3 +12,7 @@ package-lock.json
 .vscode
 _sass/vendors
 assets/js/dist
+
+# post desk: approvals, feedback, preview build (local only)
+.desk/
+__pycache__/
