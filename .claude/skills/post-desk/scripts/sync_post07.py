@@ -90,8 +90,8 @@ def extract(capture: list[str], spec) -> list[str]:
                 if pairs == 4:
                     break
             out.append(l)
-        while out and not out[-1].strip():
-            out.pop()
+        while out and (not out[-1].strip() or set(out[-1].strip()) == {"-"}):
+            out.pop()  # trailing blanks, and the next section's rule
         return out
     if mode and mode[0] == "before":
         j = next(k for k in range(i + 2, len(lines)) if re.search(last, lines[k]))
