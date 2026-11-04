@@ -329,24 +329,46 @@ That's why it can stay frozen, and why the whole recipe is cheap. In the demo it
 
 ### 2. The connector {#the-connector}
 
-The encoder hands over 196 vectors, each 768 wide. The language model expects vectors 896 wide, and more importantly, it expects them to mean what its own word vectors mean. SigLIP's numbers and Qwen's numbers were learned separately, by different models with different goals, so a SigLIP vector dropped into Qwen's sequence is noise to it. The **connector** translates.
+The encoder hands over 196 vectors, each 768 wide. They can't go straight into Qwen, for two reasons.
 
-This post's connector is two steps, following the design [Qwen2-VL](https://arxiv.org/abs/2409.12191) uses:
+- **The width is wrong.** Qwen's word vectors are 896 wide; the encoder's are 768.
+- **The meaning is wrong.** This is the bigger problem. SigLIP's numbers and Qwen's numbers were learned separately, by different models with different goals. Even at the right width, a SigLIP vector dropped into Qwen's sequence would be noise to it.
+
+Fixing the width is easy: any matrix of the right shape does it. Making the vectors mean something to the language model is the hard part, and it's what the **connector** has to learn. Before training, this post's connector already turns out vectors of the right width, and the model still gives the right next word of a caption a probability of only about 3% ([§3](#stage-one)).
+
+The connector also has a practical job: cutting how many vectors the picture takes. It does both in two steps, following the design [Qwen2-VL](https://arxiv.org/abs/2409.12191) uses: **merge**, so the picture takes fewer positions, then **project**, so each vector fits the language model.
 
 <!-- FIGURE: connector -->
-![The connector: four neighbouring patch vectors glued end to end into one 3,072-wide vector, then a trained two-layer MLP turns it into one 896-wide image token](/assets/picture/2026-10-11-llm-architectures-multimodal/connector-light.png){: .light width="1000" height="390" }
-![The connector: four neighbouring patch vectors glued end to end into one 3,072-wide vector, then a trained two-layer MLP turns it into one 896-wide image token](/assets/picture/2026-10-11-llm-architectures-multimodal/connector-dark.png){: .dark width="1000" height="390" }
+![The connector in two steps: merge, four neighbouring patch vectors glued end to end, so 196 vectors 768 wide become 49 vectors 3,072 wide; then project, a trained two-layer MLP that turns each into one 896-wide image token, the language model's width](/assets/picture/2026-10-11-llm-architectures-multimodal/connector-light.png){: .light width="1000" height="428" }
+![The connector in two steps: merge, four neighbouring patch vectors glued end to end, so 196 vectors 768 wide become 49 vectors 3,072 wide; then project, a trained two-layer MLP that turns each into one 896-wide image token, the language model's width](/assets/picture/2026-10-11-llm-architectures-multimodal/connector-dark.png){: .dark width="1000" height="428" }
 
-1. **Merge each 2 × 2 block of neighbouring patches into one vector.** Four 768-wide vectors are glued end to end into one 3,072-wide vector. The 14 × 14 grid becomes a 7 × 7 grid, so 196 vectors become 49. Nothing is averaged: every number still reaches the next step. What shrinks is how many positions the language model has to read, which [§8](#what-an-image-costs) puts a price on. Qwen2-VL's paper describes the same move: "a simple MLP layer is employed after the ViT to compress adjacent 2 × 2 tokens into a single token" (§2.1).
-2. **Pass each merged vector through a small MLP.** Two layers: 3,072 numbers in, 896 out, then 896 to 896, with a GELU between them, as in the encoder (a close cousin of the SiLU in [post 1's FFN](/posts/llm-architectures-attention-and-rope/#the-ffn)). The output is 896 wide, the width of one of Qwen's word embeddings. This two-layer shape is the one [LLaVA-1.5](https://arxiv.org/abs/2310.03744) found worked better than the single linear layer of the original [LLaVA](https://arxiv.org/abs/2304.08485) (§3.3).
+**Step 1: merge four neighbouring patches into one.** Take each 2 × 2 block of neighbouring patch vectors and glue the four end to end: 4 × 768 = 3,072 numbers. The 14 × 14 grid becomes a 7 × 7 grid, so 196 vectors become 49. Nothing is averaged here: all four patches' numbers are still there, side by side, for the next step to use. What shrinks is the number of positions the language model has to read, and every position costs compute and KV cache memory, which [§8](#what-an-image-costs) puts a price on. Qwen2-VL's paper describes the same move: "a simple MLP layer is employed after the ViT to compress adjacent 2 × 2 tokens into a single token" (§2.1).
 
-The same two steps as a formula. Call one merged vector $h$, its 3,072 numbers in a row. The first layer has a learned matrix $W_1$, 3,072 × 896, and a learned list of 896 numbers $b_1$ added after it, called a **bias**. The second layer has its own $W_2$, 896 × 896, and $b_2$. The image token $z$ that comes out is
+**Step 2: project each merged vector to the language model's width.** Each one goes through a small MLP of two layers: the first takes 3,072 numbers to 896, then a GELU (as in the encoder, and a close cousin of the SiLU in [post 1's FFN](/posts/llm-architectures-attention-and-rope/#the-ffn)), then the second takes 896 to 896:
+
+`3,072 → layer 1 → 896 → GELU → layer 2 → 896`
+
+This is where the vector shrinks: 3,072 numbers become 896, so the first layer has to learn which combinations of the four patches are worth keeping. What comes out is 896 wide, the width of one of Qwen's word embeddings. This two-layer shape is the one [LLaVA-1.5](https://arxiv.org/abs/2310.03744) found worked better than the single linear layer of the original [LLaVA](https://arxiv.org/abs/2304.08485) (§3.3).
+
+The same step as a formula. Call one merged vector $h$, its 3,072 numbers in a row. The first layer has a learned matrix $W_1$, 3,072 × 896, and a learned list of 896 numbers $b_1$ added after it, called a **bias**. The second layer has its own $W_2$, 896 × 896, and $b_2$. The image token $z$ that comes out is
 
 $$z = \mathrm{GELU}(h\,W_1 + b_1)\,W_2 + b_2$$
 
-Those four pieces are the whole connector, and counting their numbers gives its size: $3{,}072 \times 896 + 896$ for the first layer, plus $896 \times 896 + 896$ for the second, is $3{,}557{,}120$. Without the merge, $h$ is one 768-wide patch vector, $W_1$ shrinks to 768 × 896, and the total is 1,492,736. Both appear in the receipt below.
+**How small is it?** Those four pieces are the whole connector. Counting their numbers:
 
-([`the_connector`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py))
+| piece | shape | numbers |
+|---|---|---|
+| $W_1$ | 3,072 × 896 | 2,752,512 |
+| $b_1$ | 896 | 896 |
+| $W_2$ | 896 × 896 | 802,816 |
+| $b_2$ | 896 | 896 |
+| total | | **3,557,120** |
+
+That's about 0.7% of the language model's 494,032,768 ([post 6](/posts/llm-architectures-lora/) counted them), and in stage 1 it's the only part that trains: SigLIP and Qwen stay frozen. Nothing teaches the encoder to see or the language model to read. The connector learns a small bridge between two models that already work.
+
+Without the merge, $h$ would be one 768-wide patch vector, $W_1$ would shrink to 768 × 896, and the total would be 1,492,736: fewer parameters, but four times as many positions for the language model to read.
+
+Checking the shapes and counts in code ([`the_connector`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
 <!-- RECEIPT: s2a -->
 ```text
@@ -363,7 +385,6 @@ Those four pieces are the whole connector, and counting their numbers gives its 
     without the merge (768 in)       1,492,736
 ```
 
-The connector is 3.56 million parameters, about 0.7% of the language model's 494,032,768 ([post 6](/posts/llm-architectures-lora/) counted them), and it's the only part stage 1 trains.
 
 #### Where the picture goes {#where-the-picture-goes}
 
