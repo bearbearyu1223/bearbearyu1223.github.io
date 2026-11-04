@@ -262,15 +262,44 @@ Here are the numbers, from the real encoder ([`pixels_to_patches`](https://githu
 
 #### Inside the encoder {#inside-the-encoder}
 
-So far the encoder has been a box. Opened up, it's a transformer, built from the same parts [post 1](/posts/llm-architectures-attention-and-rope/) took apart in the language model, stacked 12 times:
+The 196 patch embeddings now go through the encoder's 12 transformer layers. If you've read [post 1](/posts/llm-architectures-attention-and-rope/), almost everything inside them will look familiar: self-attention, an MLP, normalization, and adding each step's input back. One thing is different, and it's the one that matters: **the encoder has no causal mask.** A patch can look in every direction. A token in the language model can only look back.
 
 <!-- FIGURE: encoder-inside -->
 ![Inside the vision encoder: patch vectors go through 12 identical layers of LayerNorm, self-attention, LayerNorm and MLP, each adding its input back, then a final LayerNorm, giving 196 vectors; beside it, an attention grid where every patch reads every patch, against the language model's triangle where each token reads only itself and earlier ones](/assets/picture/2026-10-11-llm-architectures-multimodal/encoder-inside-light.png){: .light width="1000" height="639" }
 ![Inside the vision encoder: patch vectors go through 12 identical layers of LayerNorm, self-attention, LayerNorm and MLP, each adding its input back, then a final LayerNorm, giving 196 vectors; beside it, an attention grid where every patch reads every patch, against the language model's triangle where each token reads only itself and earlier ones](/assets/picture/2026-10-11-llm-architectures-multimodal/encoder-inside-dark.png){: .dark width="1000" height="639" }
 
-Each of the 12 layers does two things, in order. **Self-attention** lets every patch vector gather information from the others: the patch on the edge of a circle can find out that the patches around it are orange too. Then an **MLP** (multi-layer perceptron: a few matrices with a simple function between them, the block post 1 called the FFN) works on each patch vector by itself, the same small network applied to all 196. Before each step a **LayerNorm** rescales every vector to a standard size, and after each step the step's input is **added back** to its output, so a layer only has to learn a correction rather than rebuild the vector from scratch. If that sounds like a language model's layer, it is: post 1's block has the same two steps, the same normalization before each, the same adding back.
+**Why text looks back and a picture doesn't have to.** A language model is trained to predict each next token. If the token at position 5 could read position 6, training would be pointless: it could copy the answer it's meant to predict. And when the model generates, position 6 doesn't exist yet. So post 1 added a **causal mask**, which blocks every position from attending to later ones: position 5 reads positions 1 to 5 and nothing after. That's the triangle on the right of the figure.
 
-Here are the two models side by side, every row read from the loaded modules rather than typed in ([`inside_the_encoder`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+A picture isn't written one patch at a time. All 196 patches are there at once and nothing is being predicted, so there's no reason for the patch at the top-left of a circle to ignore the patches to its right or below it. The encoder lets every patch attend to every patch, itself included, in both directions: the full square on the left. Both are self-attention. They differ only in which connections are allowed.
+
+This isn't a rule about pictures versus text. [BERT](https://arxiv.org/abs/1810.04805), a text model built to read rather than write, also lets every token attend in both directions. The line runs between an **encoder**, which reads a whole input at once, and a **decoder** like Qwen, which writes one token at a time.
+
+**Does the mask really make a difference?** Change only the last position, and see whether the first position notices. For the encoder, paint the last patch, bottom right, black. For the language model, change the last word of "a red circle and a blue square" to "triangle". Then compare the first position's output, after all the layers, before and after the change:
+
+$$\text{moved} = \frac{\lVert h_1^{\text{changed}} - h_1^{\text{original}} \rVert}{\lVert h_1^{\text{original}} \rVert}$$
+
+Here $h_1$ is the first position's output vector and $\lVert \cdot \rVert$ is a vector's length, so "moved" is how far the vector shifted, as a share of its own length ([`inside_the_encoder`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+
+<!-- RECEIPT: s1c -->
+```text
+  Change only the last position; how far does the first one's output move?
+
+  model                               what changed  first output moved
+  ----------------------------------------------------------------------
+  vision encoder    patch 196 of 196 painted black               15.7%
+  language model  token 7 of 7: square -> triangle           exactly 0
+
+  >> The encoder is a transformer much like the language model, with one
+     difference that matters: no causal mask. Every patch reads every
+     other patch, so the first patch's vector moves when only the last one
+     changes; the language model's first word can't see the last.
+```
+
+The encoder's first patch moved by **15.7%**, because in every one of its 12 layers it read the last patch. The language model's first output moved by **exactly 0**, not a rounding error, because nothing at position 1 ever reads position 7. The 15.7% belongs to this picture and this patch; what the receipt shows is the contrast. It's why the encoder's 196 output vectors can each carry information from the whole picture.
+
+**What's inside each layer.** Each of the 12 layers does two things, in order. **Self-attention** lets every patch vector gather information from the others: the patch on the edge of a circle can find out that the patches around it are orange too. Then an **MLP** (multi-layer perceptron: a few matrices with a simple function between them, the block post 1 called the FFN) works on each patch vector by itself, the same small network applied to all 196. Attention mixes information between positions; the MLP transforms each position on its own. Before each step a **LayerNorm** rescales every vector to a standard size, and after each step the step's input is **added back** to its output, so a layer only has to learn a correction rather than rebuild the vector from scratch. Post 1's block has the same two steps, the same normalization before each, the same adding back. After 12 layers there are still 196 vectors, each 768 wide, but each now carries information from across the picture.
+
+**The other differences are engineering choices.** Here are the two models side by side, every row read from the loaded modules rather than typed in ([`inside_the_encoder`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
 <!-- RECEIPT: s1b -->
 ```text
@@ -286,25 +315,9 @@ Here are the two models side by side, every row read from the loaded modules rat
   norm                       LayerNorm         RMSNorm
   position           learned, 196 rows          rotary
   causal mask                       no             yes
-
-  Change only the last position; how far does the first one's output move?
-
-  model                               what changed  first output moved
-  ----------------------------------------------------------------------
-  vision encoder    patch 196 of 196 painted black               15.7%
-  language model  token 7 of 7: square -> triangle           exactly 0
-
-  >> The encoder is a transformer much like the language model, with one
-     difference that matters: no causal mask. Every patch reads every
-     other patch, so the first patch's vector moves when only the last one
-     changes; the language model's first word can't see the last.
 ```
 
-Most of the differences are small choices that two teams made differently. The encoder uses LayerNorm where Qwen uses RMSNorm, a cheaper variant that skips subtracting the mean. Its MLP is two matrices with a GELU between them (a smooth version of "keep positives, zero negatives"), where Qwen's is three matrices with a SiLU gate ([post 1's FFN](/posts/llm-architectures-attention-and-rope/#the-ffn)). It gives each patch a learned position vector, one row per grid position, where Qwen rotates its queries and keys (RoPE, [post 1](/posts/llm-architectures-attention-and-rope/)). And it uses all 12 heads for keys and values, where Qwen shares 2 key/value heads among 14 query heads to keep its KV cache small, a saving an encoder doesn't need because it never generates anything.
-
-**The difference that matters is the last row: the encoder has no causal mask.** A language model writes one token at a time, left to right, so when it's computing a position it must not see the positions after it, which don't exist yet when it generates. Post 1 enforced that with a **causal mask**, which blocks every position from attending to later ones. A picture isn't written left to right. All 196 patches are there at once, so the encoder lets every patch attend to every other one, in both directions.
-
-The second half of the receipt measures exactly that. Paint only the last patch, bottom right, black, and the *first* patch's output vector, top left, moves by 15.7% (the length of the change, as a share of the vector's length), because the first patch read the last one in every layer. Change only the last word of a sentence and the language model's first output doesn't move at all, because nothing at position 1 ever reads position 7.
+Most of the differences are small choices that two teams made differently. The encoder uses LayerNorm where Qwen uses RMSNorm, a cheaper variant that skips subtracting the mean. Its MLP is two matrices with a GELU between them (a smooth version of "keep positives, zero negatives"), where Qwen's is three matrices with a SiLU gate ([post 1's FFN](/posts/llm-architectures-attention-and-rope/#the-ffn)). It gives each patch a learned position vector, one row per grid position, where Qwen rotates its queries and keys (RoPE, [post 1](/posts/llm-architectures-attention-and-rope/)). And it uses all 12 heads for keys and values, where Qwen shares 2 key/value heads among 14 query heads to keep its KV cache small, a saving an encoder doesn't need because it never generates anything. None of these is what makes one a picture encoder and the other a text generator. The mask is.
 
 #### Why the encoder already knows what it's looking at {#why-frozen}
 
@@ -988,6 +1001,7 @@ The terms this post leans on; anything not listed is defined where it first appe
 - Dosovitskiy et al., [An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale](https://arxiv.org/abs/2010.11929) (2020) — the vision transformer. §3.1 is §1's recipe: the image is reshaped "into a sequence of flattened 2D patches", which are mapped "to D dimensions with a trainable linear projection", with "standard learnable 1D position embeddings" added.
 - Radford et al., [Learning Transferable Visual Models From Natural Language Supervision](https://arxiv.org/abs/2103.00020) (2021) — CLIP: an image encoder and a text encoder trained together on "400 million (image, text) pairs" (§2.2) to predict which pictures go with which captions (§2.3). The encoder most VLMs started from.
 - Zhai et al., [Sigmoid Loss for Language Image Pre-Training](https://arxiv.org/abs/2303.15343) (2023) — SigLIP, this post's encoder. It replaces CLIP's batch-wide comparison with a loss that "processes every image-text pair independently" (§3.2), which "does not require a global view of the pairwise similarities for normalization" (abstract).
+- Devlin et al., [BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding](https://arxiv.org/abs/1810.04805) (2018) — a text encoder that lets every token attend in both directions, cited in §1 to show that dropping the causal mask belongs to encoders, not to pictures.
 - Liu et al., [Visual Instruction Tuning](https://arxiv.org/abs/2304.08485) (2023) — LLaVA, the recipe this post follows. A frozen CLIP ViT-L/14 encoder, "a simple linear layer" as the connector (§4.1), and two stages (§4.2): the projection alone on 595K picture-caption pairs filtered from CC3M with encoder and language model frozen, then the projection and the whole language model on instruction data.
 - Liu et al., [Improved Baselines with Visual Instruction Tuning](https://arxiv.org/abs/2310.03744) (2023) — LLaVA-1.5. A two-layer MLP connector in place of the linear one, and 336-pixel input (§3.3). The paper doesn't state a token count; §8's 576 is $(336/14)^2$ from its encoder's patch size.
 - Wang et al., [Qwen2-VL: Enhancing Vision-Language Model's Perception of the World at Any Resolution](https://arxiv.org/abs/2409.12191) (2024) — the 2 × 2 merge this post's connector uses: "a simple MLP layer is employed after the ViT to compress adjacent 2 × 2 tokens into a single token" (§2.1), pictures of any size turned into a varying number of tokens, and the special tokens that mark where a picture starts and ends (§2.2.1). Video is sampled "at two frames per second" (§2.1).
