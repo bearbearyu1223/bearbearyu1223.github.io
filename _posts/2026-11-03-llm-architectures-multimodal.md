@@ -416,21 +416,42 @@ The language model is given the vectors for `Image:`, then the picture's 49 vect
 
 ### 3. Stage 1: learning to describe {#stage-one}
 
-The model now has all its parts, and two of them already know a lot: the encoder knows what's in a picture, and the language model knows how to write. The connector between them knows nothing. It starts random, so the 49 vectors it hands the language model are noise.
+The model now has all its parts, and two of them already know a lot: the encoder knows what's in a picture, and the language model knows how to write. The connector between them knows nothing. It starts random, so the 49 vectors it hands the language model are noise. Qwen can take them in, since they're the right width ([§2](#the-connector)), but it has no idea what they mean.
+
+So stage 1 asks one question: **can training only the connector teach a frozen language model to describe a picture?**
 
 Training happens in two stages, the recipe [LLaVA](https://arxiv.org/abs/2304.08485) made standard:
 
 <!-- FIGURE: training-stages -->
-![The two training stages side by side: in stage 1 only the connector trains, on captions; in stage 2 it trains on questions, alone in one run and with LoRA adapters on the language model in the other](/assets/picture/2026-10-11-llm-architectures-multimodal/training-stages-light.png){: .light width="1000" height="517" }
-![The two training stages side by side: in stage 1 only the connector trains, on captions; in stage 2 it trains on questions, alone in one run and with LoRA adapters on the language model in the other](/assets/picture/2026-10-11-llm-architectures-multimodal/training-stages-dark.png){: .dark width="1000" height="517" }
+![The two training stages side by side: in stage 1 only the connector trains, on captions; in stage 2 it trains on questions, alone in one run and with LoRA adapters on the language model in the other; in both, the gradient passes back through the frozen language model to the connector](/assets/picture/2026-10-11-llm-architectures-multimodal/training-stages-light.png){: .light width="1000" height="517" }
+![The two training stages side by side: in stage 1 only the connector trains, on captions; in stage 2 it trains on questions, alone in one run and with LoRA adapters on the language model in the other; in both, the gradient passes back through the frozen language model to the connector](/assets/picture/2026-10-11-llm-architectures-multimodal/training-stages-dark.png){: .dark width="1000" height="517" }
 
-**Stage 1 trains only the connector, on captions.** The encoder and the language model are both frozen. The model is shown a picture and the word `Caption:`, and its target is the caption: every shape, named left to right. LLaVA's paper calls this stage "pre-training for feature alignment", and describes it the same way: "we keep both the visual encoder and LLM weights frozen, and maximize the likelihood ... with trainable parameters θ = W (the projection matrix) only" (§4.2).
+**The task: picture in, caption out.** The model is shown a picture and the word `Caption:`, and its target is the caption: every shape, named left to right, like `a purple triangle, a red circle and a green triangle`. The encoder and the language model are both frozen; only the connector trains. LLaVA's paper calls this stage "pre-training for feature alignment", and describes it the same way: "we keep both the visual encoder and LLM weights frozen, and maximize the likelihood ... with trainable parameters θ = W (the projection matrix) only" (§4.2). Stage 2 ([§4](#stage-two)) then asks narrower questions, like "What color is the triangle?"
 
-Why captions first? Because a caption is the most direct test of the connector's one job. The language model already knows how to write `a yellow circle`. It only needs to be handed vectors that make *that* the likely thing to write, and the only part allowed to change is the one producing those vectors. So stage 1 teaches the connector to speak the language model's language, without the language model learning anything that could cover for a bad connector.
+**Why captions first?** Because a caption is the most direct test of the connector's one job. The language model already knows how to write `a yellow circle`. It only needs to be handed vectors that make *that* the likely thing to write, and the only part allowed to change is the one producing those vectors. So stage 1 teaches the connector to speak the language model's language, without the language model learning anything that could cover for a bad connector.
 
-**How it learns.** Training works as in [post 6](/posts/llm-architectures-lora/#loss-and-exact-match): the model predicts each caption token, the **loss**, the average of −log(the probability it gave the right token), measures how surprised it was by the right one, and each step nudges the trainable parameters to make it less surprised next time. Only the caption's tokens are scored; the picture and the prompt are context. And as in post 6, freezing a part doesn't mean the training signal skips it. To reach the connector, the **gradient**, the signal that says which way to nudge each parameter, has to travel backwards through all 24 of the language model's frozen layers, because that's how the connector's output affected the loss. So a step costs a full forward and backward pass through the language model even though none of its weights change.
+**One training step**, for a batch of 16 pictures and their captions:
 
-Here's stage 1, from [`stage_one`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
+1. **Encode.** The frozen encoder turns each picture into 196 vectors. (Since it never changes, the demo runs it once per picture at the start and keeps the result, so in practice this step is a lookup.)
+2. **Connect.** The connector merges and projects them into 49 image tokens, each 896 wide.
+3. **Predict.** The frozen language model reads `Image:`, the 49 image tokens, `Caption:` and the caption, and at every caption position predicts the next token.
+4. **Score.** The loss compares those predictions with the real caption.
+5. **Update the connector.** The **gradient**, the signal that says which way to nudge each parameter, travels back through all 24 of the language model's frozen layers to the connector. Only the connector's numbers change.
+
+Step 5 is the one that surprises people. Freezing a model doesn't stop the training signal passing through it; it only stops its weights changing. To know which way to nudge the connector, training has to know how the connector's output affected the loss, and that path runs through the language model. So a step costs a full forward and backward pass through the language model, as it did for LoRA in [post 6](/posts/llm-architectures-lora/), even though none of its weights change.
+
+**How the loss is scored: teacher forcing.** In training, the model doesn't write a whole caption and get graded at the end. It's shown the right caption and, at every position, asked to predict the next token from the right tokens before it. This is called **teacher forcing**. For the caption `a red square`, where each word is one token:
+
+| the model has read | it should predict |
+|---|---|
+| `Image:` [49 image tokens] `Caption:` | a |
+| … `Caption: a` | red |
+| … `Caption: a red` | square |
+| … `Caption: a red square` | (end of text) |
+
+All four predictions come out of one pass, because the causal mask already keeps each position from seeing what comes after it. The last target is the end-of-text token, so the model also learns where a caption stops. The **loss** is the average, over these positions, of −log(the probability the model gave the right token): how surprised it was by the right one ([post 6](/posts/llm-architectures-lora/#loss-and-exact-match) used the same loss). The picture and the prompt are context, and aren't scored.
+
+**The actual run**, from [`stage_one`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py) (lr is the learning rate, how big each nudge is):
 
 <!-- RECEIPT: s3 -->
 ```text
@@ -440,7 +461,14 @@ Here's stage 1, from [`stage_one`](https://github.com/bearbearyu1223/llm-archite
   loss at step 1                     3.4778
   loss at the end (mean of last 10)  0.0534
   time per step                      1.01 s
+```
 
+The loss starts at 3.48, which means that, on average, the model gave the right next word of a caption a probability of about 3% (that's $e^{-3.48}$); it ends near 0.05, about 95% (that's $e^{-0.05}$). That's a big change, but it's a teacher-forced number: Qwen got much better at predicting the right word *when it's handed the right words before it*. It doesn't show that the model can write a right caption on its own, where every word it gets wrong becomes the context for the next. That takes a different test.
+
+**Can it describe pictures it has never seen?** The test is free generation. The model is shown a new picture and `Caption:`, and writes: at each step it picks its most likely next token and feeds its own words back in, until it writes the end-of-text token (or runs two tokens past the right caption's length). A caption counts only if it matches the true one **exactly**: every shape, with the right color, in the right order. Naming the right shapes in the wrong order counts as wrong. So the score is the share of captions that are exactly right, not the share of pictures whose shapes the model recognized. From [`stage_one`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
+
+<!-- RECEIPT: s3r -->
+```text
   Captions exactly right, of 120 new pictures each:
 
                     right picture  blank  wrong picture  no picture
@@ -450,15 +478,13 @@ Here's stage 1, from [`stage_one`](https://github.com/bearbearyu1223/llm-archite
     held-out pairs             63      0              0           0
 ```
 
-Read it top to bottom (lr is the learning rate, how big each nudge is). The loss starts at 3.48, which means that, on average, the model gave the right next word of a caption a probability of about 3% (that's $e^{-3.48}$); it ends near 0.05, about 95% (that's $e^{-0.05}$). Before training it gets **no** caption right. That's what a random connector should do: the language model is reading 49 vectors of noise. After 400 steps it gets **91 of 120** exactly right on pictures it never saw, every shape named in the right order with the right color. Exact match is strict: one wrong word in `a blue circle, a yellow triangle and an orange circle` and the whole caption counts as wrong.
+Before training it gets **no** caption right. That's what a random connector should do: the language model is reading 49 vectors of noise. After 400 steps it gets **91 of 120** exactly right, on pictures it never saw.
 
 The three control columns ask for the same caption with an all-white picture, with another test scene's picture, and with no picture at all, only the prompt. They say the 91 isn't luck. With a blank picture the model gets 2 captions right, and with another scene's picture, or with no picture at all, none. A caption names every shape and its position, so there's little to guess from: the model either reads the picture or fails. ([§5](#is-it-looking) uses the same controls on the questions, where they matter more.)
 
 The last row is a second set of 120 test pictures, each with at least one of the three pairs no training picture had ([Setup](#the-pictures)). On those, it gets **63** right. A caption has to name every shape, so one unfamiliar pair is enough to make it fail. [§6](#pairs-never-seen) asks why.
 
-Remember what changed to get here: 3.6 million numbers in the connector. The encoder and the language model are bit-for-bit the models that were downloaded. The connector learned to hand Qwen vectors that make it write `a green square` when there's a green square in the picture, from 400 batches of examples.
-
-The first three test pictures, as the model describes them ([`stage_one`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+**What the misses look like.** The first three test pictures, as the model writes them by free generation after stage 1 ([`stage_one`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
 <!-- RECEIPT: s3b -->
 ```text
@@ -474,6 +500,7 @@ The first three test pictures, as the model describes them ([`stage_one`](https:
 
 Only the first is exactly right, and the two misses fail in different ways. The second names the right three shapes but puts two of them in the wrong order, a mistake about position. The third has the right colors in the right order and the right three shapes, but it says the yellow shape is a circle and the orange one a triangle, when it's the other way around. Seeing that there's yellow and seeing that there's a triangle isn't the same as knowing the triangle is the yellow thing. That's binding, from [Setup](#the-pictures), and the rest of the post keeps coming back to it.
 
+**What stage 1 taught.** Remember what changed to get here: 3.6 million numbers in the connector. The encoder and the language model are bit-for-bit the models that were downloaded. The connector learned to hand Qwen vectors that make it write `a green square` when there's a green square in the picture, from 400 batches of examples. So in this controlled setting, the answer to stage 1's question is yes. But the third caption above shows what a good caption score can hide: the model saw yellow and saw a triangle without knowing which was which. Stage 2 asks about one shape at a time.
 
 ---
 

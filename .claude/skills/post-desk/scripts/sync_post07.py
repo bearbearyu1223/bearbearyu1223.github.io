@@ -27,7 +27,8 @@ SPEC = {
     "s1c": ("1. From pixels", r"^  Change only the last position", r"changes; the language model's first word can't see the last\.$"),
     "s2a": ("2. The connector", r"^  step\s+shape$", r"^    without the merge"),
     "s2b": ("2. The connector", r"^  piece\s+positions", r"^  TOTAL"),
-    "s3": ("3. Stage 1", r"^  trained: the connector only", r"^    held-out pairs"),
+    "s3": ("3. Stage 1", r"^  trained: the connector only", r"^  time per step"),
+    "s3r": ("3. Stage 1", r"^  Captions exactly right, of 120", r"^    held-out pairs"),
     "s3b": ("3. Stage 1", r"^  truth:", None),  # three truth/model pairs
     "s4a": ("4. Stage 2", r"^  batch ", r"^  connector \+ LoRA\s+stage 1"),
     "s4b": ("4. Stage 2", r"^  task\s+model\s+seen pairs", r"^\s+connector \+ LoRA\s+\d+.*[\d)]$", "last"),
