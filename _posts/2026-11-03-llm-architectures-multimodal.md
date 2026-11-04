@@ -31,37 +31,92 @@ The question this post tests is whether that's enough. With both big models froz
 
 ### The short version {#the-short-version}
 
-I built a small vision-language model from three parts: a picture encoder (SigLIP-base) and a text model (Qwen2.5-0.5B, the model from posts 4 and 6), both **frozen**, so their weights never change, and a small **connector** between them, the only part trained from scratch. It was taught on generated pictures of colored shapes in two stages, first to describe them and then to answer questions about them. Every number is measured by the demo:
+Can we turn a small language model into a vision-language model without retraining the whole thing?
 
-| measured | result |
+That's what I wanted to find out.
+
+I started with two pretrained models: **SigLIP-base** to understand images and **Qwen2.5-0.5B** to generate text (the same language model from posts 4 and 6). I froze both, meaning their weights never changed, and trained only a small **connector** between them.
+
+The training data was deliberately simple: generated pictures containing colored shapes. I wanted to see whether the model could learn to describe what it saw, answer questions about individual shapes, and handle color-shape combinations it had never encountered during training.
+
+The connector has just **3.6 million trainable parameters**, about 0.7% of the language model's 494 million.
+
+#### How does it work?
+
+The idea is surprisingly simple: **turn a picture into something a language model can process alongside text.**
+
+There are three steps:
+
+1. **The vision encoder reads the picture.** It divides the image into 16 × 16-pixel patches, converts each patch into a vector, and processes all the patches together using a vision transformer. Unlike a language model generating text, the vision encoder lets every patch attend to every other patch ([§1](#pixels-to-patches)).
+
+2. **The connector translates between vision and language.** SigLIP produces 196 patch vectors, each 768 numbers wide. The connector combines neighbouring patches in groups of four, reducing 196 vectors to 49, then projects them to the language model's hidden size, the 896 numbers in each of its word vectors ([§2](#the-connector)).
+
+3. **The language model processes the picture and text together.** The 49 image vectors become part of the input sequence, alongside the text tokens. The language model processes them using its existing transformer architecture. The architecture doesn't need to change, although training is still needed to make those image representations useful ([§7](#text-pictures-or-both)).
+
+That's the basic recipe behind the architecture we're exploring: a vision encoder, a connector, and a language model.
+
+#### What did the experiments show?
+
+I trained the connector in two stages:
+
+- **Stage 1 — Learn to describe pictures.** Given an image, generate a caption describing the shapes and their colors.
+- **Stage 2 — Learn to answer questions.** Given an image and a question such as "What color is the triangle?", produce the correct answer.
+
+I also trained comparison models without the captioning stage, with extra captions mixed into question-answer training, and with LoRA enabled on the language model.
+
+Here are the results that stood out:
+
+| Experiment | Result |
 |---|---|
-| one picture becomes | **49 image tokens** |
-| connector size | 3,557,120, **0.7%** of the language model |
-| stage 1 captions exactly right | **91 of 120** (blank: 2) |
-| "color of the triangle?", pairs seen in training | **98** of 100 |
-| the same, for pairs never in a training picture | **76** of 100 |
-| ... and if stage 1 is skipped | **40** of 100 |
-| stage 1 ahead there, 5 paired seeds | **5 of 5**, by a median of 74 in 300 |
-| looking adds, over the controls | **59 to 70** points |
-| KV cache per picture (bf16) | **0.57 MiB** (196 tokens: 2.30) |
+| Captioning new pictures after stage 1 | **91/120** exactly correct |
+| Color questions on familiar color-shape combinations | **98/100** correct |
+| Same questions on combinations excluded from training | **76/100** correct |
+| Unseen combinations, without stage 1 | **40/100** correct |
+| Stage 1 vs. no stage 1, repeated across five seeds | **Stage 1 won all five** |
 
-**How it works.** A picture enters a transformer the way text does, as a sequence of vectors. The encoder cuts it into 16 × 16-pixel patches and turns each into a vector, and is itself a transformer much like the language model, except that every patch can read every other patch: there's no causal mask, because a picture isn't written left to right ([§1](#pixels-to-patches)). The connector merges neighbouring patches and reshapes them to the language model's width, and those vectors go into the sequence where words would be ([§2](#the-connector)). The language model doesn't change at all to read them, and since everything is one sequence, the same model takes text alone, one picture or several ([§7](#text-pictures-or-both)).
+The most interesting result wasn't how well the model performed on familiar examples. All three trained versions did well there.
 
-**What training buys.**
+It was what happened when I asked about **combinations the model had never seen during training**.
 
-- **The connector alone gets a long way.** With both big models frozen, 3.6 million trained parameters teach the model to caption new pictures exactly right 91 times out of 120 ([§3](#stage-one)).
-- **On familiar pictures, every way of training works.** Asked the color of a shape, the three trained versions scored a median of 94 to 99 of 100, with or without the captioning stage ([§4](#stage-two)).
-- **Pairs it never saw are the real test.** Three color-shape pairs never appeared in training. Asked about them, the model scored 76 instead of 98, and the one trained without the captioning stage scored 40. A second run with five paired seeds and 300 fresh questions per test found the same: stage 1 came out ahead in all five ([§6](#five-seeds)). Most wrong answers were the color of a different shape in the same picture, and only the model without stage 1 leaned toward the colors a shape usually came in.
-- **More captions helped one question.** Mixing captions into stage 2 improved "what color is the leftmost shape?" in all five seeds and did nothing for binding ([§6](#five-seeds)).
-- **LoRA added nothing measurable.** Letting the language model adapt moved no score beyond the spread of three seeds ([§4](#stage-two)).
+For example, suppose training included red circles and blue triangles, but never a red triangle. Could the model still answer "What color is the triangle?" when shown a red triangle?
 
-**Living with it.**
+This is a harder test because the model can't simply rely on the colors usually associated with each shape. It has to identify the shape and its color in the actual picture.
 
-- **A score means nothing without a control.** Asked with a blank picture, the models still got about 32 of 100 counting questions right by guessing. Every number here is read against that ([§5](#is-it-looking)).
-- **Pictures cost tokens.** 49 tokens is sixteen times as many positions as this picture's three-word caption. Merging 196 patches into 49 made a training step 3× faster, and here it didn't cost accuracy ([§8](#what-an-image-costs)).
-- **This is one design of four.** Others summarize the picture into a fixed number of tokens, read it through cross-attention, or turn it into a vocabulary of image tokens ([§9](#other-designs)).
+The two-stage model scored 76/100 on these unseen combinations, compared with 40/100 for the model trained without the captioning stage.
 
-The pictures are simple, generated shapes, so these numbers describe how the mechanism behaves, not how good the model is on photographs.
+To check whether this was just a lucky training run, I repeated the comparison across five paired random seeds, using 300 fresh questions per evaluation. **Captioning first helped in all five runs**, with a median advantage of 25 percentage points ([§6](#five-seeds)).
+
+That doesn't prove the model has learned general visual reasoning. But it does suggest that learning to describe complete pictures before answering targeted questions helps it handle new combinations of familiar visual features.
+
+#### A few other things I learned
+
+**1. A correct answer doesn't necessarily mean the model looked at the picture.**
+
+When I replaced the real image with a blank one, the models could still answer some questions correctly. On counting questions, for example, they scored around 32/100 without useful visual information.
+
+That's why I also tested blank, incorrect, and missing images. Depending on the question and model, the real picture improved accuracy by 59–70 percentage points over the strongest control. Without those controls, it would be easy to mistake good guessing for actual visual understanding ([§5](#is-it-looking)).
+
+**2. The training recipe mattered more than making the language model trainable.**
+
+Adding LoRA to the language model didn't produce a measurable improvement beyond the variation across three seeds. Mixing additional captions into stage 2 helped with questions about the leftmost shape, but didn't improve the unseen color-shape binding test.
+
+For this small task, what the connector learned, and the order in which it learned it, mattered more than adding trainable parameters to the language model ([§4](#stage-two), [§6](#five-seeds)).
+
+**3. Pictures have a real compute and memory cost.**
+
+In this implementation, one image takes 49 positions in the language model's input sequence, compared with just a few tokens for a short text description.
+
+Without patch merging, the image would take 196 positions. Reducing that to 49 made training steps about 3× faster, and in this experiment it didn't cost accuracy: the merged version captioned 91 of 120 pictures right, against 76. It also cut the bf16 KV cache each image needs, calculated from the model's shape, from 2.30 MiB to 0.57 MiB ([§8](#what-an-image-costs)).
+
+This is one reason image token counts matter when deploying multimodal models at scale.
+
+#### The bigger picture
+
+This experiment explores just one way to connect vision and language: **convert an image into vectors and insert them directly into the language model's input sequence.**
+
+Other architectures use a fixed number of learned visual tokens, cross-attention between language and vision, or discrete image tokens. We'll compare those designs later in the post ([§9](#other-designs)).
+
+And an important limitation: these experiments use simple, generated pictures of colored shapes, not real photographs. The results help us understand how the architecture and training process behave under controlled conditions. They don't establish how well this model would perform on real-world vision tasks.
 
 ### Setup
 
@@ -130,23 +185,47 @@ Plus [all notation](#appendix-all-notation) at the end.
 
 ### 1. From pixels to patches {#pixels-to-patches}
 
-A language model never sees text either. It sees a sequence of vectors, one per token, each looked up from a table ([post 1](/posts/llm-architectures-attention-and-rope/) walked through it). So the question for a picture is the same one: how do you turn it into a sequence of vectors?
+A transformer doesn't work on raw text, and it doesn't work on raw pixels either. It works on a sequence of vectors. A language model gets its vectors by looking each token up in a table ([post 1](/posts/llm-architectures-attention-and-rope/) walked through it). So for a picture, the question is the same one: how do you turn it into a sequence of vectors?
+
+The obvious answer, one vector per pixel, doesn't scale. A 224 × 224 picture has 50,176 pixels. As a sequence, that's 256 times as long as the 196 vectors this section ends with, and since attention compares every position with every other, it's 256² = 65,536 times as many comparisons ([post 3](/posts/llm-architectures-flash-attention/) showed how fast that grows).
 
 The answer most models use comes from the **vision transformer**, or ViT, of [Dosovitskiy et al.](https://arxiv.org/abs/2010.11929), whose title gives the idea away: *An Image is Worth 16x16 Words*. Cut the picture into a grid of small squares, called **patches**, and treat each patch the way a language model treats a token.
 
 <!-- FIGURE: image-to-patches -->
-![A picture cut into a 14 by 14 grid of patches; one patch enlarged to its 16 by 16 pixels, flattened into 768 numbers, multiplied by one matrix and given its position, becoming one 768-wide vector](/assets/picture/2026-10-11-llm-architectures-multimodal/image-to-patches-light.png){: .light width="1000" height="416" }
-![A picture cut into a 14 by 14 grid of patches; one patch enlarged to its 16 by 16 pixels, flattened into 768 numbers, multiplied by one matrix and given its position, becoming one 768-wide vector](/assets/picture/2026-10-11-llm-architectures-multimodal/image-to-patches-dark.png){: .dark width="1000" height="416" }
+![A picture cut into a 14 by 14 grid of patches; one patch enlarged to its 16 by 16 pixels, flattened into 768 raw pixel values, multiplied by one learned matrix and given its position, becoming one 768-wide patch embedding, the input to the encoder's 12 transformer layers](/assets/picture/2026-10-11-llm-architectures-multimodal/image-to-patches-light.png){: .light width="1000" height="384" }
+![A picture cut into a 14 by 14 grid of patches; one patch enlarged to its 16 by 16 pixels, flattened into 768 raw pixel values, multiplied by one learned matrix and given its position, becoming one 768-wide patch embedding, the input to the encoder's 12 transformer layers](/assets/picture/2026-10-11-llm-architectures-multimodal/image-to-patches-dark.png){: .dark width="1000" height="384" }
 
 Take it one step at a time.
 
 1. **A picture is a grid of numbers.** Each pixel is three numbers, how much red, green and blue it has. SigLIP takes pictures 224 pixels on a side.
-2. **Cut it into patches.** At 16 × 16 pixels per patch, a 224-pixel side holds 14 patches, so the picture becomes a 14 × 14 grid of 196 patches.
-3. **Flatten each patch.** Write a patch's pixels out in one long row: 16 × 16 pixels × 3 colors = 768 numbers.
-4. **Multiply by one learned matrix.** That turns the 768 pixel numbers into a 768-wide vector. The ViT paper describes this step as mapping the flattened patches "to D dimensions with a trainable linear projection" (§3.1). It's the picture's version of looking up a word's embedding: same idea, pixels in place of a token id.
-5. **Add a position.** Like words, patches need to know where they are. A learned vector for each of the 196 grid positions is added on.
+2. **Cut it into patches.** The patches are squares 16 pixels on a side that don't overlap. 224 ÷ 16 = 14, so the picture becomes a 14 × 14 grid of 196 patches. Each patch will become one position in the sequence, the way a token does.
+3. **Flatten each patch.** Write a patch's pixels out in one long row: 16 × 16 pixels × 3 colors = 768 numbers. Nothing has been learned yet. These are the same pixels, in a different order.
+4. **Multiply by one learned matrix.** A 768 × 768 matrix turns the 768 pixel values into a 768-wide vector, the **patch embedding**. The ViT paper describes this step as mapping the flattened patches "to D dimensions with a trainable linear projection" (§3.1). The size happens to stay the same here; what changes is what the numbers mean. Going in, each is one pixel's brightness in one color. Coming out, each is a learned mix of all 768, and SigLIP's training chose the mixes that turned out useful. The same matrix is used for every patch.
+5. **Add a position.** Shuffle the 196 patch vectors and nothing in them says where each came from, the top-left corner or the middle of the circle. So each of the 196 grid positions has its own learned vector, also 768 wide, and it's added to the patch vector number by number. The result is still 768 numbers, not 1,536.
 
-Then the encoder's 12 transformer layers do what a language model's layers do: every patch attends to every other patch, so by the end each patch vector carries information about the whole picture, not just its own 16 × 16 square.
+**This is like a word's embedding, but it isn't a lookup.** Both steps give the transformer one learned vector per position. The difference is where the vector comes from:
+
+| | language model | vision encoder |
+|---|---|---|
+| input | a token id | a patch's 768 pixel values |
+| how | pick that token's row of a table | multiply the pixel values by one matrix |
+| what's learned | a separate vector for every token in the vocabulary | one matrix, shared by all 196 patches |
+
+The two are closer than the table makes them look: picking row 5 of a table is the same as multiplying it by a row of zeros with a single 1 in place 5. A token id is that one-hot row; a patch brings 768 real values instead.
+
+Here are the shapes for one picture, from pixels to the encoder's output:
+
+| step | shape |
+|---|---|
+| the picture | 3 × 224 × 224 (colors, height, width) |
+| cut into patches and flattened | 196 × 768 |
+| times the matrix | 196 × 768 |
+| plus the positions | 196 × 768 |
+| after the encoder's 12 layers | 196 × 768 |
+
+The original ViT also put one extra learned vector at the front of the sequence, to collect a summary for classifying the picture. SigLIP doesn't: its position table has exactly 196 rows, one per patch, and its output is 196 vectors.
+
+**So far, no patch has looked at any other.** Each patch embedding was made from its own 256 pixels and its own position, nothing else. That's only the encoder's *input*. Its 12 transformer layers come next ([inside the encoder](#inside-the-encoder), below), and they're where patches exchange information: every patch attends to every other patch, so by the end each vector carries information about the whole picture, not just its own 16 × 16 square. Those outputs, not the patch embeddings, are what the connector in [§2](#the-connector) receives.
 
 Here are the numbers, from the real encoder ([`pixels_to_patches`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
