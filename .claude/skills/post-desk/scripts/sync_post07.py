@@ -23,7 +23,8 @@ URL = "/assets/picture/2026-10-11-llm-architectures-multimodal"
 # id: (section header in the capture, first line regex, last line regex)
 SPEC = {
     "s1": ("1. From pixels", r"^  step\s+result$", r"^     place of a token id\.$"),
-    "s1b": ("1. From pixels", r"^\s+vision encoder  language model$", r"changes; the language model's first word can't see the last\.$"),
+    "s1b": ("1. From pixels", r"^\s+vision encoder  language model$", r"^  causal mask\s+no\s+yes$"),
+    "s1c": ("1. From pixels", r"^  Change only the last position", r"changes; the language model's first word can't see the last\.$"),
     "s2a": ("2. The connector", r"^  step\s+shape$", r"^    without the merge"),
     "s2b": ("2. The connector", r"^  piece\s+positions", r"^  TOTAL"),
     "s3": ("3. Stage 1", r"^  trained: the connector only", r"^    held-out pairs"),
