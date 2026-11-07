@@ -72,7 +72,7 @@ Here are the results that stood out:
 | Color questions on familiar color-shape combinations | **98/100** correct |
 | Same questions on combinations excluded from training | **76/100** correct |
 | Unseen combinations, without stage 1 | **40/100** correct |
-| Stage 1 vs. no stage 1, repeated across five seeds | **Stage 1 won all five** |
+| With vs. without stage 1, repeated across five seeds | **Stage 1 won all five** |
 
 The most interesting result wasn't how well the model performed on familiar examples. All three trained versions did well there.
 
@@ -549,16 +549,16 @@ So this section asks: **does learning to describe pictures first help the connec
 
 Each is scored exactly right or wrong on 100 new pictures, in two sets. **Seen pairs** are pictures made only of color-shape pairs that appeared in training. **Held-out pairs** are questions about the three pairs no training picture ever had: a red triangle, a green circle and a blue square. Seen pairs measure how well the model does on new pictures made of familiar combinations; a high score there doesn't yet show it learned a rule that would carry over. Held-out pairs test exactly that, on combinations it never saw. This section reads mostly the first; [§6](#pairs-never-seen) is about the second.
 
-**Four recipes**, built so each one isolates one ingredient. QA is short for question answering, the stage 2 task. Under each recipe's name is the name the demo prints, in the tables below and in the rest of the post:
+**Four recipes**, built so each one isolates one ingredient. QA is short for question answering, the stage 2 task. These names are used everywhere from here on, in the text, the tables and the figures:
 
 | recipe | training | why test it? |
 |---|---|---|
-| **Caption only**<br>`stage 1 only` | 400 caption steps; no QA training | Can the caption-trained model already answer questions? |
-| **QA only**<br>`no stage 1` | 800 QA steps from a randomly initialized connector | Can we skip stage 1 entirely? |
-| **Caption → QA**<br>`connector only` | 400 caption steps, then 400 QA steps | Does caption pretraining help? |
-| **Caption → QA + LoRA**<br>`connector + LoRA` | Same two stages, but also train a LoRA adapter in Qwen during QA | Does adapting the language model help further? |
+| **Caption only** | 400 caption steps; no QA training | Can the caption-trained model already answer questions? |
+| **QA only** | 800 QA steps from a randomly initialized connector | Can we skip stage 1 entirely? |
+| **Caption → QA** | 400 caption steps, then 400 QA steps | Does caption pretraining help? |
+| **Caption → QA + LoRA** | Same two stages, but also train a LoRA adapter in Qwen during QA | Does adapting the language model help further? |
 
-The printed name `connector only` can mislead: `no stage 1` also trains only the connector. What sets them apart is whether the connector learned captions first. In the first three recipes, the encoder and the language model stay frozen throughout.
+QA only and Caption → QA both train only the connector. What sets them apart is whether the connector learned captions first. In the first three recipes, the encoder and the language model stay frozen throughout.
 
 The QA-only recipe gets **800 steps**, as many as stages 1 and 2 together, so if it falls short it isn't for lack of training steps. It isn't a perfectly even comparison: it sees each training question about twice as often, and it never sees a caption. That second difference is the one being tested. The LoRA adapter is rank 8, on all seven kinds of matrix in the language model, exactly as in [post 6](/posts/llm-architectures-lora/#where-the-adapters-go): 4,399,104 more trainable parameters. Each trained version is run three times from different **seeds** ([Setup](#setup)), because post 6 learned the hard way that a difference between two single runs can be luck. Tables show the median of the three, with the lowest and highest in brackets.
 
@@ -601,15 +601,15 @@ Compare QA only with Caption → QA, the second and third groups in each panel. 
             connector + LoRA   84 (83-89)      84 (83-93)
 ```
 
-**Does captioning first help? On seen pairs, barely.** Trained on questions alone for 800 steps, the connector gets a median of **94** of 100 binding questions right; after 400 steps of captions and 400 of questions, it gets **98**. The no-stage-1 runs spread wider, 82 to 97, but on pictures like the ones it trained on, a model that skipped the captions does nearly as well. That agrees with a finding at much larger scale: the [Prismatic VLMs](https://arxiv.org/abs/2402.07865) study found the connector-only first stage "unnecessary" for 7B and 13B models (§4.1).
+**Does captioning first help? On seen pairs, barely.** Trained on questions alone for 800 steps, the connector gets a median of **94** of 100 binding questions right; after 400 steps of captions and 400 of questions, it gets **98**. The QA-only runs spread wider, 82 to 97, but on pictures like the ones it trained on, a model that skipped the captions does nearly as well. That agrees with a finding at much larger scale: the [Prismatic VLMs](https://arxiv.org/abs/2402.07865) study found the connector-only first stage "unnecessary" for 7B and 13B models (§4.1).
 
 **On held-out pairs, it may help a lot.** The binding column drops to **76** with stage 1 and **40** without. But read the brackets: the three runs without stage 1 scored 22 to 77, and the three with it 40 to 81. The ranges overlap, so three seeds can't settle it. [§6](#five-seeds) runs five more seeds, paired, and there stage 1 comes out ahead in all five.
 
 **Counting is easy here, whichever way it's trained.** Every trained version gets almost all 100 right, a median of 95 to 99, including the one that never saw a caption. How many things there are is something the encoder's patch vectors carry plainly, and a connector trained on nothing but counting questions learns to pass it on. That's a statement about these pictures, two to four large shapes on white, not about counting in general.
 
-**Position is the hardest of the three.** Leftmost scores lowest for every trained version, 75 without stage 1 and 84 to 88 with it, and its spread is the widest: the no-stage-1 runs scored between 65 and 93 depending on the seed, which is why a single run would have told two different stories here.
+**Position is the hardest of the three.** Leftmost scores lowest for every trained version, 75 without stage 1 and 84 to 88 with it, and its spread is the widest: the QA-only runs scored between 65 and 93 depending on the seed, which is why a single run would have told two different stories here.
 
-**The caption-only model can sometimes answer already.** Asked questions it was never trained on (`stage 1 only`), the captioning model gets 32 binding and 61 leftmost questions exactly right, one word and nothing else, with no question training at all. These scores alone don't say whether it used the picture to get them; [§5](#is-it-looking)'s controls weren't run on this model. On counting it scores 0: it never answers with just the number.
+**The Caption-only model can sometimes answer already.** Asked questions it was never trained on, the Caption-only model gets 32 binding and 61 leftmost questions exactly right, one word and nothing else, with no question training at all. These scores alone don't say whether it used the picture to get them; [§5](#is-it-looking)'s controls weren't run on this model. On counting it scores 0: it never answers with just the number.
 
 **LoRA showed no consistent improvement.** With stage 1 done, letting the language model adapt through a rank-8 adapter scores 95 against 98 on counting, 99 against 98 on binding and 84 against 88 on leftmost. Every one of those differences is inside the spread of three seeds, so these runs can't tell a small effect from none. That's a result about these questions, not about LoRA in vision-language models, and it's narrower than "fine-tune the language model too", which is what LLaVA does. A likely reason is the questions: these have one-word answers and a fixed format, so once the connector hands over the right information, the frozen language model already knows how to say `purple`. Questions that need the language model to *reason* about the picture would give an adapter more to do, and [Idefics2](https://arxiv.org/abs/2405.02246)'s experiments found LoRA useful for exactly that kind of training at scale: "Leveraging LoRA still adds expressivity to the training and stabilizes it" (Finding 3).
 
@@ -619,7 +619,7 @@ Compare QA only with Caption → QA, the second and third groups in each panel. 
 ![Training loss on a log scale: stage 1 with 49 and with 196 image tokens, and stage 2 for the three kinds of run](/assets/picture/2026-10-11-llm-architectures-multimodal/training-loss-light.png){: .light width="1000" height="418" }
 ![Training loss on a log scale: stage 1 with 49 and with 196 image tokens, and stage 2 for the three kinds of run](/assets/picture/2026-10-11-llm-architectures-multimodal/training-loss-dark.png){: .dark width="1000" height="418" }
 
-A falling loss says the model got better at predicting the training answers. It doesn't say *how*, or whether that works on anything new. The no-stage-1 model shows the difference: it learned to answer binding questions on seen pairs, 94 of 100, and still got only 40 on held-out pairs. A model can learn to predict the training answers without learning a rule that carries over to new combinations. It could even lower its loss by learning which answers are common, without reading the picture at all.
+A falling loss says the model got better at predicting the training answers. It doesn't say *how*, or whether that works on anything new. The QA-only model shows the difference: it learned to answer binding questions on seen pairs, 94 of 100, and still got only 40 on held-out pairs. A model can learn to predict the training answers without learning a rule that carries over to new combinations. It could even lower its loss by learning which answers are common, without reading the picture at all.
 
 **What stage 2 showed.** On new pictures of familiar pairs, every trained recipe learned to answer, and captioning first barely mattered. On pairs the model never saw, captioning first looked like it helped a lot, most of all on binding, but three seeds can't settle that. Letting the language model adapt with LoRA showed no consistent gain. Stages 1 and 2 are the only training stages. From here on, the post tests what they produced, starting with whether the models look at the picture at all.
 
@@ -633,7 +633,7 @@ A model can answer a question about a picture correctly without looking at it. I
 
 This is a different question from §4's held-out pairs. Held-out pairs ask whether what the model learned carries over to new combinations. The controls here ask whether a right answer depended on the picture at all.
 
-So every question is asked four ways, with the same words each time and only the picture changed. This is done for the three trained recipes from §4; the caption-only model isn't tested here:
+So every question is asked four ways, with the same words each time and only the picture changed. This is done for the three trained recipes from §4; the Caption-only model isn't tested here:
 
 <!-- FIGURE: four-controls -->
 ![One question asked four ways: with the right picture, with a blank white picture, with another scene's picture, and with no picture at all, only the question's words](/assets/picture/2026-10-11-llm-architectures-multimodal/four-controls-light.png){: .light width="1000" height="441" }
@@ -675,7 +675,7 @@ Every trained model depends on the picture: the smallest gap is 59 points. But t
 
 **Wrong pictures score for a different reason.** A different scene has the same number of shapes as the question's scene about a third of the time, so 31 right on counting is about what a model reading the *wrong* picture correctly would score. (The demo doesn't score answers against the wrong picture itself, so that's an inference, not a measurement.) On binding, the wrong picture scores 29 to 32, well above the blank picture for two of the three models, probably because the other scene often has a shape of the asked kind, sometimes in the same color.
 
-**No picture at all splits the models in two.** The two models whose language model stayed frozen, `no stage 1` and `connector only`, score **0** with no picture, on every question. Given only the words, the downloaded Qwen never produces an exactly right one-word answer. The LoRA model scores 36 on counting, 24 on binding and 22 on leftmost. Training the language model taught it this task's answer format, and with it a guess it can make from the question alone. It's a small version of what the MMStar authors measured on real benchmarks, and here it took only 400 steps on a rank-8 adapter. It's also part of why the LoRA model's counting gap, 59, is the smallest in the table. Once the language model is trained, it can score without looking; the frozen ones here could not.
+**No picture at all splits the models in two.** The two models whose language model stayed frozen, QA only and Caption → QA, score **0** with no picture, on every question. Given only the words, the downloaded Qwen never produces an exactly right one-word answer. The Caption → QA + LoRA model scores 36 on counting, 24 on binding and 22 on leftmost. Training the language model taught it this task's answer format, and with it a guess it can make from the question alone. It's a small version of what the MMStar authors measured on real benchmarks, and here it took only 400 steps on a rank-8 adapter. It's also part of why the Caption → QA + LoRA model's counting gap, 59, is the smallest in the table. Once the language model is trained, it can score without looking; the frozen ones here could not.
 
 The same check at benchmark scale is where it gets uncomfortable. The MMStar authors report that GeminiPro scored 42.9% on the MMMU benchmark "without any visual input". So when you evaluate a vision-language model, don't stop at whether it gets the answer right. Ask whether it still does when you take the picture away, or swap it for another. This post's controls are the cheap version of that test, and any evaluation of a VLM should run one.
 
@@ -722,13 +722,13 @@ Every color and every shape still appears in training, just never in those three
 
 **Binding drops, most of all without stage 1.** On held-out pairs, the two models trained on captions first get a median of **76** of 100 colors right, down from 98 and 99. The model that skipped stage 1 gets **40**, down from 94. So the captioning stage barely mattered on pairs the model had trained on, and looks like it mattered a lot on pairs it hadn't. The five-seed run at the [end of this section](#five-seeds) confirms it, and it's the post's main result. It also puts the Prismatic finding from §4 in a different light: a first stage can look unnecessary when the test only checks familiar combinations.
 
-It's also the noisiest number in the post. The three no-stage-1 runs scored 22, 40 and 77, and the connector-only runs 40, 76 and 81, so one seed of each landed in the other's range. The medians are 36 points apart, but three seeds can't make that precise, so I ran it again with five seeds.
+It's also the noisiest number in the post. The three QA-only runs scored 22, 40 and 77, and the Caption → QA runs 40, 76 and 81, so one seed of each landed in the other's range. The medians are 36 points apart, but three seeds can't make that precise, so I ran it again with five seeds.
 
 Why would captions help on a pair no caption contained? A plausible reading: a caption names *every* shape with its own color, in order, so the only way to get a caption right is to carry each shape's color separately. Questions alone reward something weaker, getting the one asked-about color right, and a shortcut through familiar pairs does that just as well until a pair is unfamiliar. The five-seed run below tests this guess.
 
-**Every model is still looking.** The gaps on held-out binding are 27, 53 and 51 points, so even the no-stage-1 model reads something from the picture. It just reads the wrong color more often.
+**Every model is still looking.** The gaps on held-out binding are 27, 53 and 51 points, so even the QA-only model reads something from the picture. It just reads the wrong color more often.
 
-**Leftmost drops less.** 82 against 88 for the connector-only model, 64 against 75 without stage 1, and nothing for the LoRA model. A leftmost question doesn't name a shape, so there's less to trip over: the model finds the leftmost thing and reads its color, a color it has seen plenty of times on other shapes.
+**Leftmost drops less.** 82 against 88 for Caption → QA, 64 against 75 for QA only, and nothing for Caption → QA + LoRA. A leftmost question doesn't name a shape, so there's less to trip over: the model finds the leftmost thing and reads its color, a color it has seen plenty of times on other shapes.
 
 **Some pairs are harder than others.** Broken down by pair, for the first seed of each model ([`pairs_never_seen`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
@@ -743,11 +743,11 @@ Why would captions help on a pair no caption contained? A plausible reading: a c
   connector + LoRA      17 of 29     28 of 30      31 of 41
 ```
 
-The no-stage-1 model got 16 of 30 questions about the blue square right, and the LoRA model 17 of 29 about the green circle. These counts are from one seed each, so they show that the pairs differ, not which pair is hardest in general.
+The QA-only model got 16 of 30 questions about the blue square right, and the Caption → QA + LoRA model 17 of 29 about the green circle. These counts are from one seed each, so they show that the pairs differ, not which pair is hardest in general.
 
 #### Where the wrong answers came from {#where-wrong-answers-come-from}
 
-The demo keeps every wrong answer from the first seed. Here are some from the connector-only model on held-out questions, also printed by [`pairs_never_seen`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
+The demo keeps every wrong answer from the first seed. Here are some from the Caption → QA model on held-out questions, also printed by [`pairs_never_seen`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
 
 <!-- RECEIPT: s6c -->
 ```text
@@ -763,8 +763,8 @@ The demo keeps every wrong answer from the first seed. Here are some from the co
 ```
 
 <!-- FIGURE: failures -->
-![Four held-out test pictures the connector-only model answered wrong, each with its question, the right answer and what the model said; every wrong color is the color of another shape in the same picture](/assets/picture/2026-10-11-llm-architectures-multimodal/failures-light.png){: .light width="1000" height="327" }
-![Four held-out test pictures the connector-only model answered wrong, each with its question, the right answer and what the model said; every wrong color is the color of another shape in the same picture](/assets/picture/2026-10-11-llm-architectures-multimodal/failures-dark.png){: .dark width="1000" height="327" }
+![Four held-out test pictures the Caption → QA model answered wrong, each with its question, the right answer and what the model said; every wrong color is the color of another shape in the same picture](/assets/picture/2026-10-11-llm-architectures-multimodal/failures-light.png){: .light width="1000" height="327" }
+![Four held-out test pictures the Caption → QA model answered wrong, each with its question, the right answer and what the model said; every wrong color is the color of another shape in the same picture](/assets/picture/2026-10-11-llm-architectures-multimodal/failures-dark.png){: .dark width="1000" height="327" }
 
 Look at the pictures. Asked the color of the red triangle, the model said `yellow`, and there's a yellow circle in the picture. Asked the leftmost shape's color, it said `orange`, and there's an orange triangle beside it. It didn't invent a color; it gave the color of the *wrong shape*. A separate pass over the saved wrong answers checks that for all of them, and needs no model, only the saved answers and the pictures they were about (`uv run demo07 --misses`, [`wrong_colors`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
@@ -789,19 +789,19 @@ Look at the pictures. Asked the color of the red triangle, the model said `yello
                       connector + LoRA     16          15          1
 ```
 
-On held-out binding, 18 of the connector-only model's 19 wrong answers were a color that was in the picture, on some other shape. It saw the colors and attached one to the wrong shape. That's a binding failure in the plainest sense. Whether it's the shortcut from the top of this section, picking the color this shape usually came in, one seed can't say; the five-seed run checks that too.
+On held-out binding, 18 of the Caption → QA model's 19 wrong answers were a color that was in the picture, on some other shape. It saw the colors and attached one to the wrong shape. That's a binding failure in the plainest sense. Whether it's the shortcut from the top of this section, picking the color this shape usually came in, one seed can't say; the five-seed run checks that too.
 
-The model that skipped stage 1 fails differently in one way: 9 of its 23 wrong binding answers named a color that wasn't in the picture at all. Those aren't binding failures. That model is sometimes misreading the color itself, which the stage-1 models did only once (connector only) and twice (LoRA) in this seed.
+The model that skipped stage 1 fails differently in one way: 9 of its 23 wrong binding answers named a color that wasn't in the picture at all. Those aren't binding failures. That model is sometimes misreading the color itself, which the two Caption → QA models did only once (without LoRA) and twice (with LoRA) in this seed.
 
-This is the reason to look at failures and not only scores. The connector-only model's first-seed score on held-out binding, 81 of 100, says something went wrong 19 times. The wrong answers say what: the color was read and then given to the wrong shape. It looks like a problem in the parts that tie a color to a shape, the connector and the language model reading it, rather than in the encoder. The linear probe below shows that's only partly true.
+This is the reason to look at failures and not only scores. The Caption → QA model's first-seed score on held-out binding, 81 of 100, says something went wrong 19 times. The wrong answers say what: the color was read and then given to the wrong shape. It looks like a problem in the parts that tie a color to a shape, the connector and the language model reading it, rather than in the encoder. The linear probe below shows that's only partly true.
 
 #### Five seeds, and three checks {#five-seeds}
 
 Three seeds left the main result uncertain, and this section has made three guesses it hasn't tested: that captions help because they make the model carry every shape's color, that the encoder saw the colors the model then gave to the wrong shape, and that wrong answers come from a shortcut through familiar pairs. A second program, `uv run demo07 --followup`, re-runs the main result with more seeds and checks all three ([`d07_followup.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)). It changes three things:
 
-- **Paired seeds.** Five seeds, each training its own stage 1. Each seed then trains three versions: **no stage 1** (800 steps of questions), **connector only** (stage 1, then 400 steps of questions), and **connector + captions**, the same as connector only except that each step's 16 questions come with 4 captions mixed in. All three see the same questions in the same order, so two versions from one seed differ only in how they were trained.
+- **Paired seeds.** Five seeds, each training its own stage 1. Each seed then trains three versions: **QA only** (800 steps of questions), **Caption → QA** (stage 1, then 400 steps of questions), and **Caption → QA + captions**, the same as Caption → QA except that each step's 16 questions come with 4 captions mixed in. All three see the same questions in the same order, so two versions from one seed differ only in how they were trained.
 - **Bigger, fresh tests.** 300 questions per test instead of 100, drawn from seeds the main run never used.
-- **No LoRA.** It showed no consistent gain in §4, so its place goes to the captions version.
+- **No LoRA.** It showed no consistent gain in §4, so its place goes to Caption → QA + captions.
 
 Here are the scores, from [`run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py):
 
@@ -824,10 +824,10 @@ Here are the scores, from [`run`](https://github.com/bearbearyu1223/llm-architec
 ```
 
 <!-- FIGURE: paired-seeds -->
-![Five seeds, each drawn as a line joining the same seed trained three ways, no stage 1, connector only and connector plus captions; left, binding on held-out pairs, medians 36, 71 and 69 percent; right, leftmost on held-out pairs, medians 62, 80 and 93 percent](/assets/picture/2026-10-11-llm-architectures-multimodal/paired-seeds-light.png){: .light width="1000" height="458" }
-![Five seeds, each drawn as a line joining the same seed trained three ways, no stage 1, connector only and connector plus captions; left, binding on held-out pairs, medians 36, 71 and 69 percent; right, leftmost on held-out pairs, medians 62, 80 and 93 percent](/assets/picture/2026-10-11-llm-architectures-multimodal/paired-seeds-dark.png){: .dark width="1000" height="458" }
+![Five seeds, each drawn as a line joining the same seed trained three ways, QA only, Caption → QA and Caption → QA plus captions; left, binding on held-out pairs, medians 36, 71 and 69 percent; right, leftmost on held-out pairs, medians 62, 80 and 93 percent](/assets/picture/2026-10-11-llm-architectures-multimodal/paired-seeds-light.png){: .light width="1000" height="458" }
+![Five seeds, each drawn as a line joining the same seed trained three ways, QA only, Caption → QA and Caption → QA plus captions; left, binding on held-out pairs, medians 36, 71 and 69 percent; right, leftmost on held-out pairs, medians 62, 80 and 93 percent](/assets/picture/2026-10-11-llm-architectures-multimodal/paired-seeds-dark.png){: .dark width="1000" height="458" }
 
-**Stage 1 helps on held-out pairs, in every seed.** On held-out binding, connector only beat no stage 1 in all five seeds, by a median of 74 questions in 300, about 25 points. Seed by seed, also from [`run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py):
+**Stage 1 helps on held-out pairs, in every seed.** On held-out binding, Caption → QA beat QA only in all five seeds, by a median of 74 questions in 300, about 25 points. Seed by seed, also from [`run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py):
 
 <!-- RECEIPT: f2 -->
 ```text
@@ -843,11 +843,11 @@ Here are the scores, from [`run`](https://github.com/bearbearyu1223/llm-architec
 
 So the main result holds, and it no longer rests on one seed. The medians, 214 and 107 of 300, are 71% and 36%, close to the main run's 76 and 40. Each version's median sits far above its control's, so all of them are looking.
 
-**More captions didn't help binding.** Mixing captions into stage 2 came out ahead of connector only in 2 seeds of 5, by a median of −4, and one seed fell to 115. So whatever captions do for binding, they do it in stage 1; there's no sign that more of them in stage 2 adds anything.
+**More captions didn't help binding.** Mixing captions into stage 2 came out ahead of Caption → QA in 2 seeds of 5, by a median of −4, and one seed fell to 115. So whatever captions do for binding, they do it in stage 1; there's no sign that more of them in stage 2 adds anything.
 
 **But they helped the leftmost question in every seed,** 278 against 241 on held-out pairs. The likeliest reason is in how captions are written: shapes go from left to right, so every caption starts with the answer to "what color is the leftmost shape?".
 
-**Is the color in the vectors at all?** A **linear probe** is the simplest reader there is: average the vectors under one shape into one vector, multiply it by a single trained matrix, and pick the color (or kind) with the highest score. It's trained on shapes from training pictures, which never include a held-out pair, and tested on shapes in held-out pictures. If it can name a red triangle's color, that color is plainly there in the vectors; if it can't, a linear reader trained on familiar pairs can't find it. The demo probes three places: the encoder's output, the stage-1 connector's output, and the output of the connector-only model after stage 2, both connectors from the first seed ([`probe`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)).
+**Is the color in the vectors at all?** A **linear probe** is the simplest reader there is: average the vectors under one shape into one vector, multiply it by a single trained matrix, and pick the color (or kind) with the highest score. It's trained on shapes from training pictures, which never include a held-out pair, and tested on shapes in held-out pictures. If it can name a red triangle's color, that color is plainly there in the vectors; if it can't, a linear reader trained on familiar pairs can't find it. The demo probes three places: the encoder's output, the stage-1 connector's output, and the output of the Caption → QA model after stage 2, both connectors from the first seed ([`probe`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)).
 
 <!-- RECEIPT: f3 -->
 ```text
@@ -861,7 +861,7 @@ So the main result holds, and it no longer rests on one seed. The medians, 214 a
   tested on                          670 seen-pair, 542 held-out-pair shapes
 ```
 
-On familiar pairs every layer gives color and kind perfectly. On held-out pairs, color drops to 74.9% at the encoder's output, against a chance of 1 in 6. So even the frozen encoder doesn't keep color fully apart from shape: a reader that learned "red" from circles and squares misses a red triangle a quarter of the time. Stage 1 makes color easier to read off (88.9%), though kind gets a little harder (98.7% to 90.0%), and stage 2's questions take some of the color gain back (80.1%). For the same seed, the connector-only model answered 237 of 300 held-out binding questions right, 79%. It's a rough comparison, since the probe scores every held-out-pair shape while the question scores one shape per picture. But it says most of what the model loses on held-out pairs is already lost in the vectors the language model receives.
+On familiar pairs every layer gives color and kind perfectly. On held-out pairs, color drops to 74.9% at the encoder's output, against a chance of 1 in 6. So even the frozen encoder doesn't keep color fully apart from shape: a reader that learned "red" from circles and squares misses a red triangle a quarter of the time. Stage 1 makes color easier to read off (88.9%), though kind gets a little harder (98.7% to 90.0%), and stage 2's questions take some of the color gain back (80.1%). For the same seed, the Caption → QA model answered 237 of 300 held-out binding questions right, 79%. It's a rough comparison, since the probe scores every held-out-pair shape while the question scores one shape per picture. But it says most of what the model loses on held-out pairs is already lost in the vectors the language model receives.
 
 **Where the wrong colors came from, all five seeds.** Holding three pairs out skews the training colors. The demo picks each shape's color first, then a kind that color is allowed to be, so red, green and blue each land on their two allowed kinds more often. Triangles are never red, so they come green or blue more often than anything else ([`training_colors`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)):
 
@@ -889,7 +889,7 @@ That gives the shortcut a concrete form. For a triangle, the familiar colors are
   connector + captions    512               502         10
 ```
 
-Most were, from 86% of the no-stage-1 model's wrong answers to 98% of the captions version's. The first seed made the stage-1 models look almost immune to misreading a color; over five seeds the connector-only model named an absent color 54 times in 499. Next, also from [`wrong_color_sources`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py): for the wrong colors that were in the picture, whose color was it?
+Most were, from 86% of the QA-only model's wrong answers to 98% of the Caption → QA + captions model's. The main run's first seed made Caption → QA and Caption → QA + LoRA look almost immune to misreading a color; over five seeds the Caption → QA model named an absent color 54 times in 499. Next, also from [`wrong_color_sources`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py): for the wrong colors that were in the picture, whose color was it?
 
 <!-- RECEIPT: f6 -->
 ```text
@@ -905,9 +905,9 @@ Most were, from 86% of the no-stage-1 model's wrong answers to 98% of the captio
   connector + captions         502      313   320.0     150   177.7
 ```
 
-The nearest shape explains nothing: every model sits at or a little below chance. The familiar colors split the models. The no-stage-1 model picked one 378 times against 303 expected by chance, so it does lean on the shortcut. The stage-1 models don't, 174 against 169 and 150 against 178. Their wrong answers look like a random pick among the other shapes in the picture.
+The nearest shape explains nothing: every model sits at or a little below chance. The familiar colors split the models. The QA-only model picked one 378 times against 303 expected by chance, so it does lean on the shortcut. Caption → QA and Caption → QA + captions don't, 174 against 169 and 150 against 178. Their wrong answers look like a random pick among the other shapes in the picture.
 
-Put together: stage 1 helps on unfamiliar pairs, in every seed. Part of the reason is that the model without it falls back on the colors a shape usually came in, and the stage-1 models don't. What's left of their mistakes isn't explained by position or habit, and the probe puts part of it in the vectors before the language model reads them.
+Put together: stage 1 helps on unfamiliar pairs, in every seed. Part of the reason is that the model without it falls back on the colors a shape usually came in, and the models trained on captions first don't. What's left of their mistakes isn't explained by position or habit, and the probe puts part of it in the vectors before the language model reads them.
 
 ---
 
@@ -952,7 +952,7 @@ The demo's [`interleave`](https://github.com/bearbearyu1223/llm-architectures-re
 
 The question here is shorter than §2's, so one picture and text comes to 62 positions rather than 64.
 
-The second table answers the question a careful reader should ask next: did teaching the model about pictures cost it anything on plain text? It scores every model's **perplexity**, how surprised it is by each next token of ordinary text ([post 4](/posts/llm-architectures-quantization/)), on post 4's passage, the same 550 tokens of ordinary prose [post 6](/posts/llm-architectures-lora/#what-it-forgot) used to see what fine-tuning disturbed. The two versions that kept the language model frozen score 20.8706, identical to the model as downloaded, to every digit printed, and that's guaranteed rather than lucky. With no picture in the input, the encoder and connector never run, and the language model's weights are the ones it shipped with, so text goes through exactly the computation it always did. Only the LoRA version changed the language model, so only it can move, and it did, a little: a median of 20.89, with the three seeds between 20.88 and 21.14. That's slightly worse, in the same direction as post 6's adapters, which pushed the same passage to between 20.93 and 25.39, though by far less. And it bought nothing measurable: [§4](#stage-two) found no score the LoRA version improved beyond the spread between seeds. The frozen design promises the model's text behavior can't change; the LoRA version gave up that promise for no consistent gain in these runs.
+The second table answers the question a careful reader should ask next: did teaching the model about pictures cost it anything on plain text? It scores every model's **perplexity**, how surprised it is by each next token of ordinary text ([post 4](/posts/llm-architectures-quantization/)), on post 4's passage, the same 550 tokens of ordinary prose [post 6](/posts/llm-architectures-lora/#what-it-forgot) used to see what fine-tuning disturbed. The two versions that kept the language model frozen score 20.8706, identical to the model as downloaded, to every digit printed, and that's guaranteed rather than lucky. With no picture in the input, the encoder and connector never run, and the language model's weights are the ones it shipped with, so text goes through exactly the computation it always did. Only the Caption → QA + LoRA model changed the language model, so only it can move, and it did, a little: a median of 20.89, with the three seeds between 20.88 and 21.14. That's slightly worse, in the same direction as post 6's adapters, which pushed the same passage to between 20.93 and 25.39, though by far less. And it bought nothing measurable: [§4](#stage-two) found no score the Caption → QA + LoRA model improved beyond the spread between seeds. The frozen design promises the model's text behavior can't change; the Caption → QA + LoRA model gave up that promise for no consistent gain in these runs.
 
 This is a big reason so many recipes keep the language model frozen for the first stage, and some keep it frozen throughout. Train it, and its plain-text behavior is no longer guaranteed; it has to be measured, as here, on more than one passage.
 

@@ -55,7 +55,7 @@ NEW_ALT = {
     "held-out-results": "For each question and each trained model, the score on pairs seen in training beside the score on held-out pairs, with a mark for the best control on the held-out questions",
     "training-loss": "Training loss on a log scale: stage 1 with 49 and with 196 image tokens, and stage 2 for the three kinds of run",
     "stage-two-results": "Stage 2 scores on pairs seen in training for three questions, each model asked with the right picture, a blank picture, another scene's picture and no picture at all",
-    "paired-seeds": "Five seeds, each drawn as a line joining the same seed trained three ways, no stage 1, connector only and connector plus captions; left, binding on held-out pairs, medians 36, 71 and 69 percent; right, leftmost on held-out pairs, medians 62, 80 and 93 percent",
+    "paired-seeds": "Five seeds, each drawn as a line joining the same seed trained three ways, QA only, Caption → QA and Caption → QA plus captions; left, binding on held-out pairs, medians 36, 71 and 69 percent; right, leftmost on held-out pairs, medians 62, 80 and 93 percent",
     "failures": "Four held-out test pictures the connector-only model answered wrong, each with its question, the right answer and what the model said; every wrong color is the color of another shape in the same picture",
 }
 
