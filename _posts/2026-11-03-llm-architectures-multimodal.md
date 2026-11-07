@@ -931,19 +931,23 @@ None of this shows how the connector represents color and shape, or that it lear
 
 ### 7. Text, a picture, or both {#text-pictures-or-both}
 
-Everything so far fed the model one picture and a question. A real multimodal model takes text alone, a picture alone, several pictures with text between them, in any order. Does that need different machinery for each case?
+Every example so far had one picture followed by one question. Real use is more varied: a question with no picture, one picture, or two pictures to compare. Does the model need different machinery for each? And now that it has learned to read pictures, has anything changed in how it reads plain text? This section takes those two questions in turn, then asks what being able to take two pictures does and doesn't mean.
 
-It doesn't, and the reason is [§2](#where-the-picture-goes): the language model only ever sees one sequence of vectors. Text pieces become vectors through the vocabulary table, each picture becomes 49 vectors through the encoder and connector, and the pieces are laid end to end in whatever order the input has them:
+#### One sequence for text and pictures {#one-sequence}
+
+No new machinery is needed, because Qwen only ever reads one sequence of vectors ([§2](#where-the-picture-goes)). The two kinds of input reach it by different paths. A text token is looked up in Qwen's vocabulary table. A picture goes through SigLIP and the connector and comes out as 49 vectors. Both kinds are 896 wide, so they can be laid end to end in whatever order the input has them:
 
 <!-- FIGURE: input-mixes -->
-![Three inputs to the same model: text only, with no image vectors; one picture's 49 vectors followed by the question; and two pictures' vectors, each after its own Image: marker, followed by the question](/assets/picture/2026-10-11-llm-architectures-multimodal/input-mixes-light.png){: .light width="1000" height="344" }
-![Three inputs to the same model: text only, with no image vectors; one picture's 49 vectors followed by the question; and two pictures' vectors, each after its own Image: marker, followed by the question](/assets/picture/2026-10-11-llm-architectures-multimodal/input-mixes-dark.png){: .dark width="1000" height="344" }
+![Three rows of positions: text only, ten text tokens; one picture and text, the label Image:, 49 image tokens, then the question, 62 positions; two pictures and text, 114 positions. A key says text tokens are looked up in Qwen's vocabulary table, image tokens are made by SigLIP and the connector, and every position is one 896-wide vector](/assets/picture/2026-10-11-llm-architectures-multimodal/input-mixes-light.png){: .light width="1000" height="394" }
+![Three rows of positions: text only, ten text tokens; one picture and text, the label Image:, 49 image tokens, then the question, 62 positions; two pictures and text, 114 positions. A key says text tokens are looked up in Qwen's vocabulary table, image tokens are made by SigLIP and the connector, and every position is one 896-wide vector](/assets/picture/2026-10-11-llm-architectures-multimodal/input-mixes-dark.png){: .dark width="1000" height="394" }
 
-- **Text only.** No picture, so no image vectors, and the encoder and connector aren't run at all. What's left is the language model reading text, exactly as it would on its own.
-- **One picture and text.** This post's training format.
-- **Several pictures.** Each picture adds its own 49 vectors wherever it appears. Nothing in the language model limits how many, only the length of sequence it can handle and the memory [§8](#what-an-image-costs) puts a price on.
+- **Text only.** No picture, so SigLIP and the connector aren't run at all. What's left is Qwen reading text, as it would on its own.
+- **One picture and text.** The format every training example used.
+- **Two pictures, or more.** Each picture adds its own 49 vectors wherever it appears, with its own `Image:` label in front. Nothing in Qwen limits how many, only the length of sequence it can handle and the memory [§8](#what-an-image-costs) puts a price on.
 
-The demo's [`interleave`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/vlm.py) builds any of these from a list of text and pictures, and here's what each costs in positions ([`text_pictures_or_both`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+Matching the width only makes the image vectors something Qwen can take in. Training the connector is what makes them mean something to it ([§2](#the-connector), [§3](#stage-one)).
+
+The demo's [`interleave`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/vlm.py) builds any of these from a list of text and pictures. What each costs in positions ([`text_pictures_or_both`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
 <!-- RECEIPT: s7t -->
 ```text
@@ -968,13 +972,31 @@ The demo's [`interleave`](https://github.com/bearbearyu1223/llm-architectures-re
      the arm that trains LoRA adapters can change it.
 ```
 
-The question here is shorter than §2's, so one picture and text comes to 62 positions rather than 64.
+Every picture here is 224 × 224, so it always becomes 196 patches and, after the merge, 49 positions, whatever it shows. The rest is text. The question is 10 tokens, 11 with the line break before it when a picture comes first, and each `Image:` label is 2 tokens, 3 with its own line break. So one picture and text comes to 2 + 49 + 11 = 62, and a second picture adds 3 + 49 = 52, for 114. The question here is shorter than §2's, which is why one picture and text comes to 62 positions rather than 64.
 
-The second table answers the question a careful reader should ask next: did teaching the model about pictures cost it anything on plain text? It scores every model's **perplexity**, how surprised it is by each next token of ordinary text ([post 4](/posts/llm-architectures-quantization/)), on post 4's passage, the same 550 tokens of ordinary prose [post 6](/posts/llm-architectures-lora/#what-it-forgot) used to see what fine-tuning disturbed. The two versions that kept the language model frozen score 20.8706, identical to the model as downloaded, to every digit printed, and that's guaranteed rather than lucky. With no picture in the input, the encoder and connector never run, and the language model's weights are the ones it shipped with, so text goes through exactly the computation it always did. Only the Caption → QA + LoRA model changed the language model, so only it can move, and it did, a little: a median of 20.89, with the three seeds between 20.88 and 21.14. That's slightly worse, in the same direction as post 6's adapters, which pushed the same passage to between 20.93 and 25.39, though by far less. And it bought nothing measurable: [§4](#stage-two) found no score the Caption → QA + LoRA model improved beyond the spread between seeds. The frozen design promises the model's text behavior can't change; the Caption → QA + LoRA model gave up that promise for no consistent gain in these runs.
+#### What happened to Qwen's text? {#what-happened-to-text}
 
-This is a big reason so many recipes keep the language model frozen for the first stage, and some keep it frozen throughout. Train it, and its plain-text behavior is no longer guaranteed; it has to be measured, as here, on more than one passage.
+Training taught the model to read pictures. Did that cost anything on plain text? The demo scores each model's **perplexity**, how surprised it is by each next token of ordinary text ([post 4](/posts/llm-architectures-quantization/)), on post 4's passage, the same 550 tokens of prose [post 6](/posts/llm-architectures-lora/#what-it-forgot) used to see what fine-tuning disturbed. Lower is better:
 
-**What this model can't do, and real ones can.** Being *able* to read two pictures isn't the same as having *learned* to. This model only ever trained on one picture followed by one question, so it has never had to say which picture a question means, or compare two. Real models train on exactly that. [Flamingo](https://arxiv.org/abs/2204.14198) was designed to "handle sequences of arbitrarily interleaved visual and textual data" (abstract), and trained on web pages where pictures and text alternate. Real models also mark where a picture starts and stops with special tokens rather than this post's plain word `Image:`. [Qwen2-VL](https://arxiv.org/abs/2409.12191)'s `<|vision_start|>` and `<|vision_end|>` "are inserted at the start and end of the image feature sequence to demarcate the image content" (§2.2.1), and it packs pictures of different sizes into one sequence. The same idea stretches to video: Qwen2-VL samples "each video at two frames per second" and turns the frames into tokens the same way it turns pictures into tokens; for consistency it even treats a single picture as "two identical frames" (§2.1).
+<!-- PENDING (rerun): split s7t; the perplexity table goes here as its own receipt (s7p). -->
+
+**Where Qwen stayed frozen, nothing changed.** QA only and Caption → QA score 20.8706, the same as the downloaded model to every digit printed, and that's guaranteed rather than lucky. Their training changed only the connector, and with no picture the connector isn't used: the same text goes in, through the same weights, in the same way, so the same predictions come out. The guarantee comes from that identical computation, not from the word "frozen" alone. Change the prompt format, the tokenizer or how positions are numbered, and text-only outputs could change even with Qwen's weights untouched.
+
+**The LoRA model is different.** Caption → QA + LoRA trained an adapter inside Qwen during stage 2, so its computation on text changed too. On this passage, its median perplexity rose a little, to 20.89, with the three seeds between 20.88 and 21.14. That's small, and one 550-token passage can't say whether it reflects any real loss of language ability; that would take a broader text evaluation. It's in the same direction as post 6's adapters, which moved the same passage to between 20.93 and 25.39. And in [§4](#stage-two), LoRA showed no consistent improvement on the picture questions.
+
+So for this small VLM, keeping Qwen frozen was the better trade: the model learned to use pictures, and its text-only predictions provably didn't move. That's a big reason so many recipes keep the language model frozen for the first stage, and some keep it frozen throughout. Train it, and its text behavior has to be measured, on more than one passage, rather than assumed.
+
+#### Taking two pictures isn't understanding them {#two-pictures}
+
+`interleave` can build a sequence with two pictures, but being able to take an input isn't the same as knowing what to do with it. Every training example was one picture followed by one question. The model never had to work out which picture a question means, or compare two.
+
+So the demo asks each trained model three things: a text-only question, a question about one picture, and a question about two pictures that it was never trained on, "Which picture has a triangle, the first or the second?", where only the first one has a triangle ([`text_pictures_or_both`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+
+<!-- PENDING (rerun): receipt s7m, what each model wrote for the three inputs, and what it shows. -->
+
+Real models train on exactly the kind of example this one never saw. Qwen2-VL's paper shows one in its data format: two pictures, each wrapped in `<|vision_start|>` and `<|vision_end|>`, then "What do the two pictures have in common?" (§2.2.1). Those special tokens "are inserted at the start and end of the image feature sequence to demarcate the image content" (§2.2.1), where this post uses the plain word `Image:`. [Flamingo](https://arxiv.org/abs/2204.14198) was designed to "handle sequences of arbitrarily interleaved visual and textual data" (abstract), and trained on web pages where pictures and text alternate. The same idea stretches to video: Qwen2-VL samples "each video at two frames per second" and turns the frames into tokens much as it does pictures (§2.1).
+
+The idea carries over at any scale: once a picture is vectors the language model can read, text and pictures share one sequence. The hard part isn't building that sequence. It's training the model to know what the pieces mean and how they relate.
 
 ---
 
