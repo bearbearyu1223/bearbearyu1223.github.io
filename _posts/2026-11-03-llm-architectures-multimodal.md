@@ -629,7 +629,7 @@ A falling loss says the model got better at predicting the training answers. It 
 
 After stage 2, the trained models answer most questions about familiar pairs right. But a score on its own can't say whether a right answer came from the picture.
 
-A model can get a question about a picture right without looking at it. These test pictures have two, three or four shapes, each a third of the time, so answering "three" to every counting question would already be right about a third of the time. And triangles came green or blue more often than any other color in training ([§6](#five-seeds) counts them), so a model could answer "What color is the triangle?" with a familiar color and be right more often than chance. This isn't only a worry for a tiny model: the [MMStar](https://arxiv.org/abs/2403.20330) authors found that on real benchmarks "visual content is unnecessary for many samples", with "more than 50% questions of ScienceQA" answerable by most language models that were never shown the picture (§1).
+A model can get a question about a picture right without looking at it. These test pictures have two, three or four shapes, each a third of the time, so answering "three" to every counting question would already be right about a third of the time. And triangles came green or blue more often than any other color in training ([§6](#familiar-pairs) counts them), so a model could answer "What color is the triangle?" with a familiar color and be right more often than chance. This isn't only a worry for a tiny model: the [MMStar](https://arxiv.org/abs/2403.20330) authors found that on real benchmarks "visual content is unnecessary for many samples", with "more than 50% questions of ScienceQA" answerable by most language models that were never shown the picture (§1).
 
 So this section changes the picture and keeps everything else the same. If the answers change when the picture does, the model was using it.
 
@@ -719,15 +719,24 @@ That matters well beyond colored shapes. MMStar's abstract gives the starkest ex
 
 ### 6. Pairs it never saw {#pairs-never-seen}
 
-§4's held-out column already showed the models doing worse on pairs they never saw. This section asks why. There are only 18 color-shape pairs, and across 3,000 training pictures the model saw each of the allowed ones 868 to 1,420 times ([§6's follow-up](#five-seeds) counts them). So a model could answer "what color is the triangle?" by a shortcut: find the triangle, then pick whichever of the colors in the picture it has seen on triangles most often. On familiar pairs, that shortcut and real binding give the same answer. On a pair it has never seen, they don't.
+The models in §4 learned to answer questions about colored shapes. But did they learn to tie each shape to its own color, or mostly to remember which colors usually went with which shapes? On familiar pictures the two give the same answer, so this section tests them where they don't.
 
-That's why three pairs were kept out of every training picture, captions and questions alike:
+**Three combinations never appear in training: a red triangle, a green circle and a blue square.** Every color and every shape still does. The model sees red, green and blue things, and triangles, circles and squares, just never in those three pairings, in captions or in questions:
 
 <!-- FIGURE: held-out-split -->
 ![A grid of six colors by three shapes; fifteen pairs appear in training pictures and three, a green circle, a blue square and a red triangle, are held out for the test](/assets/picture/2026-10-11-llm-architectures-multimodal/held-out-split-light.png){: .light width="1000" height="439" }
 ![A grid of six colors by three shapes; fifteen pairs appear in training pictures and three, a green circle, a blue square and a red triangle, are held out for the test](/assets/picture/2026-10-11-llm-architectures-multimodal/held-out-split-dark.png){: .dark width="1000" height="439" }
 
-Every color and every shape still appears in training, just never in those three combinations. Then the demo asks 100 more questions of each kind, each one about a held-out pair: "what color is the triangle?" when the triangle is red, "what color is the leftmost shape?" when the leftmost shape is a green circle, and counting on pictures that contain at least one of the three. The same four ways of asking from §5 apply, and the gap is again the right picture against the best control ([`pairs_never_seen`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+That leaves two ways a model could answer "What color is the triangle?":
+
+- **Remember familiar pairs.** Triangles came green or blue more often than any other color in training, since red was never allowed on them. A model leaning on that habit finds the triangle and picks a color it has seen on triangles before.
+- **Read the picture.** Find the triangle, then read its color. That works whether or not the pair is familiar.
+
+On familiar pairs, both give the same answer. On a held-out pair, only reading the picture gives `red`. So scoring well on held-out pairs is evidence that the model reads color and shape separately, in this setting. It isn't proof of a general skill: the pictures are simple, there are only 18 pairs, and a model can still pick up other regularities in them.
+
+#### The first result, from three seeds {#held-out-first-result}
+
+The demo asks 100 more questions of each kind, each one about a held-out pair: "What color is the triangle?" when the triangle is red, "What color is the leftmost shape?" when the leftmost shape is a green circle, and counting on pictures that contain at least one of the three. §5's four tests apply here too, and the gap is again the right picture against the best of the other three ([`pairs_never_seen`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
 <!-- RECEIPT: s6a -->
 ```text
@@ -750,96 +759,23 @@ Every color and every shape still appears in training, just never in those three
             connector + LoRA    84        84       35   49
 ```
 
-<!-- FIGURE: held-out-results -->
-![For each question and each trained model, the score on pairs seen in training beside the score on held-out pairs, with a mark for the best control on the held-out questions](/assets/picture/2026-10-11-llm-architectures-multimodal/held-out-results-light.png){: .light width="1000" height="458" }
-![For each question and each trained model, the score on pairs seen in training beside the score on held-out pairs, with a mark for the best control on the held-out questions](/assets/picture/2026-10-11-llm-architectures-multimodal/held-out-results-dark.png){: .dark width="1000" height="458" }
+**Binding drops, most of all for QA only.** QA only and Caption → QA did almost equally well on familiar pairs, 94 and 98. On held-out pairs they fall to **40** and **76**. That difference is what this section is about, but three seeds aren't enough to trust it: QA only's runs scored 22, 40 and 77, and Caption → QA's 40, 76 and 81, so one seed of each landed in the other's range.
 
-**Counting doesn't care.** All three models count held-out pictures as well as familiar ones, 96 to 100. That's what it should do: how many shapes there are has nothing to do with which color goes with which shape.
-
-**Binding drops, most of all without stage 1.** On held-out pairs, the two models trained on captions first get a median of **76** of 100 colors right, down from 98 and 99. The model that skipped stage 1 gets **40**, down from 94. So the captioning stage barely mattered on pairs the model had trained on, and looks like it mattered a lot on pairs it hadn't. The five-seed run at the [end of this section](#five-seeds) confirms it, and it's the post's main result. It also puts the Prismatic finding from §4 in a different light: a first stage can look unnecessary when the test only checks familiar combinations.
-
-It's also the noisiest number in the post. The three QA-only runs scored 22, 40 and 77, and the Caption → QA runs 40, 76 and 81, so one seed of each landed in the other's range. The medians are 36 points apart, but three seeds can't make that precise, so I ran it again with five seeds.
-
-Why would captions help on a pair no caption contained? A plausible reading: a caption names *every* shape with its own color, in order, so the only way to get a caption right is to carry each shape's color separately. Questions alone reward something weaker, getting the one asked-about color right, and a shortcut through familiar pairs does that just as well until a pair is unfamiliar. The five-seed run below tests this guess.
-
-**Every model is still looking.** The gaps on held-out binding are 27, 53 and 51 points, so even the QA-only model reads something from the picture. It just reads the wrong color more often.
+**Counting doesn't care.** All three models count held-out pictures as well as familiar ones, 96 to 100. How many shapes there are has nothing to do with which color goes with which shape.
 
 **Leftmost drops less.** 82 against 88 for Caption → QA, 64 against 75 for QA only, and nothing for Caption → QA + LoRA. A leftmost question doesn't name a shape, so there's less to trip over: the model finds the leftmost thing and reads its color, a color it has seen plenty of times on other shapes.
 
-**Some pairs are harder than others.** Broken down by pair, for the first seed of each model ([`pairs_never_seen`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+**Every model is still looking.** The gaps on held-out binding are 27, 53 and 51 points, so even QA only reads something from the picture. It just gives the wrong color more often.
 
-<!-- RECEIPT: s6b -->
-```text
-  Binding on held-out pairs, first seed, by pair: right of asked.
+#### Does captioning first help? Five paired seeds {#five-seeds}
 
-  model             green circle  blue square  red triangle
-  -----------------------------------------------------------
-  no stage 1            27 of 29     16 of 30      34 of 41
-  connector only        24 of 29     29 of 30      28 of 41
-  connector + LoRA      17 of 29     28 of 30      31 of 41
-```
+To settle it, a second program, `uv run demo07 --followup`, runs the comparison again, more carefully ([`d07_followup.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)):
 
-The QA-only model got 16 of 30 questions about the blue square right, and the Caption → QA + LoRA model 17 of 29 about the green circle. These counts are from one seed each, so they show that the pairs differ, not which pair is hardest in general.
-
-#### Where the wrong answers came from {#where-wrong-answers-come-from}
-
-The demo keeps every wrong answer from the first seed. Here are some from the Caption → QA model on held-out questions, also printed by [`pairs_never_seen`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
-
-<!-- RECEIPT: s6c -->
-```text
-  Some wrong answers, connector only, first seed (held-out questions):
-
-  What color is the triangle?          right: red     said: yellow
-  What color is the triangle?          right: red     said: yellow
-  What color is the circle?            right: green   said: red
-  What color is the circle?            right: green   said: red
-  What color is the square?            right: blue    said: green
-  What color is the leftmost shape?    right: blue    said: yellow
-  What color is the leftmost shape?    right: red     said: orange
-```
-
-<!-- FIGURE: failures -->
-![Four held-out test pictures the Caption → QA model answered wrong, each with its question, the right answer and what the model said; every wrong color is the color of another shape in the same picture](/assets/picture/2026-10-11-llm-architectures-multimodal/failures-light.png){: .light width="1000" height="327" }
-![Four held-out test pictures the Caption → QA model answered wrong, each with its question, the right answer and what the model said; every wrong color is the color of another shape in the same picture](/assets/picture/2026-10-11-llm-architectures-multimodal/failures-dark.png){: .dark width="1000" height="327" }
-
-Look at the pictures. Asked the color of the red triangle, the model said `yellow`, and there's a yellow circle in the picture. Asked the leftmost shape's color, it said `orange`, and there's an orange triangle beside it. It didn't invent a color; it gave the color of the *wrong shape*. A separate pass over the saved wrong answers checks that for all of them, and needs no model, only the saved answers and the pictures they were about (`uv run demo07 --misses`, [`wrong_colors`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
-
-<!-- RECEIPT: sm -->
-```text
-  Wrong color answers, first seed, right picture. Was the color it
-  said on some other shape in the same picture?
-
-  questions                      model  wrong  in picture  not in it
-  --------------------------------------------------------------------
-  binding, seen             no stage 1      3           3          0
-                        connector only      0           0          0
-                      connector + LoRA      1           1          0
-  leftmost, seen            no stage 1      7           7          0
-                        connector only     17          17          0
-                      connector + LoRA     17          15          2
-  binding, held out         no stage 1     23          14          9
-                        connector only     19          18          1
-                      connector + LoRA     24          22          2
-  leftmost, held out        no stage 1     23          23          0
-                        connector only     19          19          0
-                      connector + LoRA     16          15          1
-```
-
-On held-out binding, 18 of the Caption → QA model's 19 wrong answers were a color that was in the picture, on some other shape. It saw the colors and attached one to the wrong shape. That's a binding failure in the plainest sense. Whether it's the shortcut from the top of this section, picking the color this shape usually came in, one seed can't say; the five-seed run checks that too.
-
-The model that skipped stage 1 fails differently in one way: 9 of its 23 wrong binding answers named a color that wasn't in the picture at all. Those aren't binding failures. That model is sometimes misreading the color itself, which the two Caption → QA models did only once (without LoRA) and twice (with LoRA) in this seed.
-
-This is the reason to look at failures and not only scores. The Caption → QA model's first-seed score on held-out binding, 81 of 100, says something went wrong 19 times. The wrong answers say what: the color was read and then given to the wrong shape. It looks like a problem in the parts that tie a color to a shape, the connector and the language model reading it, rather than in the encoder. The linear probe below shows that's only partly true.
-
-#### Five seeds, and three checks {#five-seeds}
-
-Three seeds left the main result uncertain, and this section has made three guesses it hasn't tested: that captions help because they make the model carry every shape's color, that the encoder saw the colors the model then gave to the wrong shape, and that wrong answers come from a shortcut through familiar pairs. A second program, `uv run demo07 --followup`, re-runs the main result with more seeds and checks all three ([`d07_followup.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)). It changes three things:
-
-- **Paired seeds.** Five seeds, each training its own stage 1. Each seed then trains three versions: **QA only** (800 steps of questions), **Caption → QA** (stage 1, then 400 steps of questions), and **Caption → QA + captions**, the same as Caption → QA except that each step's 16 questions come with 4 captions mixed in. All three see the same questions in the same order, so two versions from one seed differ only in how they were trained.
-- **Bigger, fresh tests.** 300 questions per test instead of 100, drawn from seeds the main run never used.
+- **Five paired seeds.** Each seed trains its own stage 1, then three versions: **QA only** (800 steps of questions, connector from random), **Caption → QA** (stage 1, then 400 steps of questions), and **Caption → QA + captions**, the same as Caption → QA except that each step's 16 questions come with 4 captions mixed in. Within a seed, all three get the same questions in the same order. They still differ in their starting connector and in what else they trained on, but matching the questions removes one big source of run-to-run difference, so two versions from one seed can be compared directly.
+- **Bigger, fresh tests.** 300 questions per test instead of 100, from seeds the main run never used.
 - **No LoRA.** It showed no consistent gain in §4, so its place goes to Caption → QA + captions.
 
-Here are the scores, from [`run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py):
+The scores, from [`run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py):
 
 <!-- RECEIPT: f1 -->
 ```text
@@ -863,7 +799,7 @@ Here are the scores, from [`run`](https://github.com/bearbearyu1223/llm-architec
 ![Five seeds, each drawn as a line joining the same seed trained three ways, QA only, Caption → QA and Caption → QA plus captions; left, binding on held-out pairs, medians 36, 71 and 69 percent; right, leftmost on held-out pairs, medians 62, 80 and 93 percent](/assets/picture/2026-10-11-llm-architectures-multimodal/paired-seeds-light.png){: .light width="1000" height="458" }
 ![Five seeds, each drawn as a line joining the same seed trained three ways, QA only, Caption → QA and Caption → QA plus captions; left, binding on held-out pairs, medians 36, 71 and 69 percent; right, leftmost on held-out pairs, medians 62, 80 and 93 percent](/assets/picture/2026-10-11-llm-architectures-multimodal/paired-seeds-dark.png){: .dark width="1000" height="458" }
 
-**Stage 1 helps on held-out pairs, in every seed.** On held-out binding, Caption → QA beat QA only in all five seeds, by a median of 74 questions in 300, about 25 points. Seed by seed, also from [`run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py):
+And seed by seed, also from [`run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py):
 
 <!-- RECEIPT: f2 -->
 ```text
@@ -877,42 +813,36 @@ Here are the scores, from [`run`](https://github.com/bearbearyu1223/llm-architec
                                         leftmost    5 of 5     +31
 ```
 
-So the main result holds, and it no longer rests on one seed. The medians, 214 and 107 of 300, are 71% and 36%, close to the main run's 76 and 40. Each version's median sits far above its control's, so all of them are looking.
+**Caption → QA beat QA only on held-out binding in all five seeds,** by a median of 74 questions in 300, about 25 points. That's smaller than the 107 between the two medians, 214 and 107, and it's the better measure of the typical gain, because it compares runs that saw the same questions. The medians, 71% and 36%, are close to the main run's 76 and 40, and each sits far above its control, so all of the versions are looking. On held-out leftmost, Caption → QA was ahead in all five seeds as well, by a median of 53.
 
-**More captions didn't help binding.** Mixing captions into stage 2 came out ahead of Caption → QA in 2 seeds of 5, by a median of −4, and one seed fell to 115. So whatever captions do for binding, they do it in stage 1; there's no sign that more of them in stage 2 adds anything.
+So the advantage is repeatable. That doesn't say *why*, which is what the rest of this section looks at.
 
-**But they helped the leftmost question in every seed,** 278 against 241 on held-out pairs. The likeliest reason is in how captions are written: shapes go from left to right, so every caption starts with the answer to "what color is the leftmost shape?".
+**A side result: more captions in stage 2.** Mixing captions into stage 2 didn't help binding. Caption → QA + captions came out ahead of Caption → QA in 2 seeds of 5, by a median of −4, and one seed fell to 115. Whatever captions do for binding, they do it in stage 1. They did help the leftmost question, in every seed, 278 against 241 on held-out pairs. The likeliest reason is how captions are written: shapes go from left to right, so every caption starts with the answer to "what color is the leftmost shape?".
 
-**Is the color in the vectors at all?** A **linear probe** is the simplest reader there is: average the vectors under one shape into one vector, multiply it by a single trained matrix, and pick the color (or kind) with the highest score. It's trained on shapes from training pictures, which never include a held-out pair, and tested on shapes in held-out pictures. If it can name a red triangle's color, that color is plainly there in the vectors; if it can't, a linear reader trained on familiar pairs can't find it. The demo probes three places: the encoder's output, the stage-1 connector's output, and the output of the Caption → QA model after stage 2, both connectors from the first seed ([`probe`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)).
+#### What does the model get wrong? {#where-wrong-answers-come-from}
 
-<!-- RECEIPT: f3 -->
+Some of Caption → QA's wrong answers on held-out questions, from the main run's first seed ([`pairs_never_seen`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+
+<!-- RECEIPT: s6c -->
 ```text
-  read from               color: seen  held out  kind: seen  held out
-  ---------------------------------------------------------------------
-  encoder output (196)         100.0%     74.9%      100.0%     98.7%
-  stage 1 connector (49)       100.0%     88.9%      100.0%     90.0%
-  stage 2 connector (49)       100.0%     80.1%      100.0%     89.3%
+  Some wrong answers, connector only, first seed (held-out questions):
 
-  probe trained on                   7,474 shapes in training pictures
-  tested on                          670 seen-pair, 542 held-out-pair shapes
+  What color is the triangle?          right: red     said: yellow
+  What color is the triangle?          right: red     said: yellow
+  What color is the circle?            right: green   said: red
+  What color is the circle?            right: green   said: red
+  What color is the square?            right: blue    said: green
+  What color is the leftmost shape?    right: blue    said: yellow
+  What color is the leftmost shape?    right: red     said: orange
 ```
 
-On familiar pairs every layer gives color and kind perfectly. On held-out pairs, color drops to 74.9% at the encoder's output, against a chance of 1 in 6. So even the frozen encoder doesn't keep color fully apart from shape: a reader that learned "red" from circles and squares misses a red triangle a quarter of the time. Stage 1 makes color easier to read off (88.9%), though kind gets a little harder (98.7% to 90.0%), and stage 2's questions take some of the color gain back (80.1%). For the same seed, the Caption → QA model answered 237 of 300 held-out binding questions right, 79%. It's a rough comparison, since the probe scores every held-out-pair shape while the question scores one shape per picture. But it says most of what the model loses on held-out pairs is already lost in the vectors the language model receives.
+<!-- FIGURE: failures -->
+![Four held-out test pictures the Caption → QA model answered wrong, each with its question, the right answer and what the model said; every wrong color is the color of another shape in the same picture](/assets/picture/2026-10-11-llm-architectures-multimodal/failures-light.png){: .light width="1000" height="327" }
+![Four held-out test pictures the Caption → QA model answered wrong, each with its question, the right answer and what the model said; every wrong color is the color of another shape in the same picture](/assets/picture/2026-10-11-llm-architectures-multimodal/failures-dark.png){: .dark width="1000" height="327" }
 
-**Where the wrong colors came from, all five seeds.** Holding three pairs out skews the training colors. The demo picks each shape's color first, then a kind that color is allowed to be, so red, green and blue each land on their two allowed kinds more often. Triangles are never red, so they come green or blue more often than anything else ([`training_colors`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)):
+Look at the pictures. Asked the color of the red triangle, the model said `yellow`, and there's a yellow circle in the picture. Asked the leftmost shape's color, it said `orange`, and there's an orange triangle beside it. It didn't produce a color from nowhere: it gave the color of another shape.
 
-<!-- RECEIPT: f4 -->
-```text
-  How often each shape came in each color, over all training pictures:
-
-  shape      red  green  blue  yellow  purple  orange
-  -----------------------------------------------------
-  circle    1411      0  1379     931     868     881
-  square    1382   1368     0     939     918     921
-  triangle     0   1420  1362     957     903     930
-```
-
-That gives the shortcut a concrete form. For a triangle, the familiar colors are green and blue; for a circle, red and blue; for a square, red and green. If a model is answering from habit, its wrong colors should lean toward those. First, how many wrong answers were a color that was in the picture at all ([`wrong_color_sources`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)):
+Over all five seeds of the follow-up, every wrong held-out binding answer is one of two kinds ([`wrong_color_sources`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)):
 
 <!-- RECEIPT: f5 -->
 ```text
@@ -925,7 +855,25 @@ That gives the shortcut a concrete form. For a triangle, the familiar colors are
   connector + captions    512               502         10
 ```
 
-Most were, from 86% of the QA-only model's wrong answers to 98% of the Caption → QA + captions model's. The main run's first seed made Caption → QA and Caption → QA + LoRA look almost immune to misreading a color; over five seeds the Caption → QA model named an absent color 54 times in 499. Next, also from [`wrong_color_sources`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py): for the wrong colors that were in the picture, whose color was it?
+- **A color that's in the picture, on another shape.** Most wrong answers are this kind, from 86% of QA only's to 98% of Caption → QA + captions'. The answer is the color of a shape other than the one asked about.
+- **A color that isn't in the picture at all.** QA only did this 130 times, Caption → QA 54 and Caption → QA + captions 10. These can't come from taking another shape's color. They might come from a learned habit, from a color the vectors didn't carry clearly, or from the language model; the wrong answer alone can't say which.
+
+#### Does it lean on familiar pairs? {#familiar-pairs}
+
+Back to the habit from the top of this section. Holding three pairs out skews the training colors: the demo picks each shape's color first, then a kind that color is allowed to be, so red, green and blue each land on their two allowed kinds more often ([`training_colors`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)):
+
+<!-- RECEIPT: f4 -->
+```text
+  How often each shape came in each color, over all training pictures:
+
+  shape      red  green  blue  yellow  purple  orange
+  -----------------------------------------------------
+  circle    1411      0  1379     931     868     881
+  square    1382   1368     0     939     918     921
+  triangle     0   1420  1362     957     903     930
+```
+
+So for a triangle, the familiar colors are green and blue; for a circle, red and blue; for a square, red and green. If a model answers from habit, then when it gets a red triangle wrong, it should say green or blue more often than chance would. Here **chance** means picking one of the other shapes in the picture at random: for each wrong answer, the share of the other shapes that have a familiar color, added up over all the wrong answers ([`wrong_color_sources`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)):
 
 <!-- RECEIPT: f6 -->
 ```text
@@ -941,9 +889,43 @@ Most were, from 86% of the QA-only model's wrong answers to 98% of the Caption �
   connector + captions         502      313   320.0     150   177.7
 ```
 
-The nearest shape explains nothing: every model sits at or a little below chance. The familiar colors split the models. The QA-only model picked one 378 times against 303 expected by chance, so it does lean on the shortcut. Caption → QA and Caption → QA + captions don't, 174 against 169 and 150 against 178. Their wrong answers look like a random pick among the other shapes in the picture.
+Read the `common` columns first. QA only gave a familiar color 378 times, against 303 expected by chance, so it does lean on the habit. The two models trained on captions first don't: 174 against 169, and 150 against 178. Their wrong answers look like a random pick among the other shapes in the picture. These counts cover only the wrong answers whose color was in the picture.
 
-Put together: stage 1 helps on unfamiliar pairs, in every seed. Part of the reason is that the model without it falls back on the colors a shape usually came in, and the models trained on captions first don't. What's left of their mistakes isn't explained by position or habit, and the probe puts part of it in the vectors before the language model reads them.
+The `nearest` columns test a different idea: that the model takes the color of the shape closest to the one asked about, measured center to center. Every model sits at or a little below chance there, so being close by doesn't explain the mistakes.
+
+This is the clearest clue to *why* captioning first helps on held-out pairs: without it, the model falls back on the colors a shape usually came in. It doesn't prove that captions remove shortcuts, but it fits the five-seed result.
+
+#### Where does the mistake begin? {#where-the-mistake-begins}
+
+A wrong color could start in any of the three parts. SigLIP might not keep the triangle's color clearly, the connector might lose it, or Qwen might have it and still use it wrong. To look inside, the demo trains a **linear probe**: a tiny classifier that reads the vectors from one part of the model and tries to name a shape's color. The VLM itself stays frozen; only the probe learns. It averages the vectors under one shape into one vector, multiplies that by one trained matrix, and picks the color (or kind) with the highest score. It's trained on shapes from training pictures, which never include a held-out pair, and tested on shapes in held-out pictures. If even this simple reader can name a red triangle's color, the color is easy to get at in those vectors.
+
+The probe reads three places: the encoder's output, the connector's output after stage 1, and Caption → QA's connector output after stage 2, both connectors from the first seed ([`probe`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)):
+
+<!-- RECEIPT: f3 -->
+```text
+  read from               color: seen  held out  kind: seen  held out
+  ---------------------------------------------------------------------
+  encoder output (196)         100.0%     74.9%      100.0%     98.7%
+  stage 1 connector (49)       100.0%     88.9%      100.0%     90.0%
+  stage 2 connector (49)       100.0%     80.1%      100.0%     89.3%
+
+  probe trained on                   7,474 shapes in training pictures
+  tested on                          670 seen-pair, 542 held-out-pair shapes
+```
+
+On familiar pairs, every place gives color and kind perfectly. On held-out pairs, color falls to 74.9% at the encoder's output, where guessing one of six colors would get about 17%. So even the frozen encoder doesn't keep color fully apart from shape: a reader that learned "red" from circles and squares misses a red triangle a quarter of the time. After stage 1, color is easier to read off the connector's output, 88.9%, though kind gets a little harder, 98.7% to 90.0%. After stage 2's questions, color drops back to 80.1%.
+
+So caption training changed the connector's vectors in a way that made color easier for a simple linear reader to recover. That isn't a measure of how much color information is in them: a more powerful reader might find more. Nor is the probe's score on the same footing as the model's. For the same seed, Caption → QA answered 237 of 300 held-out binding questions right, 79%, close to the probe's 80.1%, but the probe scores every held-out-pair shape and the question scores one shape per picture. What the probe does suggest is that part of the problem is already in the vectors Qwen receives, not only in how Qwen uses them.
+
+#### What this section showed {#pairs-what-we-learned}
+
+**Captioning first helps on combinations the model never saw.** Caption → QA beat QA only on held-out binding in all five paired seeds, by a median of about 25 points. On familiar pairs the two looked almost the same, which puts the Prismatic finding from §4 in a different light: a first stage can look unnecessary when the test only checks familiar combinations.
+
+**The wrong answers point to one reason.** QA only's mistakes lean toward the colors a shape usually came in during training; the models trained on captions first don't. Why captions would do that is a guess: a caption names every shape with its own color, in order, so getting captions right rewards keeping each shape's color separate, where a single question can often be answered by habit. The evidence here fits that guess but doesn't prove it.
+
+**The probe adds a different clue.** After stage 1, held-out colors are easier to read off the connector's vectors than off the encoder's, and some of that is lost again in stage 2.
+
+None of this shows how the connector represents color and shape, or that it learned a general rule for binding them. But it's more than one accuracy number: a gain that repeats across seeds, a different pattern of mistakes, and a change in how easily color can be read from the vectors, all from training a 3.56-million-parameter connector.
 
 ---
 
