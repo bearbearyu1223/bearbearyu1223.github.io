@@ -629,6 +629,8 @@ A falling loss says the model got better at predicting the training answers. It 
 
 If the model gives the right answer, how do we know it used the picture?
 
+**The short answer: yes, it looks.** Take the picture away or swap it for another, and every trained model loses at least 59 points. But some right answers are guesses, and once the language model is trained with LoRA, it answers between a fifth and a third of the questions right with no picture at all.
+
 A model can answer a question about a picture correctly without looking at it. If most pictures have three shapes, "three" is a good guess for any counting question. If triangles were usually one color in training, that color is a good guess for "What color is the triangle?", whatever the picture shows. A score with nothing to compare it to can't tell real looking from a good guess, and this isn't a theoretical worry: the [MMStar](https://arxiv.org/abs/2403.20330) authors found that on real benchmarks "visual content is unnecessary for many samples", with more than half of one benchmark's questions answerable by a language model that was never shown the picture.
 
 This is a different question from §4's held-out pairs. Held-out pairs ask whether what the model learned carries over to new combinations. The controls here ask whether a right answer depended on the picture at all.
@@ -639,7 +641,7 @@ So every question is asked four ways, with the same words each time and only the
 ![One question asked four ways: with the right picture, with a blank white picture, with another scene's picture, and with no picture at all, only the question's words](/assets/picture/2026-10-11-llm-architectures-multimodal/four-controls-light.png){: .light width="1000" height="441" }
 ![One question asked four ways: with the right picture, with a blank white picture, with another scene's picture, and with no picture at all, only the question's words](/assets/picture/2026-10-11-llm-architectures-multimodal/four-controls-dark.png){: .dark width="1000" height="441" }
 
-- **With the right picture.** The real score.
+- **With the right picture**, the one the question was written about. This is the normal test, and its score is the real one.
 - **With a blank picture.** An all-white square, so the model sees nothing. Whatever it scores here, it scores by guessing from the question.
 - **With the wrong picture**, the next test scene's picture, which has its own shapes and colors. A model that really reads the picture should now give *that* picture's answer, which is usually wrong for the question's scene. The demo scores it against the question's own scene, so right answers here are the ones two scenes happen to share. This column says how often an answer survives a change of evidence, not whether the model read the wrong picture correctly.
 - **With no picture at all.** Only the question's words, with no `Image:` and no image vectors, so the language model reads text and nothing else. This is the test MMStar ran. It differs from the blank picture in one way: a blank picture still puts 49 vectors in the sequence, ones the connector made from an empty image, and those can push the answer around even though they show nothing.
