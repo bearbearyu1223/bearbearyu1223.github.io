@@ -189,7 +189,7 @@ A transformer doesn't work on raw text, and it doesn't work on raw pixels either
 
 The obvious answer, one vector per pixel, doesn't scale. A 224 × 224 picture has 50,176 pixels. As a sequence, that's 256 times as long as the 196 vectors this section ends with, and since attention compares every position with every other, it's 256² = 65,536 times as many comparisons ([post 3](/posts/llm-architectures-flash-attention/) showed how fast that grows).
 
-The answer most models use comes from the **vision transformer**, or ViT, of [Dosovitskiy et al.](https://arxiv.org/abs/2010.11929), whose title gives the idea away: *An Image is Worth 16x16 Words*. Cut the picture into a grid of small squares, called **patches**, and treat each patch the way a language model treats a token.
+The answer most models use comes from the **vision transformer** (ViT) paper by [Dosovitskiy et al.](https://arxiv.org/abs/2010.11929), playfully titled *An Image is Worth 16x16 Words*. The "16x16" is the size of one patch in pixels, not 256 actual words. The idea is to cut the picture into a grid of small squares, called **patches**, and treat each patch the way a language model treats a token: turn it into a vector, then let a transformer process the sequence.
 
 <!-- FIGURE: image-to-patches -->
 ![A picture cut into a 14 by 14 grid of patches; one patch enlarged to its 16 by 16 pixels, flattened into 768 raw pixel values, multiplied by one learned matrix and given its position, becoming one 768-wide patch embedding, the input to the encoder's 12 transformer layers](/assets/picture/2026-10-11-llm-architectures-multimodal/image-to-patches-light.png){: .light width="1000" height="384" }
