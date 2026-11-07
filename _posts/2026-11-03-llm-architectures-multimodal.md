@@ -366,9 +366,16 @@ $$z = \mathrm{GELU}(h\,W_1 + b_1)\,W_2 + b_2$$
 
 That's about 0.7% of the language model's 494,032,768 ([post 6](/posts/llm-architectures-lora/) counted them), and in stage 1 it's the only part that trains: SigLIP and Qwen stay frozen. Nothing teaches the encoder to see or the language model to read. The connector learns a small bridge between two models that already work.
 
-Without the merge, $h$ would be one 768-wide patch vector, $W_1$ would shrink to 768 × 896, and the total would be 1,492,736: fewer parameters, but four times as many positions for the language model to read.
+**Why merge, if it makes the connector bigger?** The merge makes the first layer's input four times wider, 3,072 numbers instead of 768, so $W_1$ is four times bigger too. Without the merge, $W_1$ would be 768 × 896 and the whole connector would be 1,492,736 numbers instead of 3,557,120. The extra 2 million is the price, and it's a small one, under half a percent of the language model. What it buys is a sequence a quarter as long:
 
-Checking the shapes and counts in code ([`the_connector`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+| | connector parameters | image tokens the language model reads |
+|---|---|---|
+| with the merge | 3,557,120 | 49 |
+| without the merge | 1,492,736 | 196 |
+
+The connector runs once per picture. The language model keeps every image token in its KV cache, and every word it writes looks back at all of them, at every layer. So a bigger connector and a shorter sequence is the better deal, and [§8](#what-an-image-costs) measures it: a quarter of the cache, and training three times faster.
+
+Checking the shapes and counts in code ([`the_connector`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)). The last two lines are the two rows of the table above:
 
 <!-- RECEIPT: s2a -->
 ```text
