@@ -1002,9 +1002,18 @@ The idea carries over at any scale: once a picture is vectors the language model
 
 ### 8. What an image costs {#what-an-image-costs}
 
-A picture isn't free once it's in the sequence. Every position the language model reads costs attention work, and, as [post 2](/posts/llm-architectures-kv-cache/) measured, memory in the **KV cache**: the keys and values the model keeps for every position so it doesn't recompute them for each new token. A picture's positions count exactly like a word's.
+This post's model turns one 224 × 224 picture into 49 tokens for Qwen. Without the 2 × 2 merge, the same picture would be 196 tokens: four times as many positions for the language model, from exactly the same pixels. What do those extra positions cost, in memory and in time? And does cutting them hurt accuracy?
 
-For Qwen2.5-0.5B the per-position cost is small and fixed: keys and values, for each of 24 layers, for each of its 2 key/value heads, 64 numbers each, at 2 bytes per number in bf16 ([`what_an_image_costs`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+#### How much memory one picture takes {#image-memory}
+
+[Post 2](/posts/llm-architectures-kv-cache/) measured the **KV cache**: the keys and values a model keeps for every position it has read, so it doesn't recompute them for each new token it writes. Image tokens go through the same layers as text tokens, so they take the same space in the cache as any text token. For Qwen2.5-0.5B, that space is fixed for each token: keys and values, for each of 24 layers, for each of its 2 key/value heads, 64 numbers each, at 2 bytes per number in bf16:
+
+$$\begin{aligned}
+&\underbrace{2}_{\text{K, V}} \times \underbrace{24}_{\text{layers}} \times \underbrace{2}_{\text{heads}} \times \underbrace{64}_{\text{dims}} \times \underbrace{2}_{\text{bytes}} \\
+&= 12{,}288 \text{ bytes} = 12 \text{ KiB per token}
+\end{aligned}$$
+
+So a picture's cache is 12 KiB times its number of tokens. The demo's first test picture is one red square ([`what_an_image_costs`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
 <!-- RECEIPT: s8a -->
 ```text
@@ -1019,11 +1028,15 @@ For Qwen2.5-0.5B the per-position cost is small and fixed: keys and values, for 
   caption: "a red square"
 ```
 
-A picture costs the same no matter what's in it. The demo's first test picture is one red square, whose caption is three tokens; its 49 image tokens take sixteen times as many positions. At 196 tokens it would be 65 times as many.
+Merging cuts the picture's cache by 75%, from 2.30 MiB to 0.57 MiB. With a fixed picture size and a fixed number of tokens, as here, that cost doesn't depend on what's in the picture. Its caption, `a red square`, is 3 tokens, so the picture takes sixteen times as many positions as its description, 65 times without the merge. The caption isn't a substitute for the picture, though: it names the square and leaves out everything a different question might need.
 
-That's small per picture for a 0.5B model, but it adds up the way post 2's cache did: a conversation with ten pictures at 196 tokens holds 23 MiB of cache for the pictures alone, and the cost per token grows with the model. Real models use far more tokens per picture than this one. LLaVA-1.5's encoder takes 336-pixel pictures in 14-pixel patches, which is $(336/14)^2 = 576$ tokens per picture, a line in the next receipt. That's why so much design effort goes into cutting the count: Qwen2-VL's 2 × 2 merge, which this post copies, [SmolVLM](https://arxiv.org/abs/2504.05299)'s "pixel shuffle", which merges each r × r block of patches like §2's merge and so cuts tokens "by a factor of r²" and finds small models "benefit from more aggressive visual token compression", and the fixed-size summaries of [§9](#other-designs).
+That's small per picture for a 0.5B model, but it adds up the way post 2's cache did: ten pictures at 196 tokens hold 23 MiB of cache for the pictures alone, against 5.7 MiB merged, and the cost per token grows with the model. These are the image tokens' cache only, during generation. They leave out the text, the model's weights, and, in training, the activations, gradients and optimizer state.
 
-Does merging cost accuracy? The demo trains stage 1 again on all 196 patch vectors, same seed, same data, same 400 steps ([`what_an_image_costs`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+Memory isn't the only cost, and the costs don't all grow the same way. The cache grows in step with the number of tokens. Reading the picture in the first place compares every position with every other, which grows with the square of the sequence length ([post 3](/posts/llm-architectures-flash-attention/)). And every word the model writes afterwards reads all of the picture's positions again.
+
+#### What the merge bought {#what-the-merge-bought}
+
+To measure it, the demo trains stage 1 again on all 196 patch vectors: same seed, same data, same 400 steps ([`what_an_image_costs`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
 <!-- RECEIPT: s8b -->
 ```text
@@ -1044,9 +1057,23 @@ Does merging cost accuracy? The demo trains stage 1 again on all 196 patch vecto
   448 x 448 px      784  9.19 MiB           196  2.30 MiB
 ```
 
-The merged model did *better*: 91 captions right against 76, with a lower final loss, at a third of the time per step (1.01 seconds against 3.03). But that's not a clean comparison, and the reason is in the first row. Without the merge, the connector's first layer takes 768 numbers per vector instead of 3,072, so it has 1.49 million parameters instead of 3.56 million. The comparison changed two things at once, the number of tokens and the size of the connector, and one run can't say which one mattered. What it does show is what matters in practice: cutting the picture to a quarter of the tokens cost nothing here, and made training three times faster. [Idefics2](https://arxiv.org/abs/2405.02246) reports the same direction at scale, where cutting 729 visual tokens to 64 improved results ([§9](#other-designs) has the details).
+**The merged model trained three times faster,** 1.01 seconds a step against 3.03, even though its connector is the bigger one, 3.56 million parameters against 1.49 million. The connector is small next to the language model either way, and the language model now reads 49 image positions instead of 196. That's the trade from [§2](#the-connector) measured: a bigger connector, and a cheaper model overall.
 
-The last table is the cost of sharper pictures. Patches are a fixed 16 pixels, so doubling the picture's side to 448 pixels quadruples the patches, to 784, and the KV cache with them. The 2 × 2 merge only brings that back to 196 tokens, the same as this post's unmerged picture. Every model that reads small text in a photo pays this, which is why Qwen2-VL lets the number of patches vary with the picture's size instead of fixing it.
+**It also captioned better,** 91 of 120 against 76, with a lower final loss. But that doesn't show merging improves accuracy. Look at the first row: merging glues four 768-wide patch vectors into one 3,072-wide vector, which makes the connector's first layer four times bigger. So this comparison changed two things at once, the number of tokens and the size of the connector, and from one seed it can't say which mattered, or whether the gap is just run-to-run variation. What it does show is narrower: in this run, a quarter of the tokens came with no accuracy penalty.
+
+<!-- PENDING (capacity run): receipt s8c, the three connectors at three seeds (49 tokens, 196 tokens, 196 tokens with a wider MLP at the merged size), and what it says about tokens vs connector size. -->
+
+#### Bigger pictures {#bigger-pictures}
+
+Every picture here is 224 × 224. SigLIP cuts pictures into 16-pixel patches, so doubling the picture's side to 448 pixels quadruples the patches, to 784, and the cache with them. The last table in the receipt above is that calculation, not a run: this post's SigLIP takes 224-pixel pictures only. Even merged, a 448-pixel picture would be 196 tokens, as many as this post's unmerged one.
+
+Real models use far more tokens per picture than this one. LLaVA-1.5's encoder takes 336-pixel pictures in 14-pixel patches, which is $(336/14)^2 = 576$ tokens per picture, the middle line of the receipt above. Sharper pictures generally mean more tokens, and how much that costs depends on the design, which is why so much effort goes into cutting the count: Qwen2-VL's 2 × 2 merge, which this post copies, [SmolVLM](https://arxiv.org/abs/2504.05299)'s "pixel shuffle", which merges each r × r block of patches like §2's merge and so cuts tokens "by a factor of r²" and finds small models "benefit from more aggressive visual token compression", and the learned summaries of [§9](#other-designs). Qwen2-VL also lets the number of tokens vary with the picture's size instead of fixing it.
+
+The trade-off is always the same shape: more visual tokens can keep finer detail, small objects or text in a photo, but every one is more work for the language model.
+
+#### What this section showed {#image-cost-what-we-learned}
+
+The 2 × 2 merge cut each picture from 196 tokens to 49 and its cache by 75%. In this run, it also made training three times faster, despite a connector more than twice the size, with no accuracy penalty. That doesn't mean fewer tokens are always better: squeeze too hard and the detail a question needs is gone. But it shows where an image's cost comes from: not its pixels, but how many tokens the language model is asked to read. And merging is only one way to control that, which is where [§9](#other-designs) picks up.
 
 ---
 
