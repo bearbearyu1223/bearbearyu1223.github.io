@@ -664,7 +664,7 @@ All four recipes from §4 get all four tests, including Caption only.
 
 To sum up how much the right picture helps, I'll use one number for this post and call it the **gap**. Write $A$ for the share of questions answered right, out of 100, and take the best of the three other tests:
 
-$$\text{gap} = A_\text{right picture} - \max(A_\text{blank},\ A_\text{wrong},\ A_\text{none})$$
+$$\text{gap} = A_{\text{right picture}} - \max(A_{\text{blank}},\ A_{\text{wrong}},\ A_{\text{none}})$$
 
 For example, Caption → QA gets 98 binding questions right with the right picture, 5 with a blank one, 29 with a wrong one and 0 with none. The best of those three is 29, so its gap is 98 − 29 = **69** points.
 
