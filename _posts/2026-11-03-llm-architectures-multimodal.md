@@ -627,30 +627,58 @@ A falling loss says the model got better at predicting the training answers. It 
 
 ### 5. Is it actually looking? {#is-it-looking}
 
-If the model gives the right answer, how do we know it used the picture?
+After stage 2, the trained models answer most questions about familiar pairs right. But a score on its own can't say whether a right answer came from the picture.
 
-**The short answer: yes, it looks.** Take the picture away or swap it for another, and every trained model loses at least 59 points. But some right answers are guesses, and once the language model is trained with LoRA, it answers between a fifth and a third of the questions right with no picture at all.
+A model can get a question about a picture right without looking at it. These test pictures have two, three or four shapes, each a third of the time, so answering "three" to every counting question would already be right about a third of the time. And triangles came green or blue more often than any other color in training ([§6](#five-seeds) counts them), so a model could answer "What color is the triangle?" with a familiar color and be right more often than chance. This isn't only a worry for a tiny model: the [MMStar](https://arxiv.org/abs/2403.20330) authors found that on real benchmarks "visual content is unnecessary for many samples", with more than half of one benchmark's questions answerable by a language model that was never shown the picture.
 
-A model can answer a question about a picture correctly without looking at it. If most pictures have three shapes, "three" is a good guess for any counting question. If triangles were usually one color in training, that color is a good guess for "What color is the triangle?", whatever the picture shows. A score with nothing to compare it to can't tell real looking from a good guess, and this isn't a theoretical worry: the [MMStar](https://arxiv.org/abs/2403.20330) authors found that on real benchmarks "visual content is unnecessary for many samples", with more than half of one benchmark's questions answerable by a language model that was never shown the picture.
+So this section changes the picture and keeps everything else the same. If the answers change when the picture does, the model was using it.
 
-This is a different question from §4's held-out pairs. Held-out pairs ask whether what the model learned carries over to new combinations. The controls here ask whether a right answer depended on the picture at all.
+**The short answer:** the answers depend strongly on the picture. Take it away or swap it for another, and every trained model loses at least 59 points. But some right answers don't need the picture, and once the language model is trained with LoRA, it answers between a fifth and a third of the questions right with no picture at all.
 
-So every question is asked four ways, with the same words each time and only the picture changed. This is done for the three trained recipes from §4; the Caption-only model isn't tested here:
+This is a different question from §4's held-out pairs. Held-out pairs ask whether what the model learned carries over to new combinations. The checks here ask whether a right answer depended on the picture at all.
+
+#### Four ways to ask the same question {#four-ways}
+
+Every test question is asked four times, with exactly the same words. Only what the model sees changes:
 
 <!-- FIGURE: four-controls -->
-![One question asked four ways: with the right picture, with a blank white picture, with another scene's picture, and with no picture at all, only the question's words](/assets/picture/2026-10-11-llm-architectures-multimodal/four-controls-light.png){: .light width="1000" height="441" }
-![One question asked four ways: with the right picture, with a blank white picture, with another scene's picture, and with no picture at all, only the question's words](/assets/picture/2026-10-11-llm-architectures-multimodal/four-controls-dark.png){: .dark width="1000" height="441" }
+![One question, “What color is the leftmost shape?”, asked four ways: with its own picture, whose answer is orange; with a blank white picture; with another scene's picture, whose answer is yellow; and with no picture at all, only the question's words](/assets/picture/2026-10-11-llm-architectures-multimodal/four-controls-light.png){: .light width="1000" height="441" }
+![One question, “What color is the leftmost shape?”, asked four ways: with its own picture, whose answer is orange; with a blank white picture; with another scene's picture, whose answer is yellow; and with no picture at all, only the question's words](/assets/picture/2026-10-11-llm-architectures-multimodal/four-controls-dark.png){: .dark width="1000" height="441" }
 
-- **With the right picture**, the one the question was written about. This is the normal test, and its score is the real one.
-- **With a blank picture.** An all-white square, so the model sees nothing. Whatever it scores here, it scores by guessing from the question.
-- **With the wrong picture**, the next test scene's picture, which has its own shapes and colors. A model that really reads the picture should now give *that* picture's answer, which is usually wrong for the question's scene. The demo scores it against the question's own scene, so right answers here are the ones two scenes happen to share. This column says how often an answer survives a change of evidence, not whether the model read the wrong picture correctly.
-- **With no picture at all.** Only the question's words, with no `Image:` and no image vectors, so the language model reads text and nothing else. This is the test MMStar ran. It differs from the blank picture in one way: a blank picture still puts 49 vectors in the sequence, ones the connector made from an empty image, and those can push the answer around even though they show nothing.
+| test | what the model gets | what it checks |
+|---|---|---|
+| **right picture** | the picture the question was written about, and the question | the normal test |
+| **blank picture** | an all-white picture, and the question | what it answers with no shapes or colors to read |
+| **wrong picture** | the next test scene's picture, and the question | whether the answer changes when the picture does |
+| **no picture** | the question only | what it answers from the words alone |
 
-The **gap** compares the right picture against whichever control did best:
+In the figure, the question is "What color is the leftmost shape?" and the right answer is `orange`.
 
-$$\text{gap} = \text{right} - \max(\text{blank},\ \text{wrong},\ \text{none})$$
+**A blank picture and no picture are not the same test.** With a blank picture, SigLIP still encodes an all-white image, the connector still turns it into 49 image tokens, and Qwen still reads them. They show no shapes, but they're still vectors, and they can push the answer around. With no picture, there's no `Image:` and no image tokens at all: Qwen reads only the question. That second one is the test MMStar ran.
 
-Taking the best control makes it deliberately conservative. It's the part of the score that's lost when the picture is taken away or swapped, a difference in accuracy, and not a measure of how much of the model's reasoning is visual ([`is_it_looking`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
+**The wrong picture replaces the evidence instead of removing it.** The other scene in the figure has a yellow square on its left, so a model that reads the picture it's shown should say `yellow`. Every test is scored against the right picture's answer, `orange`, so `yellow` counts as wrong there, and that's intended: the column measures whether the original answer survives a change of picture. A right answer in that column is one the two scenes happen to share. To see whether the model reads the swapped picture correctly, the demo also scores each wrong-picture answer against the picture it was actually shown, below.
+
+All four recipes from §4 get all four tests, including Caption only.
+
+#### Measuring the difference: the gap {#the-gap}
+
+To sum up how much the right picture helps, I'll use one number for this post and call it the **gap**. Write $A$ for the share of questions answered right, out of 100, and take the best of the three other tests:
+
+$$\text{gap} = A_\text{right picture} - \max(A_\text{blank},\ A_\text{wrong},\ A_\text{none})$$
+
+For example, Caption → QA gets 98 binding questions right with the right picture, 5 with a blank one, 29 with a wrong one and 0 with none. The best of those three is 29, so its gap is 98 − 29 = **69** points.
+
+Taking the best of the three makes the gap deliberately conservative: the right picture has to beat every other way of asking, not just the weakest. The gap is a difference in accuracy, the part of the score that's lost when the picture is taken away or swapped. It isn't a measure of how much of the model's reasoning is visual.
+
+#### What happened {#what-happened}
+
+Each model, asked all four ways, from [`is_it_looking`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py) (right answers out of 100; for the trained recipes, the median of three seeds):
+
+<!-- FIGURE: stage-two-results -->
+![Stage 2 scores on pairs seen in training for three questions, each model asked with the right picture, a blank picture, another scene's picture and no picture at all](/assets/picture/2026-10-11-llm-architectures-multimodal/stage-two-results-light.png){: .light width="1000" height="477" }
+![Stage 2 scores on pairs seen in training for three questions, each model asked with the right picture, a blank picture, another scene's picture and no picture at all](/assets/picture/2026-10-11-llm-architectures-multimodal/stage-two-results-dark.png){: .dark width="1000" height="477" }
+
+The exact numbers:
 
 <!-- RECEIPT: s5 -->
 ```text
@@ -667,19 +695,25 @@ Taking the best control makes it deliberately conservative. It's the part of the
             connector + LoRA     84      9     18    22   62
 ```
 
-<!-- FIGURE: stage-two-results -->
-![Stage 2 scores on pairs seen in training for three questions, each model asked with the right picture, a blank picture, another scene's picture and no picture at all](/assets/picture/2026-10-11-llm-architectures-multimodal/stage-two-results-light.png){: .light width="1000" height="477" }
-![Stage 2 scores on pairs seen in training for three questions, each model asked with the right picture, a blank picture, another scene's picture and no picture at all](/assets/picture/2026-10-11-llm-architectures-multimodal/stage-two-results-dark.png){: .dark width="1000" height="477" }
+**1. The right picture makes a big difference.** For every trained recipe and every question, the right picture beats the best of the other three tests by at least 59 points. That's strong evidence these models use the picture, and aren't reaching their scores by guessing from the question. It doesn't show that every right answer came from reading the picture, only that the picture matters a lot.
 
-Every trained model depends on the picture: the smallest gap is 59 points. But the controls are far from zero.
+<!-- PENDING (rerun): Caption-only rows: its gap, and what that says about §4's "can sometimes answer already". -->
 
-**Blank pictures still score.** Shown nothing, the trained models answer 32 of 100 counting questions right. Pictures in these tests have two, three or four shapes, so a model that answers the same number every time is right about a third of the time; with no picture to read, the models fall back on a guess like that. On the two color questions, a blank picture scores between 5 and 21, around what guessing one of six colors would get, about 17.
+**2. A blank or wrong picture still gets some right.** All three trained recipes get 32 of 100 counting questions right with a blank picture. With two, three or four shapes a third of the time each, always giving the same number would score about a third, so 32 fits that kind of guess, though the demo doesn't record which number each model gives. On the two color questions, a blank picture scores between 5 and 21, around what picking one of six colors would get, about 17. On counting, the wrong picture scores 31: two scenes drawn independently have the same number of shapes about a third of the time, so a model that counts the picture it's shown would still get about that many right.
 
-**Wrong pictures score for a different reason.** A different scene has the same number of shapes as the question's scene about a third of the time, so 31 right on counting is about what a model reading the *wrong* picture correctly would score. (The demo doesn't score answers against the wrong picture itself, so that's an inference, not a measurement.) On binding, the wrong picture scores 29 to 32, well above the blank picture for two of the three models, probably because the other scene often has a shape of the asked kind, sometimes in the same color.
+<!-- PENDING (rerun): wrong picture scored against both pictures (receipt s5b): how often each model gave the shown picture's answer vs the original's, on questions where they differ. This is the direct test of "the answer changes when the picture does". -->
 
-**No picture at all splits the models in two.** The two models whose language model stayed frozen, QA only and Caption → QA, score **0** with no picture, on every question. Given only the words, the downloaded Qwen never produces an exactly right one-word answer. The Caption → QA + LoRA model scores 36 on counting, 24 on binding and 22 on leftmost. Training the language model taught it this task's answer format, and with it a guess it can make from the question alone. It's a small version of what the MMStar authors measured on real benchmarks, and here it took only 400 steps on a rank-8 adapter. It's also part of why the Caption → QA + LoRA model's counting gap, 59, is the smallest in the table. Once the language model is trained, it can score without looking; the frozen ones here could not.
+So a right answer doesn't always mean the model used the picture the question was about.
 
-The same check at benchmark scale is where it gets uncomfortable. The MMStar authors report that GeminiPro scored 42.9% on the MMMU benchmark "without any visual input". So when you evaluate a vision-language model, don't stop at whether it gets the answer right. Ask whether it still does when you take the picture away, or swap it for another. This post's controls are the cheap version of that test, and any evaluation of a VLM should run one.
+**3. LoRA changes what happens with no picture at all.** With no image tokens, the two models whose language model stayed frozen, QA only and Caption → QA, score **0** on every question. Caption → QA + LoRA gets 36 counting, 24 binding and 22 leftmost questions right. One likely reason is that LoRA taught Qwen this task's short answer format during stage 2, so it can now produce `three` or `purple` from the question alone, as a guess from what was common in training. It's a small version of what the MMStar authors measured on real benchmarks, here after only 400 steps on a rank-8 adapter, and it's part of why this recipe has the smallest gap, 59 on counting.
+
+<!-- PENDING (rerun): what frozen Qwen and the LoRA model actually wrote with no picture (receipt s5c); a 0 under exact match may be a format miss (e.g. "3"), not a lack of knowledge. -->
+
+#### What this means for evaluating a VLM {#evaluating-a-vlm}
+
+Two lessons, and they pull in different directions. This small VLM really does depend on the picture: take it away or swap it, and accuracy drops sharply. And accuracy alone can still mislead, because some questions can be answered by guessing, by habits from the training data, or by the language model alone.
+
+That matters well beyond colored shapes. The MMStar authors report that GeminiPro scored 42.9% on the MMMU benchmark "without any visual input". So when you evaluate a vision-language model, don't stop at whether it got the answer right. Ask whether it still would if the picture were missing, or different. The four tests here are a cheap, useful set of controls to include.
 
 ---
 
