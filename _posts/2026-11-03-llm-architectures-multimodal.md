@@ -549,18 +549,18 @@ So this section asks: **does learning to describe pictures first help the connec
 
 Each is scored exactly right or wrong on 100 new pictures, in two sets. **Seen pairs** are pictures made only of color-shape pairs that appeared in training. **Held-out pairs** are questions about the three pairs no training picture ever had: a red triangle, a green circle and a blue square. Seen pairs measure how well the model does on new pictures made of familiar combinations; a high score there doesn't yet show it learned a rule that would carry over. Held-out pairs test exactly that, on combinations it never saw. This section reads mostly the first; [§6](#pairs-never-seen) is about the second.
 
-**Four recipes**, built so each one isolates one ingredient. The second column is the name the demo prints, in the tables below and in the rest of the post:
+**Four recipes**, built so each one isolates one ingredient. QA is short for question answering, the stage 2 task. Under each recipe's name is the name the demo prints, in the tables below and in the rest of the post:
 
-| recipe | name in the outputs | training | what it tests |
-|---|---|---|---|
-| captions only | `stage 1 only` | 400 caption steps, no questions | can a captioning model already answer? |
-| questions only | `no stage 1` | 800 question steps, connector starts random | can stage 1 be skipped? |
-| captions, then questions | `connector only` | 400 caption steps, then 400 question steps | the standard recipe |
-| the same, plus LoRA | `connector + LoRA` | as above, with a LoRA adapter in the language model during the question steps | does letting the language model adapt help? |
+| recipe | training | why test it? |
+|---|---|---|
+| **Caption only**<br>`stage 1 only` | 400 caption steps; no QA training | Can the caption-trained model already answer questions? |
+| **QA only**<br>`no stage 1` | 800 QA steps from a randomly initialized connector | Can we skip stage 1 entirely? |
+| **Caption → QA**<br>`connector only` | 400 caption steps, then 400 QA steps | Does caption pretraining help? |
+| **Caption → QA + LoRA**<br>`connector + LoRA` | Same two stages, but also train a LoRA adapter in Qwen during QA | Does adapting the language model help further? |
 
-The name `connector only` can mislead: `no stage 1` also trains only the connector. What sets them apart is whether the connector learned captions first. In the first three recipes, the encoder and the language model stay frozen throughout.
+The printed name `connector only` can mislead: `no stage 1` also trains only the connector. What sets them apart is whether the connector learned captions first. In the first three recipes, the encoder and the language model stay frozen throughout.
 
-The questions-only recipe gets **800 steps**, as many as stages 1 and 2 together, so if it falls short it isn't for lack of training steps. It isn't a perfectly even comparison: it sees each training question about twice as often, and it never sees a caption. That second difference is the one being tested. The LoRA adapter is rank 8, on all seven kinds of matrix in the language model, exactly as in [post 6](/posts/llm-architectures-lora/#where-the-adapters-go): 4,399,104 more trainable parameters. Each trained version is run three times from different **seeds** ([Setup](#setup)), because post 6 learned the hard way that a difference between two single runs can be luck. Tables show the median of the three, with the lowest and highest in brackets.
+The QA-only recipe gets **800 steps**, as many as stages 1 and 2 together, so if it falls short it isn't for lack of training steps. It isn't a perfectly even comparison: it sees each training question about twice as often, and it never sees a caption. That second difference is the one being tested. The LoRA adapter is rank 8, on all seven kinds of matrix in the language model, exactly as in [post 6](/posts/llm-architectures-lora/#where-the-adapters-go): 4,399,104 more trainable parameters. Each trained version is run three times from different **seeds** ([Setup](#setup)), because post 6 learned the hard way that a difference between two single runs can be luck. Tables show the median of the three, with the lowest and highest in brackets.
 
 The runs, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
 
@@ -575,15 +575,15 @@ The runs, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures
   connector + LoRA      stage 1    400  7,956,224    1.10
 ```
 
-The main comparison first: questions only against captions then questions, the median of three seeds, out of 100.
+The main comparison first: QA only against Caption → QA, the median of three seeds, out of 100.
 
-| question | seen pairs, `no stage 1` | seen pairs, `connector only` | held-out, `no stage 1` | held-out, `connector only` |
+| question | seen pairs, QA only | seen pairs, Caption → QA | held-out, QA only | held-out, Caption → QA |
 |---|---|---|---|---|
 | count | 99 | 98 | 98 | 100 |
 | binding | 94 | 98 | **40** | **76** |
 | leftmost | 75 | 88 | 64 | 82 |
 
-On seen pairs, both recipes do well. On held-out pairs, captioning first looks much better, most of all on binding. Counting is nearly perfect either way. The full table, with the captions-only row, the LoRA recipe and the range across seeds, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
+On seen pairs, both recipes do well. On held-out pairs, captioning first looks much better, most of all on binding. Counting is nearly perfect either way. The full table, with the caption-only row, the LoRA recipe and the range across seeds, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
 
 <!-- RECEIPT: s4b -->
 ```text
@@ -611,7 +611,7 @@ On seen pairs, both recipes do well. On held-out pairs, captioning first looks m
 
 **Position is the hardest of the three.** Leftmost scores lowest for every trained version, 75 without stage 1 and 84 to 88 with it, and its spread is the widest: the no-stage-1 runs scored between 65 and 93 depending on the seed, which is why a single run would have told two different stories here.
 
-**The captions-only model can sometimes answer already.** Asked questions it was never trained on (`stage 1 only`), the captioning model gets 32 binding and 61 leftmost questions exactly right, one word and nothing else, with no question training at all. These scores alone don't say whether it used the picture to get them; [§5](#is-it-looking)'s controls weren't run on this model. On counting it scores 0: it never answers with just the number.
+**The caption-only model can sometimes answer already.** Asked questions it was never trained on (`stage 1 only`), the captioning model gets 32 binding and 61 leftmost questions exactly right, one word and nothing else, with no question training at all. These scores alone don't say whether it used the picture to get them; [§5](#is-it-looking)'s controls weren't run on this model. On counting it scores 0: it never answers with just the number.
 
 **LoRA showed no consistent improvement.** With stage 1 done, letting the language model adapt through a rank-8 adapter scores 95 against 98 on counting, 99 against 98 on binding and 84 against 88 on leftmost. Every one of those differences is inside the spread of three seeds, so these runs can't tell a small effect from none. That's a result about these questions, not about LoRA in vision-language models, and it's narrower than "fine-tune the language model too", which is what LLaVA does. A likely reason is the questions: these have one-word answers and a fixed format, so once the connector hands over the right information, the frozen language model already knows how to say `purple`. Questions that need the language model to *reason* about the picture would give an adapter more to do, and [Idefics2](https://arxiv.org/abs/2405.02246)'s experiments found LoRA useful for exactly that kind of training at scale: "Leveraging LoRA still adds expressivity to the training and stabilizes it" (Finding 3).
 
@@ -635,7 +635,7 @@ A model can answer a question about a picture correctly without looking at it. I
 
 This is a different question from §4's held-out pairs. Held-out pairs ask whether what the model learned carries over to new combinations. The controls here ask whether a right answer depended on the picture at all.
 
-So every question is asked four ways, with the same words each time and only the picture changed. This is done for the three trained recipes from §4; the captions-only model isn't tested here:
+So every question is asked four ways, with the same words each time and only the picture changed. This is done for the three trained recipes from §4; the caption-only model isn't tested here:
 
 <!-- FIGURE: four-controls -->
 ![One question asked four ways: with the right picture, with a blank white picture, with another scene's picture, and with no picture at all, only the question's words](/assets/picture/2026-10-11-llm-architectures-multimodal/four-controls-light.png){: .light width="1000" height="441" }
