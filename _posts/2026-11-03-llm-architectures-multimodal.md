@@ -366,16 +366,17 @@ $$z = \mathrm{GELU}(h\,W_1 + b_1)\,W_2 + b_2$$
 
 That's about 0.7% of the language model's 494,032,768 ([post 6](/posts/llm-architectures-lora/) counted them), and in stage 1 it's the only part that trains: SigLIP and Qwen stay frozen. Nothing teaches the encoder to see or the language model to read. The connector learns a small bridge between two models that already work.
 
-**Why merge, if it makes the connector bigger?** The merge makes the first layer's input four times wider, 3,072 numbers instead of 768, so $W_1$ is four times bigger too. Without the merge, $W_1$ would be 768 × 896 and the whole connector would be 1,492,736 numbers instead of 3,557,120. The extra 2 million is the price, and it's a small one, under half a percent of the language model. What it buys is a sequence a quarter as long:
+**Why merge, if it makes the connector bigger?** Merging makes the first layer's input four times wider, 3,072 numbers instead of 768, so $W_1$ is four times bigger too. Without the merge, the connector would need 1.49 million parameters instead of 3.56 million. But the merge also cuts the number of image tokens Qwen has to process to a quarter:
 
-| | connector parameters | image tokens the language model reads |
+| | with the merge | without the merge |
 |---|---|---|
-| with the merge | 3,557,120 | 49 |
-| without the merge | 1,492,736 | 196 |
+| connector parameters | 3.56M | 1.49M |
+| image tokens | 49 | 196 |
+| KV cache per image, bf16 | 0.57 MiB | 2.30 MiB |
 
-The connector runs once per picture. The language model keeps every image token in its KV cache, and every word it writes looks back at all of them, at every layer. So a bigger connector and a shorter sequence is the better deal, and [§8](#what-an-image-costs) measures it: a quarter of the cache, and training three times faster.
+So we spend about 2 million extra connector parameters, under half a percent of the language model, to make the picture's part of the sequence 75% shorter. It's a good trade because the two sides are used very differently. The connector turns each picture into image tokens once. Those tokens then go through every one of Qwen's 24 layers, and while it writes an answer, their keys and values stay in the KV cache, where every new word can attend to them. In this experiment, merging cut the cache per picture by 4× and made training steps about 3× faster, and accuracy didn't drop ([§8](#what-an-image-costs) has the run, and a caveat about it).
 
-Checking the shapes and counts in code ([`the_connector`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)). The last two lines are the two rows of the table above:
+Checking the shapes and counts in code ([`the_connector`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)). The last two lines are the exact connector sizes behind the table's 3.56M and 1.49M:
 
 <!-- RECEIPT: s2a -->
 ```text
