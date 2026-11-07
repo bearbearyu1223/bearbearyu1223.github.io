@@ -514,9 +514,30 @@ Only the first is exactly right, and the two misses fail in different ways. The 
 
 ### 4. Stage 2: learning to answer {#stage-two}
 
-Stage 1 taught the model to say what's in a picture. Stage 2 teaches it to answer a question about one, and this section asks one thing: **does learning to describe the whole picture first help the model answer questions about it?**
+Stage 1 taught the model to describe a picture. Shown three shapes, it writes `an orange circle, a yellow circle and a purple triangle`. But often we want one fact, not the whole description. Asked "What color is the triangle?", the answer should be just `purple`. Stage 2 teaches that: answering a question about a picture.
 
-Notice that a good caption already contains every answer. `an orange circle, a yellow circle and a purple circle` has three shapes in it, the first one named is the leftmost, and each color sits right next to the shape it belongs to. So a model that captions well has, in a sense, already seen what the questions ask about. Stage 2 has to teach it to *answer*: to read the question, pick out the part that matters, and say it in one word. Asked "What color is the triangle?" about a red circle, a yellow circle and a purple triangle, it has to find the triangle and give *its* color, not one of the others.
+**What changes from stage 1?** Not the model. It's the same frozen encoder, the same connector and the same frozen language model, and in the standard recipe the connector is still the only part that trains. What changes is the training examples. In stage 1 each one was a picture and its caption; in stage 2 it's a picture, a question and a one-word answer:
+
+| | the model reads | its target |
+|---|---|---|
+| stage 1 | `Image:` [49 image tokens] `Caption:` | `an orange circle, a yellow circle and a purple triangle` |
+| stage 2 | `Image:` [49 image tokens] `Question: What color is the triangle? Answer:` | `purple` |
+
+Training works the same way as in stage 1, with teacher forcing, and only the answer is scored. Stage 2 doesn't start from scratch: it takes the connector stage 1 trained and keeps training those same weights for another 400 steps, on 3,000 other pictures, each with one question.
+
+That doesn't mean the model writes a caption and then reads it to find the answer. There's no caption anywhere in stage 2: the model gets the picture and the question, and writes the answer. Captioning was earlier practice for the connector, and whether that practice helps is what this section tests.
+
+**Why might captioning help?** Because a caption already holds the answers. Take `an orange circle, a yellow circle and a purple triangle`:
+
+| question | answer | where it is in the caption |
+|---|---|---|
+| "How many shapes are there?" | `three` | three shapes are named |
+| "What color is the triangle?" | `purple` | the color right before "triangle" |
+| "What color is the leftmost shape?" | `orange` | the first color, since captions go left to right |
+
+To get that caption right, the connector had to hand over every shape, its color and its place, which is exactly what the questions ask about. But answering is a different job from describing. The model has to read the question, pick out the one part that matters and say it in one word: asked about the triangle, it has to give *its* color, not one of the circles'.
+
+So this section asks: **does learning to describe pictures first help the connector learn to answer questions, or can stage 1 be skipped?**
 
 **The three questions**, on pictures with two to four shapes ([Setup](#the-pictures)):
 
@@ -526,18 +547,20 @@ Notice that a good caption already contains every answer. `an orange circle, a y
 | binding | "What color is the triangle?" (or circle, or square) | tying the right color to the right shape |
 | leftmost | "What color is the leftmost shape?" | finding a shape by where it is |
 
-Each is scored exactly right or wrong on 100 new pictures, in two sets. **Seen pairs** are pictures made only of color-shape pairs that appeared in training. **Held-out pairs** are questions about the three pairs no training picture ever had: a red triangle, a green circle and a blue square. Seen pairs test whether the model learned the task; held-out pairs test whether what it learned carries over to combinations it never saw. This section reads mostly the first; [§6](#pairs-never-seen) is about the second.
+Each is scored exactly right or wrong on 100 new pictures, in two sets. **Seen pairs** are pictures made only of color-shape pairs that appeared in training. **Held-out pairs** are questions about the three pairs no training picture ever had: a red triangle, a green circle and a blue square. Seen pairs measure how well the model does on new pictures made of familiar combinations; a high score there doesn't yet show it learned a rule that would carry over. Held-out pairs test exactly that, on combinations it never saw. This section reads mostly the first; [§6](#pairs-never-seen) is about the second.
 
-**Four versions**, built so each one isolates one ingredient:
+**Four recipes**, built so each one isolates one ingredient. The second column is the name the demo prints, in the tables below and in the rest of the post:
 
-| version | starts from | trains on questions | what it tests |
+| recipe | name in the outputs | training | what it tests |
 |---|---|---|---|
-| stage 1 only | stage 1 | nothing | what captioning alone gives |
-| no stage 1 | random | the connector, 800 steps | whether captioning first is needed at all |
-| connector only | stage 1 | the connector, 400 steps | the standard recipe, language model frozen |
-| connector + LoRA | stage 1 | the connector and a LoRA adapter, 400 steps | whether letting the language model adapt helps |
+| captions only | `stage 1 only` | 400 caption steps, no questions | can a captioning model already answer? |
+| questions only | `no stage 1` | 800 question steps, connector starts random | can stage 1 be skipped? |
+| captions, then questions | `connector only` | 400 caption steps, then 400 question steps | the standard recipe |
+| the same, plus LoRA | `connector + LoRA` | as above, with a LoRA adapter in the language model during the question steps | does letting the language model adapt help? |
 
-The no-stage-1 version gets **800 steps**, as many as stages 1 and 2 together, so if it falls short it isn't for lack of training. The LoRA adapter is rank 8, on all seven kinds of matrix in the language model, exactly as in [post 6](/posts/llm-architectures-lora/#where-the-adapters-go): 4,399,104 more trainable parameters. Each trained version is run three times from different **seeds** ([Setup](#setup)), because post 6 learned the hard way that a difference between two single runs can be luck. Tables show the median of the three, with the lowest and highest in brackets.
+The name `connector only` can mislead: `no stage 1` also trains only the connector. What sets them apart is whether the connector learned captions first. In the first three recipes, the encoder and the language model stay frozen throughout.
+
+The questions-only recipe gets **800 steps**, as many as stages 1 and 2 together, so if it falls short it isn't for lack of training steps. It isn't a perfectly even comparison: it sees each training question about twice as often, and it never sees a caption. That second difference is the one being tested. The LoRA adapter is rank 8, on all seven kinds of matrix in the language model, exactly as in [post 6](/posts/llm-architectures-lora/#where-the-adapters-go): 4,399,104 more trainable parameters. Each trained version is run three times from different **seeds** ([Setup](#setup)), because post 6 learned the hard way that a difference between two single runs can be luck. Tables show the median of the three, with the lowest and highest in brackets.
 
 The runs, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
 
@@ -552,7 +575,15 @@ The runs, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures
   connector + LoRA      stage 1    400  7,956,224    1.10
 ```
 
-And the scores, also from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
+The main comparison first: questions only against captions then questions, the median of three seeds, out of 100.
+
+| question | seen pairs, `no stage 1` | seen pairs, `connector only` | held-out, `no stage 1` | held-out, `connector only` |
+|---|---|---|---|---|
+| count | 99 | 98 | 98 | 100 |
+| binding | 94 | 98 | **40** | **76** |
+| leftmost | 75 | 88 | 64 | 82 |
+
+On seen pairs, both recipes do well. On held-out pairs, captioning first looks much better, most of all on binding. Counting is nearly perfect either way. The full table, with the captions-only row, the LoRA recipe and the range across seeds, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
 
 <!-- RECEIPT: s4b -->
 ```text
@@ -580,9 +611,9 @@ And the scores, also from [`stage_two`](https://github.com/bearbearyu1223/llm-ar
 
 **Position is the hardest of the three.** Leftmost scores lowest for every trained version, 75 without stage 1 and 84 to 88 with it, and its spread is the widest: the no-stage-1 runs scored between 65 and 93 depending on the seed, which is why a single run would have told two different stories here.
 
-**The stage-1 model already reads some of it.** Asked questions it was never trained on (`stage 1 only`), the captioning model gets 32 binding and 61 leftmost questions right, with no question training at all. It reads the colors and positions; it just hasn't learned to answer in one word. On counting it scores 0: whatever it writes, it isn't the single word `three`.
+**The captions-only model can sometimes answer already.** Asked questions it was never trained on (`stage 1 only`), the captioning model gets 32 binding and 61 leftmost questions exactly right, one word and nothing else, with no question training at all. These scores alone don't say whether it used the picture to get them; [§5](#is-it-looking)'s controls weren't run on this model. On counting it scores 0: it never answers with just the number.
 
-**What LoRA adds is nothing measurable.** With stage 1 done, letting the language model adapt through a rank-8 adapter scores 95 against 98 on counting, 99 against 98 on binding and 84 against 88 on leftmost. Every one of those differences is inside the spread of three seeds. That's a result about these questions, not about LoRA in vision-language models, and it's narrower than "fine-tune the language model too", which is what LLaVA does. A likely reason is the questions: these have one-word answers and a fixed format, so once the connector hands over the right information, the frozen language model already knows how to say `purple`. Questions that need the language model to *reason* about the picture would give an adapter more to do, and [Idefics2](https://arxiv.org/abs/2405.02246)'s experiments found LoRA useful for exactly that kind of training at scale: "Leveraging LoRA still adds expressivity to the training and stabilizes it" (Finding 3).
+**LoRA showed no consistent improvement.** With stage 1 done, letting the language model adapt through a rank-8 adapter scores 95 against 98 on counting, 99 against 98 on binding and 84 against 88 on leftmost. Every one of those differences is inside the spread of three seeds, so these runs can't tell a small effect from none. That's a result about these questions, not about LoRA in vision-language models, and it's narrower than "fine-tune the language model too", which is what LLaVA does. A likely reason is the questions: these have one-word answers and a fixed format, so once the connector hands over the right information, the frozen language model already knows how to say `purple`. Questions that need the language model to *reason* about the picture would give an adapter more to do, and [Idefics2](https://arxiv.org/abs/2405.02246)'s experiments found LoRA useful for exactly that kind of training at scale: "Leveraging LoRA still adds expressivity to the training and stabilizes it" (Finding 3).
 
 **The loss and the scores can disagree.** Here's how the loss fell in each run. Loss is the number training pushes down, and it falls steadily in every run, including a stage 1 run that skips the 2 × 2 merge and reads all 196 patch vectors, which [§8](#what-an-image-costs) compares:
 
@@ -590,7 +621,9 @@ And the scores, also from [`stage_two`](https://github.com/bearbearyu1223/llm-ar
 ![Training loss on a log scale: stage 1 with 49 and with 196 image tokens, and stage 2 for the three kinds of run](/assets/picture/2026-10-11-llm-architectures-multimodal/training-loss-light.png){: .light width="1000" height="418" }
 ![Training loss on a log scale: stage 1 with 49 and with 196 image tokens, and stage 2 for the three kinds of run](/assets/picture/2026-10-11-llm-architectures-multimodal/training-loss-dark.png){: .dark width="1000" height="418" }
 
-A falling loss says the model got better at predicting the training answers. It doesn't say *how*, or whether that works on anything new. The no-stage-1 model shows the difference: it learned to answer binding questions on seen pairs, 94 of 100, and still got only 40 on held-out pairs. A model can learn to predict the training answers without learning a rule that carries over to new combinations. It could even lower its loss by learning which answers are common, without reading the picture at all, and that's what the next section checks.
+A falling loss says the model got better at predicting the training answers. It doesn't say *how*, or whether that works on anything new. The no-stage-1 model shows the difference: it learned to answer binding questions on seen pairs, 94 of 100, and still got only 40 on held-out pairs. A model can learn to predict the training answers without learning a rule that carries over to new combinations. It could even lower its loss by learning which answers are common, without reading the picture at all.
+
+**What stage 2 showed.** On new pictures of familiar pairs, every trained recipe learned to answer, and captioning first barely mattered. On pairs the model never saw, captioning first looked like it helped a lot, most of all on binding, but three seeds can't settle that. Letting the language model adapt with LoRA showed no consistent gain. Stages 1 and 2 are the only training stages. From here on, the post tests what they produced, starting with whether the models look at the picture at all.
 
 ---
 
