@@ -575,15 +575,13 @@ The runs, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures
   connector + LoRA      stage 1    400  7,956,224    1.10
 ```
 
-The main comparison first: QA only against Caption → QA, the median of three seeds, out of 100.
+The scores, out of 100: for the trained recipes, the median of three seeds, with a thin line from the lowest to the highest.
 
-| question | seen pairs, QA only | seen pairs, Caption → QA | held-out, QA only | held-out, Caption → QA |
-|---|---|---|---|---|
-| count | 99 | 98 | 98 | 100 |
-| binding | 94 | 98 | **40** | **76** |
-| leftmost | 75 | 88 | 64 | 82 |
+<!-- FIGURE: stage-two-recipes -->
+![Scores for the four recipes on three questions, for pairs seen in training and pairs never seen: caption only gets 0 on counting, 32 and 25 on binding, 61 and 50 on leftmost; QA only 99 and 98, 94 and 40, 75 and 64; Caption then QA 98 and 100, 98 and 76, 88 and 82; with LoRA 95 and 96, 99 and 76, 84 and 84](/assets/picture/2026-10-11-llm-architectures-multimodal/stage-two-recipes-light.png){: .light width="1000" height="484" }
+![Scores for the four recipes on three questions, for pairs seen in training and pairs never seen: caption only gets 0 on counting, 32 and 25 on binding, 61 and 50 on leftmost; QA only 99 and 98, 94 and 40, 75 and 64; Caption then QA 98 and 100, 98 and 76, 88 and 82; with LoRA 95 and 96, 99 and 76, 84 and 84](/assets/picture/2026-10-11-llm-architectures-multimodal/stage-two-recipes-dark.png){: .dark width="1000" height="484" }
 
-On seen pairs, both recipes do well. On held-out pairs, captioning first looks much better, most of all on binding. Counting is nearly perfect either way. The full table, with the caption-only row, the LoRA recipe and the range across seeds, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
+Compare QA only with Caption → QA, the second and third groups in each panel. On seen pairs, both do well. On held-out pairs, captioning first looks much better, most of all on binding, 76 against 40, though the thin lines there are long. Counting is nearly perfect for every trained recipe. The exact numbers, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
 
 <!-- RECEIPT: s4b -->
 ```text
