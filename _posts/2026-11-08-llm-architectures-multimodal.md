@@ -40,7 +40,7 @@ The most interesting result was how much the training recipe mattered when the m
 A few other things became clearer along the way:
 
 - **The models do use the picture, but a right answer isn't proof.** On familiar pairs, taking the picture away or swapping it cost every model trained on questions at least 59 points, yet some questions could still be answered by guessing ([§5](#is-it-looking)).
-- **More trainable parameters weren't better here.** Adding a LoRA adapter to Qwen gave no consistent improvement on these simple questions ([§4](#stage-two), [§7](#text-pictures-or-both)).
+- **More trainable parameters weren't better here.** Adding a LoRA adapter to Qwen, a small set of trainable weights inside it ([post 6](/posts/llm-architectures-lora/)), gave no consistent improvement on these simple questions ([§4](#stage-two), [§7](#text-pictures-or-both)).
 - **Image tokens have a real cost.** Merging 196 image tokens into 49 cut their KV cache by 75% and made training about three times faster in this setup, with no measurable loss in caption accuracy across three seeds ([§8](#what-an-image-costs)).
 
 This isn't a competitive VLM. It only knows simple generated shapes, and the experiments are deliberately small. But that's the point: with a system this simple, you can see how a picture reaches a language model, what the connector learns, and why some questions about a picture are harder than they look. [§9](#other-designs) compares the other ways to connect the two.
@@ -64,7 +64,7 @@ Each training run starts from a fixed **seed**, the number that sets its random 
 **The three parts.**
 
 - The **vision encoder** is [SigLIP-base](https://huggingface.co/google/siglip-base-patch16-224) ([paper](https://arxiv.org/abs/2303.15343)), a 12-layer transformer that was trained on pictures and their captions. It stays frozen the whole time.
-- The **language model** is **Qwen2.5-0.5B**, the same model [post 4](/posts/llm-architectures-quantization/) quantized and [post 6](/posts/llm-architectures-lora/) fine-tuned ([the weights](https://huggingface.co/Qwen/Qwen2.5-0.5B), [the report](https://arxiv.org/abs/2412.15115)). It's a plain text model; nothing about it was built for pictures. It stays frozen too, except for the LoRA adapters one of the stage-2 runs adds.
+- The **language model** is **Qwen2.5-0.5B**, the same model [post 4](/posts/llm-architectures-quantization/) quantized and [post 6](/posts/llm-architectures-lora/) fine-tuned ([the weights](https://huggingface.co/Qwen/Qwen2.5-0.5B), [the report](https://arxiv.org/abs/2412.15115)). It's a plain text model; nothing about it was built for pictures. It stays frozen too, except for the LoRA adapters one of the stage-2 recipes adds.
 - The **connector** is the only new part. It starts random and is trained from scratch.
 
 Both models download on the first run. Everything runs in fp32, four bytes per number, as in post 6, so that two training runs can only differ in what they train.
@@ -627,7 +627,7 @@ The exact numbers:
 
 **1. The right picture makes a big difference.** On these familiar pairs, for every recipe trained on questions and every question, the right picture beats the best of the other three tests by at least 59 points. That's strong evidence these models use the picture, and aren't reaching their scores by guessing from the question. It doesn't show that every right answer came from reading the picture, only that the picture matters a lot.
 
-**When the picture changes, the answer follows it.** Here are the wrong-picture answers scored against the picture the model was actually shown, as [promised above](#four-ways). This counts only questions whose answer differs between the two scenes, and that the shown scene can answer (a binding question about a triangle needs exactly one triangle in it):
+**When the picture changes, the answer follows it.** Here are the wrong-picture answers scored against the picture the model was actually shown, as [promised above](#four-ways). This counts only questions whose answer differs between the two scenes, and that the shown scene can answer (a binding question about a triangle needs exactly one triangle in it), also from [`is_it_looking`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
 
 <!-- RECEIPT: s5b -->
 ```text
@@ -653,7 +653,7 @@ The three recipes trained on questions gave the shown picture's answer to 65 to 
 
 **2. A blank or wrong picture still gets some right.** All three recipes trained on questions get 32 of 100 counting questions right with a blank picture. With two, three or four shapes a third of the time each, always giving the same number would score about a third, so 32 fits that kind of guess, though the demo doesn't record which number each model gives. On the two color questions, a blank picture scores between 5 and 21, around what picking one of six colors would get, about 17. On counting, the wrong picture scores 31: two scenes drawn independently have the same number of shapes about a third of the time, so a model that counts the picture it's shown would still get about that many right. So a right answer in the wrong-picture column doesn't mean the model used the picture the question was about.
 
-**3. LoRA changes what happens with no picture at all.** With no image tokens, the models whose language model stayed frozen score **0** on every question. Caption → QA + LoRA gets 36 counting, 24 binding and 22 leftmost questions right. What each model wrote with no picture, for the first question of each kind (first seed), shows why. Scoring lets a model write the answer's length plus two tokens, so a reply cut off after a few words is what it started to say:
+**3. LoRA changes what happens with no picture at all.** With no image tokens, the models whose language model stayed frozen score **0** on every question. Caption → QA + LoRA gets 36 counting, 24 binding and 22 leftmost questions right. What each model wrote with no picture, for the first question of each kind (first seed, [`is_it_looking`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)), shows why. Scoring lets a model write the answer's length plus two tokens, so a reply cut off after a few words is what it started to say:
 
 <!-- RECEIPT: s5c -->
 ```text
@@ -673,7 +673,7 @@ The three recipes trained on questions gave the shown picture's answer to 65 to 
             Caption → QA + LoRA            'red'
 ```
 
-With no picture the connector isn't used, so Caption only, QA only and Caption → QA are all just the downloaded Qwen here, and they write the same thing. It starts a sentence, "The number of", "The square is", "The leftmost", which exact match scores as wrong whatever would have come next. So their 0 is a format miss: it says nothing about what they would have answered. The LoRA model answers `four` and `red` straight away: stage 2 taught its adapter this task's one-word format, so with nothing to read, it guesses in that format. It's a small version of what the MMStar authors measured on real benchmarks, here after only 400 steps on a rank-8 adapter, and it's part of why this recipe has the smallest gap, 59 on counting.
+With no picture the connector isn't used, so Caption only, QA only and Caption → QA are all just the downloaded Qwen here, and they write the same thing. It starts a sentence, "The number of", "The square is", "The leftmost", which exact match scores as wrong whatever would have come next. On these questions, at least, their 0 is a format miss, not a wrong guess; the demo doesn't print the other replies. The LoRA model answers `four` and `red` straight away: stage 2 taught its adapter this task's one-word format, so with nothing to read, it guesses in that format. It's a small version of what the MMStar authors measured on real benchmarks, here after only 400 steps on a rank-8 adapter, and it's part of why this recipe has the smallest gap, 59 on counting.
 
 #### What this means for evaluating a VLM {#evaluating-a-vlm}
 
@@ -879,7 +879,7 @@ The probe reads three places: the encoder's output, the connector's output after
   tested on                          670 seen-pair, 542 held-out-pair shapes
 ```
 
-On familiar pairs, every place gives color and kind perfectly. On held-out pairs, color falls to 74.9% at the encoder's output, where guessing one of six colors would get about 17%. So even the frozen encoder doesn't keep color fully apart from shape: a reader that learned "red" from circles and squares misses a red triangle a quarter of the time. After stage 1, color is easier to read off the connector's output, 88.9%, though kind gets a little harder, 98.7% to 90.0%. After stage 2's questions, color drops back to 80.1%.
+On familiar pairs, every place gives color and kind perfectly. On held-out pairs, color falls to 74.9% at the encoder's output, where guessing one of six colors would get about 17%. So even the frozen encoder doesn't keep color fully apart from shape: a reader that learned "red" from circles and squares misses a held-out pair's color a quarter of the time. After stage 1, color is easier to read off the connector's output, 88.9%, though kind gets a little harder, 98.7% to 90.0%. After stage 2's questions, color drops back to 80.1%.
 
 So caption training changed the connector's vectors in a way that made color easier for a simple linear reader to recover. That isn't a measure of how much color information is in them: a more powerful reader might find more. Nor is the probe's score on the same footing as the model's. For the same seed, Caption → QA answered 237 of 300 held-out binding questions right, 79%, close to the probe's 80.1%, but the probe scores every held-out-pair shape and the question scores one shape per picture. What the probe does suggest is that part of the problem is already in the vectors Qwen receives, not only in how Qwen uses them.
 
@@ -924,11 +924,11 @@ The demo's [`interleave`](https://github.com/bearbearyu1223/llm-architectures-re
   two pictures and text        114             98
 ```
 
-Every picture here is 224 × 224, so it always becomes 196 patches and, after the merge, 49 positions, whatever it shows. The rest is text. The question is 10 tokens, 11 with the line break before it when a picture comes first, and each `Image:` label is 2 tokens, 3 with its own line break. So one picture and text comes to 2 + 49 + 11 = 62, and a second picture adds 3 + 49 = 52, for 114. The question here is shorter than §2's, which is why one picture and text comes to 62 positions rather than 64.
+Every picture here is 224 × 224, so it always becomes 196 patches and, after the merge, 49 positions, whatever it shows. The rest is text. The question in this table is "How many shapes are there?", the one in the figure: 10 tokens, 11 with the line break before it when a picture comes first, and each `Image:` label is 2 tokens, 3 with its own line break. So one picture and text comes to 2 + 49 + 11 = 62, and a second picture adds 3 + 49 = 52, for 114. The question here is shorter than §2's, which is why one picture and text comes to 62 positions rather than 64.
 
 #### What happened to Qwen's text? {#what-happened-to-text}
 
-Training taught the model to read pictures. Did that cost anything on plain text? The demo scores each model's **perplexity**, how surprised it is by each next token of ordinary text ([post 4](/posts/llm-architectures-quantization/)), on post 4's passage, the same 550 tokens of prose [post 6](/posts/llm-architectures-lora/#what-it-forgot) used to see what fine-tuning disturbed. Lower is better:
+Training taught the model to read pictures. Did that cost anything on plain text? The demo scores each model's **perplexity**, how surprised it is by each next token of ordinary text ([post 4](/posts/llm-architectures-quantization/)), on post 4's passage, the same 550 tokens of prose [post 6](/posts/llm-architectures-lora/#what-it-forgot) used to see what fine-tuning disturbed. Lower is better ([`text_pictures_or_both`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
 <!-- RECEIPT: s7p -->
 ```text
@@ -1059,7 +1059,7 @@ To measure it, the demo trains stage 1 again on all 196 patch vectors: same seed
 
 **It also captioned better,** 91 of 120 against 76, with a lower final loss. But that doesn't show merging improves accuracy. Look at the first row: merging glues four 768-wide patch vectors into one 3,072-wide vector, which makes the connector's first layer four times bigger. So this comparison changed two things at once, the number of tokens and the size of the connector, and from one seed it can't say which mattered, or whether the gap is just run-to-run variation. The next check separates the two.
 
-**Separating tokens from connector size.** A third program, `uv run demo07 --capacity` ([`d07_capacity.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_capacity.py)), trains stage 1 three ways, at three seeds each: the merged connector, the unmerged one, and an unmerged one whose first layer outputs 2,136 numbers instead of 896, so it has almost exactly the merged connector's parameters, 3,557,336 against 3,557,120:
+**Separating tokens from connector size.** A third program, `uv run demo07 --capacity` ([`run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_capacity.py)), trains stage 1 three ways, at three seeds each: the merged connector, the unmerged one, and an unmerged one whose first layer outputs 2,136 numbers instead of 896, so it has almost exactly the merged connector's parameters, 3,557,336 against 3,557,120:
 
 <!-- RECEIPT: s8c -->
 ```text
@@ -1083,9 +1083,9 @@ The medians line up the way the first run suggested: 91 merged, 80 unmerged, 87 
 
 #### Bigger pictures {#bigger-pictures}
 
-Every picture here is 224 × 224. SigLIP cuts pictures into 16-pixel patches, so doubling the picture's side to 448 pixels quadruples the patches, to 784, and the cache with them. The last table in the receipt above is that calculation, not a run: this post's SigLIP takes 224-pixel pictures only. Even merged, a 448-pixel picture would be 196 tokens, as many as this post's unmerged one.
+Every picture here is 224 × 224. SigLIP cuts pictures into 16-pixel patches, so doubling the picture's side to 448 pixels quadruples the patches, to 784, and the cache with them. The last table in [the merge's receipt](#what-the-merge-bought) is that calculation, not a run: this post's SigLIP takes 224-pixel pictures only. Even merged, a 448-pixel picture would be 196 tokens, as many as this post's unmerged one.
 
-Real models use far more tokens per picture than this one. LLaVA-1.5's encoder takes 336-pixel pictures in 14-pixel patches, which is $(336/14)^2 = 576$ tokens per picture, the middle line of the receipt above. Sharper pictures generally mean more tokens, and how much that costs depends on the design, which is why so much effort goes into cutting the count: Qwen2-VL's 2 × 2 merge, which this post copies, [SmolVLM](https://arxiv.org/abs/2504.05299)'s "pixel shuffle", which merges each r × r block of patches like §2's merge and so cuts tokens "by a factor of r²" and finds small models "benefit from more aggressive visual token compression", and the learned summaries of [§9](#other-designs). Qwen2-VL also lets the number of tokens vary with the picture's size instead of fixing it.
+Real models use far more tokens per picture than this one. LLaVA-1.5's encoder takes 336-pixel pictures in 14-pixel patches, which is $(336/14)^2 = 576$ tokens per picture, the LLaVA line of [the same receipt](#what-the-merge-bought). Sharper pictures generally mean more tokens, and how much that costs depends on the design, which is why so much effort goes into cutting the count: Qwen2-VL's 2 × 2 merge, which this post copies, [SmolVLM](https://arxiv.org/abs/2504.05299)'s "pixel shuffle", which merges each r × r block of patches like §2's merge and so cuts tokens "by a factor of r²" and finds small models "benefit from more aggressive visual token compression", and the learned summaries of [§9](#other-designs). Qwen2-VL also lets the number of tokens vary with the picture's size instead of fixing it.
 
 The trade-off is always the same shape: more visual tokens can keep finer detail, small objects or text in a photo, but every one is more work for the language model.
 
@@ -1133,7 +1133,7 @@ Building this one made the trade-offs concrete. With SigLIP and Qwen frozen and 
 Seven things, in the order the post found them.
 
 1. **A picture becomes vectors, and the language model reads them like words.** The encoder turns patches into vectors much as an embedding table turns tokens into vectors, and the connector makes them Qwen's width. Qwen's architecture didn't change. But matching the width only lets Qwen take them in; training the connector is what made them mean something ([§1](#pixels-to-patches), [§2](#the-connector), [§7](#one-sequence)).
-2. **The connector was enough.** 3.56 million trained parameters, about 0.7% of the language model, got 91 of 120 captions exactly right and 94 to 99 of 100 binding questions on familiar pairs, with both big models exactly as downloaded ([§3](#stage-one), [§4](#stage-two)).
+2. **The connector was enough.** 3.56 million trained parameters, about 0.7% of the language model, got 91 of 120 captions exactly right and 94 to 98 of 100 binding questions on familiar pairs, with both big models exactly as downloaded ([§3](#stage-one), [§4](#stage-two)).
 3. **Familiar test pictures hid what the training order did.** On familiar pairs, QA only and Caption → QA scored 94 and 98. On pairs never seen in training, they scored 40 and 76, and Caption → QA came out ahead in all five paired seeds of the follow-up, by about 25 points ([§6](#five-seeds)).
 4. **The wrong answers show where QA only went wrong.** On held-out pairs, 86% to 98% of wrong colors were the color of another shape in the same picture. Only QA only leaned toward the colors a shape usually came in, and a linear probe found held-out colors already harder to read from the vectors Qwen receives ([§6](#where-wrong-answers-come-from)).
 5. **Accuracy needs controls.** The right picture beat the best of a blank picture, another scene's picture and no picture by at least 59 points on familiar pairs for every model trained on questions (27 to 62 on held-out pairs), but a blank picture still got 32 of 100 counting questions right, about what always giving one number would score ([§5](#is-it-looking)).
