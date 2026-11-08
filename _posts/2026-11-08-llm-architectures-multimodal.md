@@ -39,7 +39,7 @@ The most interesting result wasn't that the model learned to answer questions. I
 
 A few other things became clearer along the way:
 
-- **The models do use the picture, but a right answer isn't proof.** Taking the picture away or swapping it cost every trained model at least 59 points, yet some questions could still be answered by guessing ([§5](#is-it-looking)).
+- **The models do use the picture, but a right answer isn't proof.** Taking the picture away or swapping it cost every model trained on questions at least 59 points, yet some questions could still be answered by guessing ([§5](#is-it-looking)).
 - **More trainable parameters weren't better here.** Adding a LoRA adapter to Qwen gave no consistent improvement on these simple questions ([§4](#stage-two), [§7](#text-pictures-or-both)).
 - **Image tokens have a real cost.** Merging 196 image tokens into 49 cut their KV cache by 75% and made training about three times faster in this setup ([§8](#what-an-image-costs)).
 <!-- PENDING (capacity run): one clause on whether the merge's caption gain survives a size-matched connector. -->
@@ -396,7 +396,7 @@ All four predictions come out of one pass, because the causal mask already keeps
   training                           400 steps x 16 captions, lr 0.001
   loss at step 1                     3.4778
   loss at the end (mean of last 10)  0.0534
-  time per step                      1.01 s
+  time per step                      1.02 s
 ```
 
 The loss starts at 3.48, which means that, on average, the model gave the right next word of a caption a probability of about 3% (that's $e^{-3.48}$); it ends near 0.05, about 95% (that's $e^{-0.05}$). That's a big change, but it's a teacher-forced number: Qwen got much better at predicting the right word *when it's handed the right words before it*. It doesn't show that the model can write a right caption on its own, where every word it gets wrong becomes the context for the next. That takes a different test.
@@ -496,11 +496,11 @@ The runs, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures
 ```text
   batch                              16 questions, seeds 0, 1, 2
 
-  model             starts from  steps  trainable  s/step
-  ---------------------------------------------------------
-  no stage 1             random    800  3,557,120    0.89
-  connector only        stage 1    400  3,557,120    0.91
-  connector + LoRA      stage 1    400  7,956,224    1.10
+  model                starts from  steps  trainable  s/step
+  ------------------------------------------------------------
+  QA only                   random    800  3,557,120    0.89
+  Caption → QA             stage 1    400  3,557,120    0.91
+  Caption → QA + LoRA      stage 1    400  7,956,224    1.11
 ```
 
 The scores, out of 100: for the trained recipes, the median of three seeds, with a thin line from the lowest to the highest.
@@ -509,24 +509,24 @@ The scores, out of 100: for the trained recipes, the median of three seeds, with
 ![Scores for the four recipes on three questions, for pairs seen in training and pairs never seen: caption only gets 0 on counting, 32 and 25 on binding, 61 and 50 on leftmost; QA only 99 and 98, 94 and 40, 75 and 64; Caption then QA 98 and 100, 98 and 76, 88 and 82; with LoRA 95 and 96, 99 and 76, 84 and 84](/assets/picture/2026-10-11-llm-architectures-multimodal/stage-two-recipes-light.png){: .light width="1000" height="484" }
 ![Scores for the four recipes on three questions, for pairs seen in training and pairs never seen: caption only gets 0 on counting, 32 and 25 on binding, 61 and 50 on leftmost; QA only 99 and 98, 94 and 40, 75 and 64; Caption then QA 98 and 100, 98 and 76, 88 and 82; with LoRA 95 and 96, 99 and 76, 84 and 84](/assets/picture/2026-10-11-llm-architectures-multimodal/stage-two-recipes-dark.png){: .dark width="1000" height="484" }
 
-Compare QA only with Caption → QA, the second and third groups in each panel. On seen pairs, both do well. On held-out pairs, captioning first looks much better, most of all on binding, 76 against 40, though the thin lines there are long. Counting is nearly perfect for every trained recipe. The exact numbers, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
+Compare QA only with Caption → QA, the second and third groups in each panel. On seen pairs, both do well. On held-out pairs, captioning first looks much better, most of all on binding, 76 against 40, though the thin lines there are long. Counting is nearly perfect for every recipe trained on questions. The exact numbers, from [`stage_two`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py):
 
 <!-- RECEIPT: s4b -->
 ```text
-  task                 model   seen pairs  held-out pairs
-  ---------------------------------------------------------
-  count         stage 1 only            0               0
-                  no stage 1  99 (97-100)      98 (94-99)
-              connector only  98 (96-100)    100 (96-100)
-            connector + LoRA  95 (94-100)      96 (94-99)
-  binding       stage 1 only           32              25
-                  no stage 1   94 (82-97)      40 (22-77)
-              connector only  98 (95-100)      76 (40-81)
-            connector + LoRA  99 (99-100)      76 (59-92)
-  leftmost      stage 1 only           61              50
-                  no stage 1   75 (65-93)      64 (58-77)
-              connector only   88 (83-92)      82 (81-89)
-            connector + LoRA   84 (83-89)      84 (83-93)
+  task                    model   seen pairs  held-out pairs
+  ------------------------------------------------------------
+  count            Caption only            0               0
+                        QA only  99 (97-100)      98 (94-99)
+                   Caption → QA  98 (96-100)    100 (96-100)
+            Caption → QA + LoRA  95 (94-100)      96 (94-99)
+  binding          Caption only           32              25
+                        QA only   94 (82-97)      40 (22-77)
+                   Caption → QA  98 (95-100)      76 (40-81)
+            Caption → QA + LoRA  99 (99-100)      76 (59-92)
+  leftmost         Caption only           61              50
+                        QA only   75 (65-93)      64 (58-77)
+                   Caption → QA   88 (83-92)      82 (81-89)
+            Caption → QA + LoRA   84 (83-89)      84 (83-93)
 ```
 
 **Does captioning first help? On seen pairs, barely.** Trained on questions alone for 800 steps, the connector gets a median of **94** of 100 binding questions right; after 400 steps of captions and 400 of questions, it gets **98**. The QA-only runs spread wider, 82 to 97, but on pictures like the ones it trained on, a model that skipped the captions does nearly as well. That agrees with a finding at much larger scale: the [Prismatic VLMs](https://arxiv.org/abs/2402.07865) study found the connector-only first stage "unnecessary" for 7B and 13B models (§4.1).
@@ -535,9 +535,9 @@ Compare QA only with Caption → QA, the second and third groups in each panel. 
 
 **Counting is easy here, whichever way it's trained.** Every trained version gets almost all 100 right, a median of 95 to 99, including the one that never saw a caption. How many things there are is something the encoder's patch vectors carry plainly, and a connector trained on nothing but counting questions learns to pass it on. That's a statement about these pictures, two to four large shapes on white, not about counting in general.
 
-**Position is the hardest of the three.** Leftmost scores lowest for every trained version, 75 without stage 1 and 84 to 88 with it, and its spread is the widest: the QA-only runs scored between 65 and 93 depending on the seed, which is why a single run would have told two different stories here.
+**Position is the hardest of the three.** Leftmost scores lowest for every recipe trained on questions, 75 for QA only and 84 to 88 for the two that caption first, and its spread is the widest: the QA-only runs scored between 65 and 93 depending on the seed, which is why a single run would have told two different stories here.
 
-**The Caption-only model can sometimes answer already.** Asked questions it was never trained on, the Caption-only model gets 32 binding and 61 leftmost questions exactly right, one word and nothing else, with no question training at all. These scores alone don't say whether it used the picture to get them; [§5](#is-it-looking)'s controls weren't run on this model. On counting it scores 0: it never answers with just the number.
+**The Caption-only model can sometimes answer already.** Asked questions it was never trained on, the Caption-only model gets 32 binding and 61 leftmost questions exactly right, one word and nothing else, with no question training at all. These scores alone don't say whether it used the picture to get them; [§5](#is-it-looking) checks, and on leftmost it mostly did. On counting it scores 0: it never answers with just the number.
 
 **LoRA showed no consistent improvement.** With stage 1 done, letting the language model adapt through a rank-8 adapter scores 95 against 98 on counting, 99 against 98 on binding and 84 against 88 on leftmost. Every one of those differences is inside the spread of three seeds, so these runs can't tell a small effect from none. That's a result about these questions, not about LoRA in vision-language models, and it's narrower than "fine-tune the language model too", which is what LLaVA does. A likely reason is the questions: these have one-word answers and a fixed format, so once the connector hands over the right information, the frozen language model already knows how to say `purple`. Questions that need the language model to *reason* about the picture would give an adapter more to do, and [Idefics2](https://arxiv.org/abs/2405.02246)'s experiments found LoRA useful for exactly that kind of training at scale: "Leveraging LoRA still adds expressivity to the training and stabilizes it" (Finding 3).
 
@@ -549,7 +549,7 @@ Compare QA only with Caption → QA, the second and third groups in each panel. 
 
 A falling loss says the model got better at predicting the training answers. It doesn't say *how*, or whether that works on anything new. The QA-only model shows the difference: it learned to answer binding questions on seen pairs, 94 of 100, and still got only 40 on held-out pairs. A model can learn to predict the training answers without learning a rule that carries over to new combinations. It could even lower its loss by learning which answers are common, without reading the picture at all.
 
-**What stage 2 showed.** On new pictures of familiar pairs, every trained recipe learned to answer, and captioning first barely mattered. On pairs the model never saw, captioning first looked like it helped a lot, most of all on binding, but three seeds can't settle that. Letting the language model adapt with LoRA showed no consistent gain. Stages 1 and 2 are the only training stages. From here on, the post tests what they produced, starting with whether the models look at the picture at all.
+**What stage 2 showed.** On new pictures of familiar pairs, every recipe trained on questions learned to answer, and captioning first barely mattered. On pairs the model never saw, captioning first looked like it helped a lot, most of all on binding, but three seeds can't settle that. Letting the language model adapt with LoRA showed no consistent gain. Stages 1 and 2 are the only training stages. From here on, the post tests what they produced, starting with whether the models look at the picture at all.
 
 ---
 
@@ -561,7 +561,7 @@ A model can get a question about a picture right without looking at it. These te
 
 So this section changes the picture and keeps everything else the same. If the answers change when the picture does, the model was using it.
 
-**The short answer:** the answers depend strongly on the picture. Take it away or swap it for another, and every trained model loses at least 59 points. But some right answers don't need the picture, and once the language model is trained with LoRA, it answers between a fifth and a third of the questions right with no picture at all.
+**The short answer:** the answers depend strongly on the picture. Take it away or swap it for another, and every model trained on questions loses at least 59 points. Shown another scene's picture, they answer about that picture. But some right answers don't need the picture, and once the language model is trained with LoRA, it answers between a fifth and a third of the questions right with no picture at all.
 
 This is a different question from §4's held-out pairs. Held-out pairs ask whether what the model learned carries over to new combinations. The checks here ask whether a right answer depended on the picture at all.
 
@@ -600,7 +600,7 @@ Taking the best of the three makes the gap deliberately conservative: the right 
 
 #### What happened {#what-happened}
 
-Each model, asked all four ways, from [`is_it_looking`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py) (right answers out of 100; for the trained recipes, the median of three seeds):
+Each model, asked all four ways, from [`is_it_looking`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py) (right answers out of 100; for the three recipes trained on questions, the median of three seeds; Caption only is a single run):
 
 <!-- FIGURE: stage-two-results -->
 ![Stage 2 scores on pairs seen in training for three questions, each model asked with the right picture, a blank picture, another scene's picture and no picture at all](/assets/picture/2026-10-11-llm-architectures-multimodal/stage-two-results-light.png){: .light width="1000" height="477" }
@@ -610,32 +610,75 @@ The exact numbers:
 
 <!-- RECEIPT: s5 -->
 ```text
-  task                 model  right  blank  wrong  none  gap
-  ------------------------------------------------------------
-  count           no stage 1     99     32     31     0   67
-              connector only     98     32     31     0   66
-            connector + LoRA     95     32     31    36   59
-  binding         no stage 1     94     13     32     0   62
-              connector only     98      5     29     0   69
-            connector + LoRA     99     21     30    24   69
-  leftmost        no stage 1     75     13     14     0   61
-              connector only     88     13     17     0   70
-            connector + LoRA     84      9     18    22   62
+  task                    model  right  blank  wrong  none  gap
+  ---------------------------------------------------------------
+  count            Caption only      0      0      0     0    0
+                        QA only     99     32     31     0   67
+                   Caption → QA     98     32     31     0   66
+            Caption → QA + LoRA     95     32     31    36   59
+  binding          Caption only     32      0     10     0   22
+                        QA only     94     13     32     0   62
+                   Caption → QA     98      5     29     0   69
+            Caption → QA + LoRA     99     21     30    24   69
+  leftmost         Caption only     61      0     12     0   49
+                        QA only     75     13     14     0   61
+                   Caption → QA     88     13     17     0   70
+            Caption → QA + LoRA     84      9     18    22   62
 ```
 
-**1. The right picture makes a big difference.** For every trained recipe and every question, the right picture beats the best of the other three tests by at least 59 points. That's strong evidence these models use the picture, and aren't reaching their scores by guessing from the question. It doesn't show that every right answer came from reading the picture, only that the picture matters a lot.
+**1. The right picture makes a big difference.** For every recipe trained on questions and every question, the right picture beats the best of the other three tests by at least 59 points. That's strong evidence these models use the picture, and aren't reaching their scores by guessing from the question. It doesn't show that every right answer came from reading the picture, only that the picture matters a lot.
 
-<!-- PENDING (rerun): Caption-only rows: its gap, and what that says about §4's "can sometimes answer already". -->
+**Caption only looks too, where it can answer at all.** It never trained on a question, yet with the right picture it gets 61 leftmost questions right, against at most 12 without it: a gap of 49. On binding its gap is 22, 32 right with the picture against 10 with another scene's. On counting it scores 0 every way, because it never answers with just a number. So §4's "can sometimes answer already" is mostly the model reading the picture, not guessing from the question: a connector trained only to describe pictures already lets Qwen pick a color off one when asked. It's one run, so these numbers are less certain than the others.
 
 **2. A blank or wrong picture still gets some right.** All three trained recipes get 32 of 100 counting questions right with a blank picture. With two, three or four shapes a third of the time each, always giving the same number would score about a third, so 32 fits that kind of guess, though the demo doesn't record which number each model gives. On the two color questions, a blank picture scores between 5 and 21, around what picking one of six colors would get, about 17. On counting, the wrong picture scores 31: two scenes drawn independently have the same number of shapes about a third of the time, so a model that counts the picture it's shown would still get about that many right.
 
-<!-- PENDING (rerun): wrong picture scored against both pictures (receipt s5b): how often each model gave the shown picture's answer vs the original's, on questions where they differ. This is the direct test of "the answer changes when the picture does". -->
+**When the picture changes, the answer follows it.** Here are the wrong-picture answers scored against the picture the model was actually shown, as [promised above](#four-ways). This counts only questions whose answer differs between the two scenes, and that the shown scene can answer (a binding question about a triangle needs exactly one triangle in it):
+
+<!-- RECEIPT: s5b -->
+```text
+  task                    model  asked  gave shown picture's  gave original's
+  -----------------------------------------------------------------------------
+  count            Caption only     68                     0                0
+                        QA only     68                    68                0
+                   Caption → QA     68                    67                0
+            Caption → QA + LoRA     68                    65                1
+  binding          Caption only     35                    12                2
+                        QA only     35                    33                1
+                   Caption → QA     35                    35                0
+            Caption → QA + LoRA     35                    35                0
+  leftmost         Caption only     84                    51                2
+                        QA only     84                    63                2
+                   Caption → QA     84                    74                2
+            Caption → QA + LoRA     84                    69                3
+```
+
+The three recipes trained on questions gave the shown picture's answer to 65 to 68 of 68 counting questions and 33 to 35 of 35 binding questions. On leftmost they did so 63 to 74 times of 84, roughly as often as they get leftmost right with the right picture, 75 to 88 of 100. They gave the original picture's answer at most 3 times in any row. That's the most direct evidence in this section: swap the picture, and the answer changes to match the new one, not the question's original answer. Caption only follows the shown picture on leftmost too, 51 of 84, but rarely on binding, 12 of 35.
 
 So a right answer doesn't always mean the model used the picture the question was about.
 
 **3. LoRA changes what happens with no picture at all.** With no image tokens, the two models whose language model stayed frozen, QA only and Caption → QA, score **0** on every question. Caption → QA + LoRA gets 36 counting, 24 binding and 22 leftmost questions right. One likely reason is that LoRA taught Qwen this task's short answer format during stage 2, so it can now produce `three` or `purple` from the question alone, as a guess from what was common in training. It's a small version of what the MMStar authors measured on real benchmarks, here after only 400 steps on a rank-8 adapter, and it's part of why this recipe has the smallest gap, 59 on counting.
 
-<!-- PENDING (rerun): what frozen Qwen and the LoRA model actually wrote with no picture (receipt s5c); a 0 under exact match may be a format miss (e.g. "3"), not a lack of knowledge. -->
+What each model wrote with no picture shows where that 0 comes from. Scoring lets a model write the answer's length plus two tokens, so a reply cut off after a few words is what it started to say:
+
+<!-- RECEIPT: s5c -->
+```text
+  task                    model            wrote
+  ------------------------------------------------
+  count            Caption only  'The number of'
+                        QA only  'The number of'
+                   Caption → QA  'The number of'
+            Caption → QA + LoRA           'four'
+  binding          Caption only  'The square is'
+                        QA only  'The square is'
+                   Caption → QA  'The square is'
+            Caption → QA + LoRA            'red'
+  leftmost         Caption only   'The leftmost'
+                        QA only   'The leftmost'
+                   Caption → QA   'The leftmost'
+            Caption → QA + LoRA            'red'
+```
+
+With no picture the connector isn't used, so Caption only, QA only and Caption → QA are all just the downloaded Qwen here, and they write the same thing. It starts a sentence, "The number of", "The square is", "The leftmost", which exact match scores as wrong whatever would have come next. So their 0 is a format miss: it says nothing about what they would have answered. The LoRA model answers `four` and `red` straight away: it learned the format, and with nothing to read, it guesses.
 
 #### What this means for evaluating a VLM {#evaluating-a-vlm}
 
@@ -674,17 +717,17 @@ The demo asks 100 more questions of each kind, each one about a held-out pair: "
   Right picture, median of the seeds. Control and gap are on the
   held-out questions, against the best of blank, wrong and none.
 
-  task                 model  seen  held out  control  gap
-  ----------------------------------------------------------
-  count           no stage 1    99        98       37   61
-              connector only    98       100       38   62
-            connector + LoRA    95        96       47   49
-  binding         no stage 1    94        40       13   27
-              connector only    98        76       23   53
-            connector + LoRA    99        76       25   51
-  leftmost        no stage 1    75        64       26   38
-              connector only    88        82       33   49
-            connector + LoRA    84        84       35   49
+  task                    model  seen  held out  control  gap
+  -------------------------------------------------------------
+  count                 QA only    99        98       37   61
+                   Caption → QA    98       100       38   62
+            Caption → QA + LoRA    95        96       47   49
+  binding               QA only    94        40       13   27
+                   Caption → QA    98        76       23   53
+            Caption → QA + LoRA    99        76       25   51
+  leftmost              QA only    75        64       26   38
+                   Caption → QA    88        82       33   49
+            Caption → QA + LoRA    84        84       35   49
 ```
 
 **Binding drops, most of all for QA only.** QA only and Caption → QA did almost equally well on familiar pairs, 94 and 98. On held-out pairs they fall to **40** and **76**. That difference is what this section is about, but three seeds aren't enough to trust it: QA only's runs scored 22, 40 and 77, and Caption → QA's 40, 76 and 81, so one seed of each landed in the other's range.
@@ -753,7 +796,7 @@ Some of Caption → QA's wrong answers on held-out questions, from the main run'
 
 <!-- RECEIPT: s6c -->
 ```text
-  Some wrong answers, connector only, first seed (held-out questions):
+  Some wrong answers, Caption → QA, first seed (held-out questions):
 
   What color is the triangle?          right: red     said: yellow
   What color is the triangle?          right: red     said: yellow
@@ -884,20 +927,6 @@ The demo's [`interleave`](https://github.com/bearbearyu1223/llm-architectures-re
   text only                     10              0
   one picture and text          62             49
   two pictures and text        114             98
-
-  Text only, post 4's passage: perplexity after each kind of training
-  (lower is better; median of the seeds, range in brackets):
-
-  model                          passage perplexity
-  ---------------------------------------------------
-  Qwen2.5-0.5B as downloaded                20.8706
-  no stage 1                                20.8706
-  connector only                            20.8706
-  connector + LoRA            20.8921 (20.88-21.14)
-
-  >> Text alone is just the language model's ordinary input. Where the
-     language model stayed frozen, its text is exactly what it was; only
-     the arm that trains LoRA adapters can change it.
 ```
 
 Every picture here is 224 × 224, so it always becomes 196 patches and, after the merge, 49 positions, whatever it shows. The rest is text. The question is 10 tokens, 11 with the line break before it when a picture comes first, and each `Image:` label is 2 tokens, 3 with its own line break. So one picture and text comes to 2 + 49 + 11 = 62, and a second picture adds 3 + 49 = 52, for 114. The question here is shorter than §2's, which is why one picture and text comes to 62 positions rather than 64.
@@ -906,7 +935,22 @@ Every picture here is 224 × 224, so it always becomes 196 patches and, after th
 
 Training taught the model to read pictures. Did that cost anything on plain text? The demo scores each model's **perplexity**, how surprised it is by each next token of ordinary text ([post 4](/posts/llm-architectures-quantization/)), on post 4's passage, the same 550 tokens of prose [post 6](/posts/llm-architectures-lora/#what-it-forgot) used to see what fine-tuning disturbed. Lower is better:
 
-<!-- PENDING (rerun): split s7t; the perplexity table goes here as its own receipt (s7p). -->
+<!-- RECEIPT: s7p -->
+```text
+  Text only, post 4's passage: perplexity after each kind of training
+  (lower is better; median of the seeds, range in brackets):
+
+  model                          passage perplexity
+  ---------------------------------------------------
+  Qwen2.5-0.5B as downloaded                20.8706
+  QA only                                   20.8706
+  Caption → QA                              20.8706
+  Caption → QA + LoRA         20.8921 (20.88-21.14)
+
+  >> Text alone is just the language model's ordinary input. Where the
+     language model stayed frozen, its text is exactly what it was; only
+     the arm that trains LoRA adapters can change it.
+```
 
 **Where Qwen stayed frozen, nothing changed.** QA only and Caption → QA score 20.8706, the same as the downloaded model to every digit printed, and that's guaranteed rather than lucky. Their training changed only the connector, and with no picture the connector isn't used: the same text goes in, through the same weights, in the same way, so the same predictions come out. The guarantee comes from that identical computation, not from the word "frozen" alone. Change the prompt format, the tokenizer or how positions are numbered, and text-only outputs could change even with Qwen's weights untouched.
 
@@ -920,7 +964,38 @@ So for this small VLM, keeping Qwen frozen was the better trade: the model learn
 
 So the demo asks each trained model three things: a text-only question, a question about one picture, and a question about two pictures that it was never trained on, "Which picture has a triangle, the first or the second?", where only the first one has a triangle ([`text_pictures_or_both`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py)):
 
-<!-- PENDING (rerun): receipt s7m, what each model wrote for the three inputs, and what it shows. -->
+<!-- RECEIPT: s7m -->
+```text
+  Three inputs to each trained model, first seed, greedy, at most 12 tokens.
+  Two pictures: the first has a triangle, the second has none.
+
+  text only: "What is a transformer?"  (a right answer: (any sensible text))
+  model                                                                             wrote
+  -----------------------------------------------------------------------------------------
+  QA only                 'The transformer is a device that changes the voltage of a low'
+  Caption → QA            'The transformer is a device that changes the voltage of a low'
+  Caption → QA + LoRA  'A transformer is a device that converts alternating current (AC)'
+
+  one picture: "What color is the triangle?"  (a right answer: yellow)
+  model                   wrote
+  -------------------------------
+  QA only              'yellow'
+  Caption → QA         'yellow'
+  Caption → QA + LoRA  'yellow'
+
+  two pictures: "Which picture has a triangle, the first or the second?"  (a right answer: the first)
+  model                       wrote
+  -----------------------------------
+  QA only               'the first'
+  Caption → QA         'the second'
+  Caption → QA + LoRA        'blue'
+```
+
+**Text only.** QA only and Caption → QA write exactly the same sentence, because with no picture they're both the downloaded Qwen. The LoRA model words it differently, since its adapter changes how Qwen handles text too. All three take "transformer" to mean the electrical kind, a fair reading with nothing else to go on.
+
+**One picture.** This is the format every training example used, and all three answer `yellow`, which is right.
+
+**Two pictures.** The answers split. QA only says `the first`, which is right. Caption → QA says `the second`. The LoRA model says `blue`, a color, the kind of answer most of its training questions wanted, instead of answering what it was asked. This is one question at one seed, and with two choices a guess is right half the time, so QA only's right answer may be luck. What it does show is that nothing in training taught these models what a second picture is for.
 
 Real models train on exactly the kind of example this one never saw. Qwen2-VL's paper shows one in its data format: two pictures, each wrapped in `<|vision_start|>` and `<|vision_end|>`, then "What do the two pictures have in common?" (§2.2.1). Those special tokens "are inserted at the start and end of the image feature sequence to demarcate the image content" (§2.2.1), where this post uses the plain word `Image:`. [Flamingo](https://arxiv.org/abs/2204.14198) was designed to "handle sequences of arbitrarily interleaved visual and textual data" (abstract), and trained on web pages where pictures and text alternate. The same idea stretches to video: Qwen2-VL samples "each video at two frames per second" and turns the frames into tokens much as it does pictures (§2.1).
 
@@ -973,7 +1048,7 @@ To measure it, the demo trains stage 1 again on all 196 patch vectors: same seed
   connector parameters       3,557,120   1,492,736
   captions right, of 120            91          76
   final loss (last-10 mean)     0.0534      0.1331
-  seconds per step                1.01        3.03
+  seconds per step                1.02        3.05
 
   LLaVA-1.5: 336 px, 14 px patches   (336 / 14)^2 = 576 tokens
 
@@ -985,7 +1060,7 @@ To measure it, the demo trains stage 1 again on all 196 patch vectors: same seed
   448 x 448 px      784  9.19 MiB           196  2.30 MiB
 ```
 
-**The merged model trained three times faster,** 1.01 seconds a step against 3.03, even though its connector is the bigger one, 3.56 million parameters against 1.49 million. The connector is small next to the language model either way, and the language model now reads 49 image positions instead of 196. That's the trade from [§2](#the-connector) measured: a bigger connector, and a cheaper model overall.
+**The merged model trained three times faster,** 1.02 seconds a step against 3.05, even though its connector is the bigger one, 3.56 million parameters against 1.49 million. The connector is small next to the language model either way, and the language model now reads 49 image positions instead of 196. That's the trade from [§2](#the-connector) measured: a bigger connector, and a cheaper model overall.
 
 **It also captioned better,** 91 of 120 against 76, with a lower final loss. But that doesn't show merging improves accuracy. Look at the first row: merging glues four 768-wide patch vectors into one 3,072-wide vector, which makes the connector's first layer four times bigger. So this comparison changed two things at once, the number of tokens and the size of the connector, and from one seed it can't say which mattered, or whether the gap is just run-to-run variation. What it does show is narrower: in this run, a quarter of the tokens came with no accuracy penalty.
 
@@ -1046,7 +1121,7 @@ Seven things, in the order the post found them.
 2. **The connector was enough.** 3.56 million trained parameters, about 0.7% of the language model, got 91 of 120 captions exactly right and 94 to 99 of 100 binding questions on familiar pairs, with both big models exactly as downloaded ([§3](#stage-one), [§4](#stage-two)).
 3. **Familiar test pictures hid what the training order did.** On familiar pairs, QA only and Caption → QA scored 94 and 98. On pairs never seen in training, they scored 40 and 76, and Caption → QA came out ahead in all five paired seeds of the follow-up, by about 25 points ([§6](#five-seeds)).
 4. **The wrong answers show where QA only went wrong.** On held-out pairs, 86% to 98% of wrong colors were the color of another shape in the same picture. Only QA only leaned toward the colors a shape usually came in, and a linear probe found held-out colors already harder to read from the vectors Qwen receives ([§6](#where-wrong-answers-come-from)).
-5. **Accuracy needs controls.** The right picture beat the best of a blank picture, another scene's picture and no picture by at least 59 points, but a blank picture still got 32 of 100 counting questions right by guessing ([§5](#is-it-looking)).
+5. **Accuracy needs controls.** The right picture beat the best of a blank picture, another scene's picture and no picture by at least 59 points for every model trained on questions, but a blank picture still got 32 of 100 counting questions right by guessing ([§5](#is-it-looking)).
 6. **Training Qwen with LoRA was the smallest lever.** It moved no score beyond the spread between seeds, learned to answer some questions with no picture at all, and was the only recipe whose plain-text predictions changed. That's a finding about one-word answers on simple pictures, not about LoRA in general ([§4](#stage-two), [§5](#is-it-looking), [§7](#what-happened-to-text)).
 7. **An image costs tokens, and tokens are the design space.** Merging 196 patches into 49 tokens made the connector bigger but training three times faster, and cut each picture's KV cache by 75%. The field's designs are largely different answers to how much of a picture to keep and how the language model gets at it ([§8](#what-an-image-costs), [§9](#other-designs)).
 <!-- PENDING (capacity run): add to point 7 whether the caption gain survives a size-matched connector. -->

@@ -30,12 +30,14 @@ SPEC = {
     "s3": ("3. Stage 1", r"^  trained: the connector only", r"^  time per step"),
     "s3r": ("3. Stage 1", r"^  Captions exactly right, of 120", r"^    held-out pairs"),
     "s3b": ("3. Stage 1", r"^  truth:", None),  # three truth/model pairs
-    "s4a": ("4. Stage 2", r"^  batch ", r"^  connector \+ LoRA\s+stage 1"),
-    "s4b": ("4. Stage 2", r"^  task\s+model\s+seen pairs", r"^\s+connector \+ LoRA\s+\d+.*[\d)]$", "last"),
-    "s5": ("5. Is it looking", r"^  task\s+model  right  blank", r"^\s+connector \+ LoRA", "last"),
+    "s4a": ("4. Stage 2", r"^  batch ", r"^  Caption → QA \+ LoRA\s+stage 1"),
+    "s4b": ("4. Stage 2", r"^  task\s+model\s+seen pairs", r"^\s+Caption → QA \+ LoRA\s+\d+.*[\d)]$", "last"),
+    "s5": ("5. Is it looking", r"^  task\s+model  right  blank", r"^\s+Caption → QA \+ LoRA", "last"),
+    "s5b": ("5. Is it looking", r"^  task\s+model  asked", None, "table"),
+    "s5c": ("5. Is it looking", r"^  task\s+model\s+wrote$", None, "table"),
     "s6a": ("6. Pairs it never saw", r"^  never in a training picture", None, "table"),
     "sm": ("FILE:demo07-misses.txt", r"^  Wrong color answers", None, "table"),
-    "s6b": ("6. Pairs it never saw", r"^  Binding on held-out pairs", r"^  connector \+ LoRA\s+\d+ of"),
+    "s6b": ("6. Pairs it never saw", r"^  Binding on held-out pairs", r"^  Caption → QA \+ LoRA\s+\d+ of"),
     "s6c": ("6. Pairs it never saw", r"^  Some wrong answers", r"^$", "before"),
     "f1": ("FILE:demo07-followup.txt", r"^  Median of 5 seeds", r"^  Seed by seed, held-out pairs", "before"),
     "f2": ("FILE:demo07-followup.txt", r"^  Seed by seed, held-out pairs", None, "table"),
@@ -43,7 +45,9 @@ SPEC = {
     "f4": ("FILE:demo07-followup.txt", r"^  How often each shape came", None, "table"),
     "f5": ("FILE:demo07-followup.txt", r"^  Wrong held-out binding answers, all 5", None, "table"),
     "f6": ("FILE:demo07-followup.txt", r"^  Of the wrong colors that were", None, "table"),
-    "s7t": ("7. Text, a picture", r"^  input\s+positions", r"bought|can change it\.$"),
+    "s7t": ("7. Text, a picture", r"^  input\s+positions", None, "table"),
+    "s7m": ("7. Text, a picture", r"^  Three inputs to each", r"^  Text only, post 4's passage", "before"),
+    "s7p": ("7. Text, a picture", r"^  Text only, post 4's passage", r"can change it\.$"),
     "s8a": ("8. What an image costs", r"^  KV cache per token", r"^  caption: "),
     "s8b": ("8. What an image costs", r"^\s+49 tokens  196 tokens$", r"^  448 x 448 px"),
 }
@@ -114,6 +118,8 @@ def extract(capture: list[str], spec) -> list[str]:
 
 
 def main() -> None:
+    # `sync_post07.py s5b s7m ...` pastes only those receipts and leaves figures alone.
+    only = set(sys.argv[1:]) or None
     capture = (DEMO / "outputs/demo07.txt").read_text().splitlines()
     post = POST.read_text().splitlines()
     out: list[str] = []
@@ -127,6 +133,8 @@ def main() -> None:
         if m:
             rid = m.group(1)
             used.add(rid)
+            if only is not None and rid not in only:
+                continue
             block = extract(capture, SPEC[rid])
             if k < len(post) and post[k].startswith("```text"):
                 k += 1
@@ -138,10 +146,15 @@ def main() -> None:
         m = re.match(r"<!-- FIGURE: ([\w-]+) -->", line)
         if m:
             name = m.group(1)
-            alt = NEW_ALT.get(name)
+            alt = None  # the post's own alt text wins; NEW_ALT only for a new figure
+            first = k
             while k < len(post) and post[k].startswith("!["):
                 alt = alt or re.match(r"!\[(.*?)\]\(", post[k]).group(1)
                 k += 1
+            alt = alt or NEW_ALT.get(name)
+            if only is not None:  # receipts only: put the figure lines back untouched
+                out += post[first:k]
+                continue
             ASSETS.mkdir(parents=True, exist_ok=True)
             for theme in ("light", "dark"):
                 src = FIGS / f"{name}-{theme}.png"
