@@ -15,7 +15,7 @@ from pathlib import Path
 
 DEMO = Path.home() / "Documents/GitHub/llm-architectures-refresher"
 BLOG = Path.home() / "Documents/GitHub/bearbearyu1223.github.io"
-POST = BLOG / "_posts/2026-11-03-llm-architectures-multimodal.md"
+POST = BLOG / "_posts/2026-11-08-llm-architectures-multimodal.md"
 FIGS = DEMO / "figures/07-multimodal"
 ASSETS = BLOG / "assets/picture/2026-10-11-llm-architectures-multimodal"
 URL = "/assets/picture/2026-10-11-llm-architectures-multimodal"
