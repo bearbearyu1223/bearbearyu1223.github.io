@@ -31,27 +31,20 @@ The question this post tests is whether that's enough. With both big models froz
 
 ### The short version {#the-short-version}
 
-**The question.** Can a small language model learn to read pictures if it stays frozen, a pretrained image encoder stays frozen, and only a small **connector** between them is trained? I took **SigLIP-base** as the image encoder and **Qwen2.5-0.5B**, the language model from posts 4 and 6, kept both frozen, and trained a connector of **3.56 million parameters**, about 0.7% of Qwen's 494 million, on generated pictures of colored shapes.
+Can a language model learn to understand pictures without changing its own weights?
 
-**How it works.** SigLIP cuts a 224 × 224 picture into 196 patches and turns them into 196 vectors, 768 wide ([§1](#pixels-to-patches)). The connector merges each 2 × 2 block of them, leaving 49, and projects those to 896, the width of Qwen's word vectors ([§2](#the-connector)). Qwen reads the 49 **image tokens** in its input sequence as it would words, with no change to its architecture. Training has two stages: describe pictures first, then answer questions about them ([§3](#stage-one), [§4](#stage-two)).
+I built a tiny vision-language model by connecting a frozen **SigLIP** image encoder to a frozen **Qwen2.5-0.5B** language model. The only part that trains is a **connector** of 3.56 million parameters, under 1% of Qwen's size, which turns the encoder's output into tokens Qwen can read alongside text ([§1](#pixels-to-patches), [§2](#the-connector)). I trained it on generated pictures of colored shapes, first to describe what it saw, then to answer questions about it ([§3](#stage-one), [§4](#stage-two)).
 
-**What I found.**
+The most interesting result wasn't that the model learned to answer questions. It was how much the training recipe mattered when the model met something new. On familiar color-shape combinations, training directly on questions worked almost as well as captioning first. But on combinations deliberately left out of training, captioning first made a big difference: 76 of 100 color questions right against 40 in the first experiment. A follow-up with five paired seeds found the advantage in every run, by a median of about 25 points ([§6](#pairs-never-seen)).
 
-| test | result |
-|---|---|
-| captions exactly right on new pictures, after stage 1 | **91** of 120 |
-| "What color is the triangle?" on familiar color-shape pairs | **98** of 100 |
-| the same, on pairs never seen in training | **76** of 100 |
-| the same, trained on questions only, no captions first | **40** of 100 |
-| captions first beat questions only on unseen pairs, five paired seeds | **5 of 5**, by about 25 points |
+A few other things became clearer along the way:
 
-1. **Learning to describe first helps on combinations never seen.** On familiar pairs, every recipe scored about the same; only held-out pairs told them apart. The model trained on questions alone leans on the colors a shape usually came in ([§6](#pairs-never-seen)).
-2. **The models use the picture, but a right answer isn't proof.** Removing or swapping the picture costs every trained model at least 59 points, yet a blank picture still gets 32 of 100 counting questions right by guessing ([§5](#is-it-looking)).
-3. **Training Qwen too, with LoRA, didn't help.** It gave no consistent gain on any question, learned to answer some questions with no picture at all, and moved its plain-text predictions slightly, where the frozen models' didn't move at all ([§4](#stage-two), [§5](#is-it-looking), [§7](#text-pictures-or-both)).
-4. **Fewer image tokens made the whole model cheaper.** Merging 196 patches into 49 tokens made the connector bigger, yet training ran three times faster and each picture's KV cache shrank by 75% ([§8](#what-an-image-costs)).
+- **The models do use the picture, but a right answer isn't proof.** Taking the picture away or swapping it cost every trained model at least 59 points, yet some questions could still be answered by guessing ([§5](#is-it-looking)).
+- **More trainable parameters weren't better here.** Adding a LoRA adapter to Qwen gave no consistent improvement on these simple questions ([§4](#stage-two), [§7](#text-pictures-or-both)).
+- **Image tokens have a real cost.** Merging 196 image tokens into 49 cut their KV cache by 75% and made training about three times faster in this setup ([§8](#what-an-image-costs)).
 <!-- PENDING (capacity run): one clause on whether the merge's caption gain survives a size-matched connector. -->
 
-**Limits.** These are simple generated shapes, not photographs, with a 0.5B model and three or five seeds per comparison, so the numbers show how the mechanism behaves, not how good a VLM this is. And this is one way to connect a picture; [§9](#other-designs) compares the others.
+This isn't a competitive VLM. It only knows simple generated shapes, and the experiments are deliberately small. But that's the point: with a system this simple, you can see how a picture reaches a language model, what the connector learns, and why some questions about a picture are harder than they look. [§9](#other-designs) compares the other ways to connect the two.
 
 ### Setup
 
