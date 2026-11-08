@@ -727,6 +727,10 @@ The demo asks 100 more questions of each kind, each one about a held-out pair: "
             Caption → QA + LoRA    84        84       35   49
 ```
 
+<!-- FIGURE: held-out-results -->
+![For each question kind and each model trained on questions, the median score on seen pairs beside held-out pairs, with the best control on the held-out questions; binding falls from 94 to 40 for QA only and from 98 to 76 for Caption → QA, while counting stays at 96 to 100](/assets/picture/2026-10-11-llm-architectures-multimodal/held-out-results-light.png){: .light width="1000" height="458" }
+![For each question kind and each model trained on questions, the median score on seen pairs beside held-out pairs, with the best control on the held-out questions; binding falls from 94 to 40 for QA only and from 98 to 76 for Caption → QA, while counting stays at 96 to 100](/assets/picture/2026-10-11-llm-architectures-multimodal/held-out-results-dark.png){: .dark width="1000" height="458" }
+
 **Binding drops, most of all for QA only.** QA only and Caption → QA did almost equally well on familiar pairs, 94 and 98. On held-out pairs they fall to **40** and **76**. That difference is what this section is about, but three seeds aren't enough to trust it: QA only's runs scored 22, 40 and 77, and Caption → QA's 40, 76 and 81, so one seed of each landed in the other's range.
 
 **Counting doesn't care.** All three models count held-out pictures as well as familiar ones, 96 to 100. How many shapes there are has nothing to do with which color goes with which shape.
@@ -739,9 +743,22 @@ The demo asks 100 more questions of each kind, each one about a held-out pair: "
 
 To settle it, a second program, `uv run demo07 --followup`, runs the comparison again, more carefully ([`d07_followup.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py)):
 
-- **Five paired seeds.** Each seed trains its own stage 1, then three versions: **QA only** (800 steps of questions, connector from random), **Caption → QA** (stage 1, then 400 steps of questions), and **Caption → QA + captions**, the same as Caption → QA except that each step's 16 questions come with 4 captions mixed in. Within a seed, all three get the same questions in the same order. They still differ in their starting connector and in what else they trained on, but matching the questions removes one big source of run-to-run difference, so two versions from one seed can be compared directly.
+- **Five paired seeds.** Each seed trains its own stage 1, then three versions: **QA only** (800 steps of questions, connector from random), **Caption → QA** (stage 1, then 400 steps of questions), and **Caption → QA + captions**, the same as Caption → QA except that every stage-2 step also trains on 4 captions (shown below). Within a seed, all three get the same questions in the same order. They still differ in their starting connector and in what else they trained on, but matching the questions removes one big source of run-to-run difference, so two versions from one seed can be compared directly.
 - **Bigger, fresh tests.** 300 questions per test instead of 100, from seeds the main run never used.
 - **No LoRA.** It showed no consistent gain in §4, so its place goes to Caption → QA + captions.
+
+**What adding captions looks like.** A stage-2 step in Caption → QA trains on a batch of 16 questions, each about its own picture. Caption → QA + captions adds 4 stage-1 caption examples to every one of those batches, drawn at random from stage 1's training pictures, so one step's batch of 20 looks like this:
+
+| in the batch | the model reads | it's trained to write |
+|---|---|---|
+| question 1 of 16 | `Image:` [49 image tokens] `Question: What color is the triangle? Answer:` | `purple` |
+| … | … | … |
+| question 16 of 16 | `Image:` [49 image tokens] `Question: How many shapes are there? Answer:` | `three` |
+| caption 1 of 4 | `Image:` [49 image tokens] `Caption:` | `a red square, a blue circle and a green triangle` |
+| … | … | … |
+| caption 4 of 4 | `Image:` [49 image tokens] `Caption:` | `a yellow circle and an orange square` |
+
+All 20 go into one loss and one update of the connector. The 16 questions are the same ones, in the same order, that Caption → QA trains on; the 4 captions are the only addition. It still runs 400 steps, so over stage 2 it trains on 1,600 captions on top of the same 6,400 questions. (The rows are made-up examples of each format, not a real batch.)
 
 The scores, from [`run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py):
 
@@ -764,8 +781,8 @@ The scores, from [`run`](https://github.com/bearbearyu1223/llm-architectures-ref
 ```
 
 <!-- FIGURE: paired-seeds -->
-![Five seeds, each drawn as a line joining the same seed trained three ways, QA only, Caption → QA and Caption → QA plus captions; left, binding on held-out pairs, medians 36, 71 and 69 percent; right, leftmost on held-out pairs, medians 62, 80 and 93 percent](/assets/picture/2026-10-11-llm-architectures-multimodal/paired-seeds-light.png){: .light width="1000" height="458" }
-![Five seeds, each drawn as a line joining the same seed trained three ways, QA only, Caption → QA and Caption → QA plus captions; left, binding on held-out pairs, medians 36, 71 and 69 percent; right, leftmost on held-out pairs, medians 62, 80 and 93 percent](/assets/picture/2026-10-11-llm-architectures-multimodal/paired-seeds-dark.png){: .dark width="1000" height="458" }
+![Five seeds, each drawn as a line joining the same seed trained three ways, QA only, Caption → QA and Caption → QA plus captions, with the medians marked; left, binding: seen pairs 91, 99 and 94 percent, held-out pairs 36, 71 and 69, best control 12, 27 and 27; right, leftmost: seen pairs 78, 90 and 96, held-out pairs 62, 80 and 93](/assets/picture/2026-10-11-llm-architectures-multimodal/paired-seeds-light.png){: .light width="1000" height="458" }
+![Five seeds, each drawn as a line joining the same seed trained three ways, QA only, Caption → QA and Caption → QA plus captions, with the medians marked; left, binding: seen pairs 91, 99 and 94 percent, held-out pairs 36, 71 and 69, best control 12, 27 and 27; right, leftmost: seen pairs 78, 90 and 96, held-out pairs 62, 80 and 93](/assets/picture/2026-10-11-llm-architectures-multimodal/paired-seeds-dark.png){: .dark width="1000" height="458" }
 
 And seed by seed, also from [`run`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_followup.py):
 
