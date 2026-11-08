@@ -41,8 +41,7 @@ A few other things became clearer along the way:
 
 - **The models do use the picture, but a right answer isn't proof.** Taking the picture away or swapping it cost every model trained on questions at least 59 points, yet some questions could still be answered by guessing ([§5](#is-it-looking)).
 - **More trainable parameters weren't better here.** Adding a LoRA adapter to Qwen gave no consistent improvement on these simple questions ([§4](#stage-two), [§7](#text-pictures-or-both)).
-- **Image tokens have a real cost.** Merging 196 image tokens into 49 cut their KV cache by 75% and made training about three times faster in this setup ([§8](#what-an-image-costs)).
-<!-- PENDING (capacity run): one clause on whether the merge's caption gain survives a size-matched connector. -->
+- **Image tokens have a real cost.** Merging 196 image tokens into 49 cut their KV cache by 75% and made training about three times faster in this setup, with no measurable loss in caption accuracy across three seeds ([§8](#what-an-image-costs)).
 
 This isn't a competitive VLM. It only knows simple generated shapes, and the experiments are deliberately small. But that's the point: with a system this simple, you can see how a picture reaches a language model, what the connector learns, and why some questions about a picture are harder than they look. [§9](#other-designs) compares the other ways to connect the two.
 
@@ -58,9 +57,9 @@ uv sync && uv run demo07
 
 The code is in [`demos/d07_multimodal.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py), and the model itself is in [`vlm.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/vlm.py): the patch cutting, the connector, and the code that splices a picture into a sentence are all written out rather than imported, because this series builds the thing it's explaining. Every number this post quotes is printed by that program, and each block of its output, which I call a **receipt**, names the function that printed it.
 
-A warning about time: the demo *trains*, eleven times, and takes over **two and a half hours** on my Mac. Most of that is stage 2's three versions, each trained three times from different seeds, and one stage 1 run on 196 tokens per picture, which is three times slower than the rest. `uv run demo07 --figures` redraws the figures from the last run's saved scores in seconds (`--followup-figures` draws §6's five-seed figure). Two checks are separate programs: §6's five-seed run, `uv run demo07 --followup`, trains 20 more times in about three and a half hours, and §8's connector-size check, `uv run demo07 --capacity`, trains 9 more times in about two and a half.
+A warning about time: the demo *trains*, eleven times, and takes over **two and a half hours** on my Mac. Most of that is stage 2's three versions, each trained three times from different seeds, and one stage 1 run on 196 tokens per picture, which is three times slower than the rest. `uv run demo07 --figures` redraws the figures from the last run's saved scores in seconds (`--followup-figures` draws §6's five-seed figure). Two checks are separate programs: §6's five-seed run, `uv run demo07 --followup`, trains 20 more times in almost four hours, and §8's connector-size check, `uv run demo07 --capacity`, trains 9 more times in about two and a half.
 
-Each training run starts from a fixed **seed**, the number that sets its random starting weights and the order it sees examples in, so it's repeatable on the same machine: rerunning the demo prints the same scores. Expect a different machine to move some scores by a point or two, since floating-point sums can be ordered differently.
+Each training run starts from a fixed **seed**, the number that sets its random starting weights and the order it sees examples in, so it's repeatable on the same machine: rerunning the demo prints the same scores. A different machine can order its floating-point sums differently, and tiny differences grow over 400 steps, so expect different scores there, sometimes by many points. That's one reason the comparisons in this post rest on several seeds rather than on single numbers.
 
 **The three parts.**
 
@@ -1064,7 +1063,27 @@ To measure it, the demo trains stage 1 again on all 196 patch vectors: same seed
 
 **It also captioned better,** 91 of 120 against 76, with a lower final loss. But that doesn't show merging improves accuracy. Look at the first row: merging glues four 768-wide patch vectors into one 3,072-wide vector, which makes the connector's first layer four times bigger. So this comparison changed two things at once, the number of tokens and the size of the connector, and from one seed it can't say which mattered, or whether the gap is just run-to-run variation. What it does show is narrower: in this run, a quarter of the tokens came with no accuracy penalty.
 
-<!-- PENDING (capacity run): receipt s8c, the three connectors at three seeds (49 tokens, 196 tokens, 196 tokens with a wider MLP at the merged size), and what it says about tokens vs connector size. -->
+**Separating tokens from connector size.** A third program, `uv run demo07 --capacity` ([`d07_capacity.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_capacity.py)), trains stage 1 three ways, at three seeds each: the merged connector, the unmerged one, and an unmerged one whose hidden layer is widened from 896 to 2,136, so it has almost exactly the merged connector's parameters, 3,557,336 against 3,557,120:
+
+<!-- RECEIPT: s8c -->
+```text
+  Stage 1 captions exactly right, of 120 new pictures; median of
+  3 seeds, range in brackets. Loss: mean of the last 10 steps.
+
+  connector              tokens  parameters  captions right  final loss  s/step
+  -------------------------------------------------------------------------------
+  49 tokens                  49   3,557,120      91 (85-95)      0.0745    0.97
+  196 tokens                196   1,492,736      80 (76-91)      0.0925    2.96
+  196 tokens, wider MLP     196   3,557,336      87 (76-96)      0.0797    2.97
+
+  connector              seed 0  seed 1  seed 2
+  -----------------------------------------------
+  49 tokens                  91      95      85
+  196 tokens                 76      80      91
+  196 tokens, wider MLP      96      76      87
+```
+
+The medians line up the way the first run suggested: 91 merged, 80 unmerged, 87 unmerged with the size-matched connector. But the seeds vary more than the connectors do. The size-matched connector ranges from 76 to 96 across seeds, and seed by seed the merged connector beats the plain unmerged one in two of three seeds and the size-matched one in only one. So three seeds can't say whether fewer tokens caption better, or whether a bigger connector does; the first run's 91 against 76 sits inside that spread, and its seed 0 was the unmerged connector's worst. What does hold is that merging didn't cost accuracy: neither unmerged connector, plain or the same size, did better by more than the spread between seeds, while each of their training steps took three times as long, 2.96 and 2.97 seconds against 0.97.
 
 #### Bigger pictures {#bigger-pictures}
 
@@ -1076,7 +1095,7 @@ The trade-off is always the same shape: more visual tokens can keep finer detail
 
 #### What this section showed {#image-cost-what-we-learned}
 
-The 2 × 2 merge cut each picture from 196 tokens to 49 and its cache by 75%. In this run, it also made training three times faster, despite a connector more than twice the size, with no accuracy penalty. That doesn't mean fewer tokens are always better: squeeze too hard and the detail a question needs is gone. But it shows where an image's cost comes from: not its pixels, but how many tokens the language model is asked to read. And merging is only one way to control that, which is where [§9](#other-designs) picks up.
+The 2 × 2 merge cut each picture from 196 tokens to 49 and its cache by 75%. It also made training three times faster, despite a connector more than twice the size, and across three seeds it cost no measurable accuracy, even against an unmerged connector of the same size. That doesn't mean fewer tokens are always better: squeeze too hard and the detail a question needs is gone. But it shows where an image's cost comes from: not its pixels, but how many tokens the language model is asked to read. And merging is only one way to control that, which is where [§9](#other-designs) picks up.
 
 ---
 
@@ -1123,8 +1142,7 @@ Seven things, in the order the post found them.
 4. **The wrong answers show where QA only went wrong.** On held-out pairs, 86% to 98% of wrong colors were the color of another shape in the same picture. Only QA only leaned toward the colors a shape usually came in, and a linear probe found held-out colors already harder to read from the vectors Qwen receives ([§6](#where-wrong-answers-come-from)).
 5. **Accuracy needs controls.** The right picture beat the best of a blank picture, another scene's picture and no picture by at least 59 points for every model trained on questions, but a blank picture still got 32 of 100 counting questions right by guessing ([§5](#is-it-looking)).
 6. **Training Qwen with LoRA was the smallest lever.** It moved no score beyond the spread between seeds, learned to answer some questions with no picture at all, and was the only recipe whose plain-text predictions changed. That's a finding about one-word answers on simple pictures, not about LoRA in general ([§4](#stage-two), [§5](#is-it-looking), [§7](#what-happened-to-text)).
-7. **An image costs tokens, and tokens are the design space.** Merging 196 patches into 49 tokens made the connector bigger but training three times faster, and cut each picture's KV cache by 75%. The field's designs are largely different answers to how much of a picture to keep and how the language model gets at it ([§8](#what-an-image-costs), [§9](#other-designs)).
-<!-- PENDING (capacity run): add to point 7 whether the caption gain survives a size-matched connector. -->
+7. **An image costs tokens, and tokens are the design space.** Merging 196 patches into 49 tokens made the connector bigger but training three times faster, and cut each picture's KV cache by 75%. Across three seeds it cost no measurable caption accuracy, even against an unmerged connector of the same size; the differences were smaller than the spread between seeds. The field's designs are largely different answers to how much of a picture to keep and how the language model gets at it ([§8](#what-an-image-costs), [§9](#other-designs)).
 
 And three limits, stated plainly. The pictures are generated shapes, much easier than photographs, so the scores say how the mechanism behaves, not how good the model is. Everything is one small language model and one small encoder, trained for minutes, with three or five seeds per comparison. And the encoder stayed frozen throughout, so this post says nothing about what training it would add, which some large models do ([Llama 3](https://arxiv.org/abs/2407.21783) trains its image encoder, §7.2).
 

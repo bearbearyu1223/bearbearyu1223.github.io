@@ -49,6 +49,7 @@ SPEC = {
     "s7m": ("7. Text, a picture", r"^  Three inputs to each", r"^  Text only, post 4's passage", "before"),
     "s7p": ("7. Text, a picture", r"^  Text only, post 4's passage", r"can change it\.$"),
     "s8a": ("8. What an image costs", r"^  KV cache per token", r"^  caption: "),
+    "s8c": ("FILE:demo07-capacity.txt", r"^  Stage 1 captions exactly right", r"^  196 tokens, wider MLP(\s+\d+){3}$"),
     "s8b": ("8. What an image costs", r"^\s+49 tokens  196 tokens$", r"^  448 x 448 px"),
 }
 
