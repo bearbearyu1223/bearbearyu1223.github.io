@@ -753,17 +753,17 @@ The scores, from [`run`](https://github.com/bearbearyu1223/llm-architectures-ref
   Median of 5 seeds, range in brackets, right of 300. Control is the
   best of blank, wrong and no picture on held-out binding.
 
-  model                  binding seen       held out     control
-  ----------------------------------------------------------------
-  no stage 1            273 (231-298)   107 (61-205)  36 (23-76)
-  connector only        297 (286-300)  214 (140-237)  81 (44-98)
-  connector + captions  282 (212-298)  206 (115-259)  81 (40-98)
+  model                     binding seen       held out     control
+  -------------------------------------------------------------------
+  QA only                  273 (231-298)   107 (61-205)  36 (23-76)
+  Caption → QA             297 (286-300)  214 (140-237)  81 (44-98)
+  Caption → QA + captions  282 (212-298)  206 (115-259)  81 (40-98)
 
-  model                 leftmost seen       held out
-  ----------------------------------------------------
-  no stage 1            235 (204-260)  187 (165-239)
-  connector only        271 (265-272)  241 (234-254)
-  connector + captions  287 (279-288)  278 (264-293)
+  model                    leftmost seen       held out
+  -------------------------------------------------------
+  QA only                  235 (204-260)  187 (165-239)
+  Caption → QA             271 (265-272)  241 (234-254)
+  Caption → QA + captions  287 (279-288)  278 (264-293)
 ```
 
 <!-- FIGURE: paired-seeds -->
@@ -776,12 +776,12 @@ And seed by seed, also from [`run`](https://github.com/bearbearyu1223/llm-archit
 ```text
   Seed by seed, held-out pairs: how often one version beat another.
 
-  version                      against      task  ahead in  median
-  ------------------------------------------------------------------
-  connector only            no stage 1   binding    5 of 5     +74
-                                        leftmost    5 of 5     +53
-  connector + captions  connector only   binding    2 of 5      -4
-                                        leftmost    5 of 5     +31
+  version                       against      task  ahead in  median
+  -------------------------------------------------------------------
+  Caption → QA                  QA only   binding    5 of 5     +74
+                                         leftmost    5 of 5     +53
+  Caption → QA + captions  Caption → QA   binding    2 of 5      -4
+                                         leftmost    5 of 5     +31
 ```
 
 **Caption → QA beat QA only on held-out binding in all five seeds,** by a median of 74 questions in 300, about 25 points. That's smaller than the 107 between the two medians, 214 and 107, and it's the better measure of the typical gain, because it compares runs that saw the same questions. The medians, 71% and 36%, are close to the main run's 76 and 40, and each sits far above its control, so all of the versions are looking. On held-out leftmost, Caption → QA was ahead in all five seeds as well, by a median of 53.
@@ -819,11 +819,11 @@ Over all five seeds of the follow-up, every wrong held-out binding answer is one
 ```text
   Wrong held-out binding answers, all 5 seeds:
 
-  model                 wrong  color in picture  not in it
-  ----------------------------------------------------------
-  no stage 1              944               814        130
-  connector only          499               445         54
-  connector + captions    512               502         10
+  model                    wrong  color in picture  not in it
+  -------------------------------------------------------------
+  QA only                    944               814        130
+  Caption → QA               499               445         54
+  Caption → QA + captions    512               502         10
 ```
 
 - **A color that's in the picture, on another shape.** Most wrong answers are this kind, from 86% of QA only's to 98% of Caption → QA + captions'. The answer is the color of a shape other than the one asked about.
@@ -853,11 +853,11 @@ So for a triangle, the familiar colors are green and blue; for a circle, red and
   came in most often in training? Beside each, what picking one of the
   other shapes at random would give.
 
-  model                 in picture  nearest  chance  common  chance
-  -------------------------------------------------------------------
-  no stage 1                   814      506   523.2     378   303.2
-  connector only               445      274   281.8     174   169.3
-  connector + captions         502      313   320.0     150   177.7
+  model                    in picture  nearest  chance  common  chance
+  ----------------------------------------------------------------------
+  QA only                         814      506   523.2     378   303.2
+  Caption → QA                    445      274   281.8     174   169.3
+  Caption → QA + captions         502      313   320.0     150   177.7
 ```
 
 Read the `common` columns first. QA only gave a familiar color 378 times, against 303 expected by chance, so it does lean on the habit. The two models trained on captions first don't: 174 against 169, and 150 against 178. Their wrong answers look like a random pick among the other shapes in the picture. These counts cover only the wrong answers whose color was in the picture.
