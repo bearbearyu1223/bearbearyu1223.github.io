@@ -31,92 +31,27 @@ The question this post tests is whether that's enough. With both big models froz
 
 ### The short version {#the-short-version}
 
-Can we turn a small language model into a vision-language model without retraining the whole thing?
+**The question.** Can a small language model learn to read pictures if it stays frozen, a pretrained image encoder stays frozen, and only a small **connector** between them is trained? I took **SigLIP-base** as the image encoder and **Qwen2.5-0.5B**, the language model from posts 4 and 6, kept both frozen, and trained a connector of **3.56 million parameters**, about 0.7% of Qwen's 494 million, on generated pictures of colored shapes.
 
-That's what I wanted to find out.
+**How it works.** SigLIP cuts a 224 × 224 picture into 196 patches and turns them into 196 vectors, 768 wide ([§1](#pixels-to-patches)). The connector merges each 2 × 2 block of them, leaving 49, and projects those to 896, the width of Qwen's word vectors ([§2](#the-connector)). Qwen reads the 49 **image tokens** in its input sequence as it would words, with no change to its architecture. Training has two stages: describe pictures first, then answer questions about them ([§3](#stage-one), [§4](#stage-two)).
 
-I started with two pretrained models: **SigLIP-base** to understand images and **Qwen2.5-0.5B** to generate text (the same language model from posts 4 and 6). I froze both, meaning their weights never changed, and trained only a small **connector** between them.
+**What I found.**
 
-The training data was deliberately simple: generated pictures containing colored shapes. I wanted to see whether the model could learn to describe what it saw, answer questions about individual shapes, and handle color-shape combinations it had never encountered during training.
-
-The connector has just **3.6 million trainable parameters**, about 0.7% of the language model's 494 million.
-
-#### How does it work?
-
-The idea is surprisingly simple: **turn a picture into something a language model can process alongside text.**
-
-There are three steps:
-
-1. **The vision encoder reads the picture.** It divides the image into 16 × 16-pixel patches, converts each patch into a vector, and processes all the patches together using a vision transformer. Unlike a language model generating text, the vision encoder lets every patch attend to every other patch ([§1](#pixels-to-patches)).
-
-2. **The connector translates between vision and language.** SigLIP produces 196 patch vectors, each 768 numbers wide. The connector combines neighbouring patches in groups of four, reducing 196 vectors to 49, then projects them to the language model's hidden size, the 896 numbers in each of its word vectors ([§2](#the-connector)).
-
-3. **The language model processes the picture and text together.** The 49 image tokens become part of the input sequence, alongside the text tokens. The language model processes them using its existing transformer architecture. The architecture doesn't need to change, although training is still needed to make those image representations useful ([§7](#text-pictures-or-both)).
-
-That's the basic recipe behind the architecture we're exploring: a vision encoder, a connector, and a language model.
-
-#### What did the experiments show?
-
-I trained the connector in two stages:
-
-- **Stage 1 — Learn to describe pictures.** Given an image, generate a caption describing the shapes and their colors.
-- **Stage 2 — Learn to answer questions.** Given an image and a question such as "What color is the triangle?", produce the correct answer.
-
-I also trained comparison models without the captioning stage, with extra captions mixed into question-answer training, and with LoRA enabled on the language model.
-
-Here are the results that stood out:
-
-| Experiment | Result |
+| test | result |
 |---|---|
-| Captioning new pictures after stage 1 | **91/120** exactly correct |
-| Color questions on familiar color-shape combinations | **98/100** correct |
-| Same questions on combinations excluded from training | **76/100** correct |
-| Unseen combinations, without stage 1 | **40/100** correct |
-| With vs. without stage 1, repeated across five seeds | **Stage 1 won all five** |
+| captions exactly right on new pictures, after stage 1 | **91** of 120 |
+| "What color is the triangle?" on familiar color-shape pairs | **98** of 100 |
+| the same, on pairs never seen in training | **76** of 100 |
+| the same, trained on questions only, no captions first | **40** of 100 |
+| captions first beat questions only on unseen pairs, five paired seeds | **5 of 5**, by about 25 points |
 
-The most interesting result wasn't how well the model performed on familiar examples. All three trained versions did well there.
+1. **Learning to describe first helps on combinations never seen.** On familiar pairs, every recipe scored about the same; only held-out pairs told them apart. The model trained on questions alone leans on the colors a shape usually came in ([§6](#pairs-never-seen)).
+2. **The models use the picture, but a right answer isn't proof.** Removing or swapping the picture costs every trained model at least 59 points, yet a blank picture still gets 32 of 100 counting questions right by guessing ([§5](#is-it-looking)).
+3. **Training Qwen too, with LoRA, didn't help.** It gave no consistent gain on any question, learned to answer some questions with no picture at all, and moved its plain-text predictions slightly, where the frozen models' didn't move at all ([§4](#stage-two), [§5](#is-it-looking), [§7](#text-pictures-or-both)).
+4. **Fewer image tokens made the whole model cheaper.** Merging 196 patches into 49 tokens made the connector bigger, yet training ran three times faster and each picture's KV cache shrank by 75% ([§8](#what-an-image-costs)).
+<!-- PENDING (capacity run): one clause on whether the merge's caption gain survives a size-matched connector. -->
 
-It was what happened when I asked about **combinations the model had never seen during training**.
-
-For example, suppose training included red circles and blue triangles, but never a red triangle. Could the model still answer "What color is the triangle?" when shown a red triangle?
-
-This is a harder test because the model can't simply rely on the colors usually associated with each shape. It has to identify the shape and its color in the actual picture.
-
-The two-stage model scored 76/100 on these unseen combinations, compared with 40/100 for the model trained without the captioning stage.
-
-To check whether this was just a lucky training run, I repeated the comparison across five paired random seeds, using 300 fresh questions per evaluation. **Captioning first helped in all five runs**, with a median advantage of 25 percentage points ([§6](#five-seeds)).
-
-That doesn't prove the model has learned general visual reasoning. But it does suggest that learning to describe complete pictures before answering targeted questions helps it handle new combinations of familiar visual features.
-
-#### A few other things I learned
-
-**1. A correct answer doesn't necessarily mean the model looked at the picture.**
-
-When I replaced the real image with a blank one, the models could still answer some questions correctly. On counting questions, for example, they scored around 32/100 without useful visual information.
-
-That's why I also tested blank, incorrect, and missing images. Depending on the question and model, the real picture improved accuracy by 59–70 percentage points over the strongest control. Without those controls, it would be easy to mistake good guessing for actual visual understanding ([§5](#is-it-looking)).
-
-**2. The training recipe mattered more than making the language model trainable.**
-
-Adding LoRA to the language model didn't produce a measurable improvement beyond the variation across three seeds. Mixing additional captions into stage 2 helped with questions about the leftmost shape, but didn't improve the unseen color-shape binding test.
-
-For this small task, what the connector learned, and the order in which it learned it, mattered more than adding trainable parameters to the language model ([§4](#stage-two), [§6](#five-seeds)).
-
-**3. Pictures have a real compute and memory cost.**
-
-In this implementation, one image takes 49 positions in the language model's input sequence, compared with just a few tokens for a short text description.
-
-Without patch merging, the image would take 196 positions. Reducing that to 49 made training steps about 3× faster, and in this experiment it didn't cost accuracy: the merged version captioned 91 of 120 pictures right, against 76. It also cut the bf16 KV cache each image needs, calculated from the model's shape, from 2.30 MiB to 0.57 MiB ([§8](#what-an-image-costs)).
-
-This is one reason image token counts matter when deploying multimodal models at scale.
-
-#### The bigger picture
-
-This experiment explores just one way to connect vision and language: **convert an image into vectors and insert them directly into the language model's input sequence.**
-
-Other architectures use a fixed number of learned visual tokens, cross-attention between language and vision, or discrete image tokens. We'll compare those designs later in the post ([§9](#other-designs)).
-
-And an important limitation: these experiments use simple, generated pictures of colored shapes, not real photographs. The results help us understand how the architecture and training process behave under controlled conditions. They don't establish how well this model would perform on real-world vision tasks.
+**Limits.** These are simple generated shapes, not photographs, with a 0.5B model and three or five seeds per comparison, so the numbers show how the mechanism behaves, not how good a VLM this is. And this is one way to connect a picture; [§9](#other-designs) compares the others.
 
 ### Setup
 
@@ -130,9 +65,9 @@ uv sync && uv run demo07
 
 The code is in [`demos/d07_multimodal.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d07_multimodal.py), and the model itself is in [`vlm.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/vlm.py): the patch cutting, the connector, and the code that splices a picture into a sentence are all written out rather than imported, because this series builds the thing it's explaining. Every number this post quotes is printed by that program, and each block of its output, which I call a **receipt**, names the function that printed it.
 
-A warning about time: the demo *trains*, eleven times, and takes over **two and a half hours** on my Mac. Most of that is stage 2's three versions, each trained three times from different seeds, and one stage 1 run on 196 tokens per picture, which is three times slower than the rest. `uv run demo07 --figures` redraws the figures from the last run's saved scores in seconds (`--followup-figures` draws §6's five-seed figure). The five-seed check in §6 is a separate program, `uv run demo07 --followup`, which trains 20 more times and takes about three and a half hours more.
+A warning about time: the demo *trains*, eleven times, and takes over **two and a half hours** on my Mac. Most of that is stage 2's three versions, each trained three times from different seeds, and one stage 1 run on 196 tokens per picture, which is three times slower than the rest. `uv run demo07 --figures` redraws the figures from the last run's saved scores in seconds (`--followup-figures` draws §6's five-seed figure). Two checks are separate programs: §6's five-seed run, `uv run demo07 --followup`, trains 20 more times in about three and a half hours, and §8's connector-size check, `uv run demo07 --capacity`, trains 9 more times in about two and a half.
 
-Each training run starts from a fixed **seed**, the number that sets its random starting weights and the order it sees examples in, so it's repeatable on the same machine: in an earlier version, I stopped and restarted the demo partway through, and stage 1 and the first stage-2 run printed identical scores both times. Expect a different machine to move some scores by a point or two, since floating-point sums can be ordered differently.
+Each training run starts from a fixed **seed**, the number that sets its random starting weights and the order it sees examples in, so it's repeatable on the same machine: rerunning the demo prints the same scores. Expect a different machine to move some scores by a point or two, since floating-point sums can be ordered differently.
 
 **The three parts.**
 
@@ -148,14 +83,14 @@ The demo draws its own pictures: up to four colored shapes on a white square, ea
 
 - **Stage 1, describe.** Given the picture and `Caption:`, write every shape from left to right: `an orange circle, a yellow circle and a purple circle`.
 - **Stage 2, count.** `How many shapes are there?` is answered `three`.
-- **Stage 2, binding** (tying a color to its shape). `What color is the triangle?` is answered with that triangle's color. It's only asked when the picture has exactly one triangle, so there's always one right answer. (The picture in the figures has three circles, so it never gets this question.)
+- **Stage 2, binding.** `What color is the triangle?` is answered with that triangle's color. It's only asked when the picture has exactly one triangle, so there's always one right answer. (The picture in the figures has three circles, so it never gets this question.)
 - **Stage 2, leftmost.** `What color is the leftmost shape?` is answered `orange`.
 
 **Binding** is the name for tying two facts about one object together: it's not enough to see that there's a triangle and that there's purple somewhere, the model has to know the purple belongs to the triangle.
 
 Generated pictures are a deliberate choice, and the biggest limitation of this post. Every answer is exact, so a score of 76 of 100 means 76 answers were exactly right and nothing else. The test pictures are new ones drawn from a different random seed, so a score is a score on pictures the model has never seen. No dataset has to be downloaded or cleaned. The price is that these pictures are far easier than photographs, so the numbers here say how the mechanism behaves, not how good a VLM this is.
 
-**Three pairs are kept out of training.** Six colors and three shapes make 18 color-shape pairs. A red triangle, a green circle and a blue square never appear in any training picture, though red, green, blue, triangles, circles and squares all do. A second test set asks only about those three pairs. A new picture isn't much of a test if it's made of pairs the model trained on about a thousand times each, while a pair it has never seen is: to say "red" for a triangle, it has to read the color off the shape rather than remember which colors triangles come in. [§6](#pairs-never-seen) has that test.
+**Three pairs are kept out of training.** Six colors and three shapes make 18 color-shape pairs, and a red triangle, a green circle and a blue square never appear in any training picture, though every color and every shape does. A second test set asks only about those three pairs ([§6](#pairs-never-seen)).
 
 Here's the whole experiment on one page, the data, the training runs and the tests, before the sections go through each piece:
 
@@ -172,12 +107,12 @@ Skip to [the short version](#the-short-version) for the findings without the der
 3. [Stage 1: learning to describe](#stage-one)
 4. [Stage 2: learning to answer](#stage-two)
 5. [Is it actually looking?](#is-it-looking)
-6. [Pairs it never saw](#pairs-never-seen), and [five seeds, three checks](#five-seeds)
+6. [Pairs it never saw](#pairs-never-seen), and [five paired seeds](#five-seeds)
 7. [Text, a picture, or both](#text-pictures-or-both)
 8. [What an image costs](#what-an-image-costs)
 9. [Other ways to connect a picture](#other-designs)
 10. [What follows from all this](#what-follows)
-11. [Sidebar: the probe](#sidebar-the-probe)
+11. [Sidebar: is 90% ready?](#sidebar-is-it-ready)
 
 Plus [all notation](#appendix-all-notation) at the end.
 
@@ -440,7 +375,7 @@ Training happens in two stages, the recipe [LLaVA](https://arxiv.org/abs/2304.08
 
 **One training step**, for a batch of 16 pictures and their captions:
 
-1. **Encode.** The frozen encoder turns each picture into 196 vectors. (Since it never changes, the demo runs it once per picture at the start and keeps the result, so in practice this step is a lookup.)
+1. **Encode.** The frozen encoder turns each picture into 196 vectors. In practice this is a lookup: the encoder never changes, so its outputs were computed once at the start ([§1](#why-frozen)).
 2. **Connect.** The connector merges and projects them into 49 image tokens, each 896 wide.
 3. **Predict.** The frozen language model reads `Image:`, the 49 image tokens, `Caption:` and the caption, and at every caption position predicts the next token.
 4. **Score.** The loss compares those predictions with the real caption.
@@ -1114,19 +1049,20 @@ Building this one made the trade-offs concrete. With SigLIP and Qwen frozen and 
 
 Seven things, in the order the post found them.
 
-1. **A picture is just more vectors.** A vision encoder turns patches into vectors the way an embedding table turns tokens into vectors, and after that it's a transformer like any other. Nothing about the language model had to change to read a picture.
-2. **The connector is the whole adaptation.** 3.6 million trained parameters, about 0.7% of the language model, were enough to get captions exactly right 91 times in 120. The two big models stayed exactly as they were downloaded.
-3. **Familiar test pictures hide what training did.** On pairs seen in training, every trained version answered 94 to 99 binding questions in 100, with or without the captioning stage. Only pairs it had never seen told them apart: 76 with captions first, 40 without, and five paired seeds put stage 1 ahead in all five.
-4. **The failures were mostly binding failures.** On held-out pairs, 86% to 98% of wrong colors, depending on the model, were the color of another shape in the same picture. Only the model without stage 1 leaned toward the colors a shape usually came in, and a linear probe found part of the problem already in the vectors the language model reads.
-5. **LoRA was the smallest lever here.** It moved no score beyond the spread between seeds, and it was the only version that could answer with no picture at all. That's a statement about one-word answers on simple pictures, not about LoRA in general.
-6. **Controls are part of the result.** A blank picture still answered counting questions right 32 times in 100. Without that column, a 50% score would look like partial vision instead of a guess.
-7. **Tokens are the cost.** Every picture is a fixed number of positions in the sequence and the KV cache, and the field's designs are largely different answers to how few positions a picture can be squeezed into.
+1. **A picture becomes vectors, and the language model reads them like words.** The encoder turns patches into vectors much as an embedding table turns tokens into vectors, and the connector makes them Qwen's width. Qwen's architecture didn't change. But matching the width only lets Qwen take them in; training the connector is what made them mean something ([§1](#pixels-to-patches), [§2](#the-connector), [§7](#one-sequence)).
+2. **The connector was enough.** 3.56 million trained parameters, about 0.7% of the language model, got 91 of 120 captions exactly right and 94 to 99 of 100 binding questions on familiar pairs, with both big models exactly as downloaded ([§3](#stage-one), [§4](#stage-two)).
+3. **Familiar test pictures hid what the training order did.** On familiar pairs, QA only and Caption → QA scored 94 and 98. On pairs never seen in training, they scored 40 and 76, and Caption → QA came out ahead in all five paired seeds of the follow-up, by about 25 points ([§6](#five-seeds)).
+4. **The wrong answers show where QA only went wrong.** On held-out pairs, 86% to 98% of wrong colors were the color of another shape in the same picture. Only QA only leaned toward the colors a shape usually came in, and a linear probe found held-out colors already harder to read from the vectors Qwen receives ([§6](#where-wrong-answers-come-from)).
+5. **Accuracy needs controls.** The right picture beat the best of a blank picture, another scene's picture and no picture by at least 59 points, but a blank picture still got 32 of 100 counting questions right by guessing ([§5](#is-it-looking)).
+6. **Training Qwen with LoRA was the smallest lever.** It moved no score beyond the spread between seeds, learned to answer some questions with no picture at all, and was the only recipe whose plain-text predictions changed. That's a finding about one-word answers on simple pictures, not about LoRA in general ([§4](#stage-two), [§5](#is-it-looking), [§7](#what-happened-to-text)).
+7. **An image costs tokens, and tokens are the design space.** Merging 196 patches into 49 tokens made the connector bigger but training three times faster, and cut each picture's KV cache by 75%. The field's designs are largely different answers to how much of a picture to keep and how the language model gets at it ([§8](#what-an-image-costs), [§9](#other-designs)).
+<!-- PENDING (capacity run): add to point 7 whether the caption gain survives a size-matched connector. -->
 
-And three limits, stated plainly. The pictures are generated shapes, much easier than photographs, so the scores say how the mechanism behaves, not how good the model is. Everything is one small language model and one small encoder, trained for minutes. And the encoder was frozen throughout, so this post says nothing about what training it would add, which some large models do ([Llama 3](https://arxiv.org/abs/2407.21783) trains its image encoder, §7.2).
+And three limits, stated plainly. The pictures are generated shapes, much easier than photographs, so the scores say how the mechanism behaves, not how good the model is. Everything is one small language model and one small encoder, trained for minutes, with three or five seeds per comparison. And the encoder stayed frozen throughout, so this post says nothing about what training it would add, which some large models do ([Llama 3](https://arxiv.org/abs/2407.21783) trains its image encoder, §7.2).
 
 ---
 
-### 11. Sidebar: the probe {#sidebar-the-probe}
+### 11. Sidebar: is 90% ready? {#sidebar-is-it-ready}
 
 One question to close on, the kind this material gets asked, and what separates an answer that sounds right from one that is.
 
@@ -1136,13 +1072,13 @@ One question to close on, the kind this material gets asked, and what separates 
 
 A score alone can't answer this, and there are four things to check before it means anything.
 
-**1. Score it without the picture.** Ask every test question again with a blank image, with another item's photo, and with no image at all. If the blank-picture score is high, the model is answering from the question's wording, and the 90% is partly a measure of how predictable your questions are. This post's §5 does this for every number it reports, and real benchmarks fail it: MMStar found more than half of one benchmark's questions answerable with no picture at all. The useful number is the gap between the right picture and the best control, not the score.
+**1. Score it without the picture.** Ask every test question again with a blank image, with another item's photo, and with no image at all. If the blank-picture score is high, the model is answering from the question's wording, and the 90% is partly a measure of how predictable your questions are. This post's [§5](#is-it-looking) does this for every trained model, and real benchmarks fail it: MMStar found "more than 50% questions of ScienceQA" answerable by language models with no picture at all. The useful number is the gap between the right picture and the best control, not the score.
 
 **2. Break the score down by what the question needs.** One average hides everything. Here, three questions about the same pictures behaved completely differently: counting was learned almost however the model was trained, while binding a color to a shape held up on unfamiliar pairs only if the model had first learned to describe pictures. A model that's 90% overall can be near-perfect on "what color is it?" and near-chance on "which one is on the left?", and your users will find the second kind.
 
 **3. Test on combinations it never trained on.** If the test photos are new shots of the same products in the same settings, a model can score well by remembering which answers go with which products. Hold some combinations out of training on purpose, say a product never shown in one of its colors, and test on those. Here, binding scored 98 on familiar color-shape pairs and 76 on held-out ones, and 40 for a model trained without the captioning stage, which looked as good as the others on familiar pairs.
 
-**4. Read the failures before training more.** A VLM has three parts and a wrong answer can come from any of them: the encoder may not represent the detail, the connector may not pass it on, or the language model may not use it. More question-answer data trains the last two at best. Reading the wrong answers is how you tell which. In §6, most wrong colors were the color of another shape in the same picture, which looks like a failure to tie a color to its shape. But a linear probe showed part of it was already in the encoder's vectors, and mixing more captions into training didn't fix it. And research on much larger models ([*Vision language models are blind*](https://arxiv.org/abs/2407.06581)) finds the encoders often hold information the language model fails to use.
+**4. Read the failures before training more.** A VLM has three parts and a wrong answer can come from any of them: the encoder may not represent the detail, the connector may not pass it on, or the language model may not use it. More question-answer data trains the last two at best. Reading the wrong answers is how you tell which. In [§6](#where-wrong-answers-come-from), most wrong colors were the color of another shape in the same picture, which looks like a failure to tie a color to its shape. But a linear probe found held-out colors already harder to read from the encoder's vectors, and mixing more captions into training didn't fix it. And research on much larger models ([*Vision language models are blind*](https://arxiv.org/abs/2407.06581)) finds the encoders often hold information the language model fails to use.
 
 What the question is really testing is whether "90% on our test set" is being read as "it understands the photos", or as what it is: a number that means little until you know what the model scores without looking.
 
