@@ -1148,7 +1148,7 @@ What the question is really testing is whether "90% on our test set" is being re
 
 ### What's next {#whats-next}
 
-Post 8 is **RLHF**, reinforcement learning from human feedback. Every example this post trained on came with one right answer to copy: `three`, `red`, or a caption like `a red square`. The loss only had to measure how far the model's next word was from that answer. Most of what people want from a chat model doesn't come in that form. There's no single correct reply to "explain this error message", only replies that people judge better or worse. RLHF trains on those judgments instead. People compare two replies and pick the better one, a separate model learns to predict their pick as a score, and the language model is then trained to earn a higher score without drifting too far from what it was before. Post 8 builds each of those pieces at toy scale. QLoRA, which this post jumped ahead of, still comes later in the series.
+Post 8 is **RLHF**, reinforcement learning from human feedback. Every example this post trained on came with one right answer to copy: `three`, `red`, or a caption like `a red square`. The loss only had to measure how far the model's next word was from that answer. Most of what people want from a chat model doesn't come in that form. There's no single correct reply to "explain this error message", only replies that people judge better or worse. RLHF trains on those judgments instead. People compare two replies and pick the better one, a separate model learns to predict their pick as a score, and the language model is then trained to earn a higher score without drifting too far from what it was before. Post 8 builds each of those pieces at toy scale.
 
 ### Appendix: all notation {#appendix-all-notation}
 
