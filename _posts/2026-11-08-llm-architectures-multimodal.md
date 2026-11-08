@@ -10,7 +10,7 @@ description: >-
   picture, and with held-out color-shape pairs whether it binds what it sees.
 math: true
 pin: true
-published: false  # draft: not yet reviewed
+published: true
 ---
 
 ## The first post with a picture in it
