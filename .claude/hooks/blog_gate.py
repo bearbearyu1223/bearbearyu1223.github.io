@@ -1,36 +1,54 @@
 #!/usr/bin/env python3
 """PreToolUse gate for the LLM Architecture Refresh series: nothing goes live without Han.
 
+Lives in the blog repo, not in the research plugin, so disabling the plugin can't switch it off. It imports
+publish.py from the plugin (research-content-assistant) and fails closed: if that import fails, every push and
+every approval write is denied.
+
 Used by the blog repo AND the demo repo (llm-architectures-refresher/.claude/settings.json points here).
 
 - `git push` from the blog repo:
     * denied if the demo repo still has unpushed commits (push code first, so the post's links resolve);
-    * denied if a series post (or its figures) in the pushed commits is not approved on the post desk at
+    * denied if a series post (or its figures) in the pushed commits is not approved on the publish page at
       its current content, or has uncommitted edits (the approval would not match what gets pushed);
     * otherwise a permission prompt that says which posts go LIVE and which stay hidden.
 - `git push` from the demo repo: always a permission prompt listing the commits.
 - Force pushes, `published:` flips are not special-cased beyond the above: any push asks.
-- Agents may not write .desk/*/approvals.json or call the desk's approve/revoke endpoints.
+- Agents may not write .publish/*/approvals.json or call the publish page's approve/revoke endpoints.
 """
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "skills/post-desk/scripts"))
-import desk  # noqa: E402
-
-BLOG, DEMO = desk.BLOG.resolve(), desk.DEMO.resolve()
+PUBLISH_SCRIPTS = Path(os.environ.get(
+    "RESEARCH_PLUGIN_DIR", Path.home() / "Documents/GitHub/research-content-assistant/plugins/research"
+)) / "skills/publish/scripts"
+APPROVE_URL = re.compile(r"/_(desk|publish)/api/[\w-]+/\w+/(approve|revoke)")
 
 
 def decide(decision: str, reason: str) -> None:
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                              "permissionDecision": decision,
                                              "permissionDecisionReason": reason}}))
+    sys.exit(0)
+
+
+try:
+    sys.path.insert(0, str(PUBLISH_SCRIPTS))
+    import publish as desk  # noqa: E402
+    BLOG, DEMO = desk.BLOG.resolve(), desk.DEMO.resolve()
+except Exception as e:  # fail closed: without the publish state, nothing may be pushed or approved
+    _raw = sys.stdin.read()
+    if re.search(r"\bpush\b", _raw) or "approvals.json" in _raw or APPROVE_URL.search(_raw):
+        decide("deny", f"blog gate: can't load publish.py from {PUBLISH_SCRIPTS} ({type(e).__name__}: {e}), "
+                       "so pushes and approval writes are blocked. Restore the research-content-assistant "
+                       "repo or set RESEARCH_PLUGIN_DIR.")
     sys.exit(0)
 
 
@@ -89,8 +107,8 @@ def gate_blog_push(args: list[str]) -> None:
         committed = desk.front(desk.git(BLOG, "show", f"HEAD:{st['file']}"))
         (going_live if desk.visible(committed) else hidden).append(f"[{st['num']}] {slug}" + (f" ({h[:10]})" if h else ""))
     if problems:
-        decide("deny", "blog gate: " + "; ".join(problems) + ". Put it on the post desk "
-                       "(desk.py serve, /_desk/p/<slug>) and wait for Han's Approve; see `desk.py feedback <slug>`.")
+        decide("deny", "blog gate: " + "; ".join(problems) + ". Put it on the publish page "
+                       "(publish.py serve, /_publish/p/<slug>) and wait for Han's Approve; see `publish.py feedback <slug>`.")
     n = len(desk.unpushed(BLOG))
     msg = [f"Push {n} commit(s) to the blog. GitHub Pages deploys on push."]
     if going_live:
@@ -103,8 +121,8 @@ def gate_blog_push(args: list[str]) -> None:
 
 
 def gate_bash(cmd: str, cwd: str) -> None:
-    if "approvals.json" in cmd or re.search(r"/_desk/api/[\w-]+/\w+/(approve|revoke)", cmd):
-        decide("deny", "blog gate: approvals are written only by the post desk, when Han taps Approve.")
+    if "approvals.json" in cmd or APPROVE_URL.search(cmd):
+        decide("deny", "blog gate: approvals are written only by the publish page, when Han taps Approve.")
     for repo, args in push_targets(cmd, cwd):
         if repo == BLOG:
             gate_blog_push(args)
@@ -126,8 +144,8 @@ def main() -> None:
         gate_bash(inp.get("command", ""), ev.get("cwd") or str(BLOG))
     elif tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         path = str(inp.get("file_path") or inp.get("notebook_path") or "")
-        if path.endswith("approvals.json") and "/.desk/" in path:
-            decide("deny", "blog gate: approvals are written only by the post desk, when Han taps Approve.")
+        if path.endswith("approvals.json") and ("/.publish/" in path or "/.desk/" in path):
+            decide("deny", "blog gate: approvals are written only by the publish page, when Han taps Approve.")
     sys.exit(0)
 
 

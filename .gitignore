@@ -13,6 +13,6 @@ package-lock.json
 _sass/vendors
 assets/js/dist
 
-# post desk: approvals, feedback, preview build (local only)
-.desk/
+# publish page: approvals, feedback, preview build (local only)
+.publish/
 __pycache__/
