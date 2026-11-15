@@ -742,7 +742,7 @@ Here are six of the 200 held-out test problems, comparing the untrained model wi
   56 x 72    4032            "3952"   "4032"
 ```
 
-These examples show several different behaviors. For 35 × 11, 94 × 69 and 56 × 72, the model first gave the wrong number and later the correct one. Those are improvements in numerical accuracy, not formatting. 35 × 11 is also the problem whose samples in [§2](#a-checkable-task) had the right product inside a sentence.
+These examples show several different behaviors. For 35 × 11, 94 × 69 and 56 × 72, the model first gave the wrong number and later the correct one. Those are improvements in numerical accuracy, not formatting. 35 × 11 is also the problem whose sample in [§2](#a-checkable-task) had the right product inside a sentence.
 
 For 17 × 90, the model already had the correct product but put it in a sentence, which scored 0. Training changed the answer to the required format. For 26 × 83, both changed: the original sentence contained a wrong product, and the trained model returned the correct integer.
 
@@ -774,21 +774,21 @@ Here's the breakdown from [`what_changed`](https://github.com/bearbearyu1223/llm
 
 For seed 0, the model fixed 32 problems (27 arithmetic, 5 format) and broke 6, a net gain of 26. On a 200-problem test set that's 13.0 points, exactly the gain [§6](#training) reported. The other two real runs gained 43 and 39.
 
-But the more interesting part is where those gains came from. Across the three real runs, the model fixed 27, 42 and 39 problems where it had previously given a wrong integer, and only five per run that started from an answer that wasn't a lone integer. The untrained model's greedy answers were already lone integers 91.0% of the time, so there was some format left to fix, but most of the gain came from turning wrong numbers into right ones. That doesn't prove the model learned a general multiplication procedure. It does show the improvement wasn't simply the removal of extra words.
+Across the three real runs, the model fixed 27, 42 and 39 problems where it had previously given a wrong integer, and only five per run that started from an answer that wasn't a lone integer. The untrained model's greedy answers were already lone integers 91.0% of the time, so only 18 of the 200 had a format left to fix, but most of the gain came from turning wrong numbers into right ones. That doesn't prove the model learned a general multiplication procedure. It does show the improvement wasn't simply the removal of extra words.
 
 #### The shuffled-reward controls also improved
 
 The controls, whose rewards were shuffled within each group, fixed problems too. Control 0 fixed 24 arithmetic answers and broke 5, a net gain of 19; the other two controls gained 9 each. That happened even though their training signal no longer said which sampled answers were correct. The experiment doesn't establish why: as [§6](#training) listed, sampling, the KL term, the optimizer, or just moving the weights could all contribute.
 
-So GRPO's gains shouldn't be read against zero. The comparison that counts is between the real-reward runs and the shuffled-reward controls: the real runs gained 26 to 43 problems, the controls 9 to 19. Meaningful rewards produced larger improvements in these experiments, but the training loop on its own wasn't neutral.
+In problems rather than points, it's [§6](#training)'s comparison again: the real runs gained 26 to 43, the controls 9 to 19, so the loop on its own wasn't neutral.
 
 #### Did the model learn something new, or become more reliable?
 
 There's a second question hiding behind the accuracy gains. When an answer changes from wrong to right, has the model learned a new capability, or has it become more likely to choose an answer it could already generate? I'll call the second possibility **sharpening**: making an answer the model could already sample into its first choice under greedy decoding.
 
-[§2](#a-checkable-task) already suggested sharpening was possible. The untrained model got 125 of the 200 test problems wrong with greedy decoding, but when I sampled eight answers per problem, 44 of those 125 had at least one right answer among the eight. So the model could sometimes produce the right product even when its most likely answer was wrong, and since RL raises the probability of answers the model samples, GRPO could improve accuracy just by making those occasional right answers more likely.
+[§2](#a-checkable-task) already suggested sharpening was possible. The untrained model got 125 of the 200 test problems wrong with greedy decoding, but when I sampled eight answers per problem, 44 of those 125 had at least one right answer among the eight. So the model could sometimes produce the right product even when its most likely answer was wrong. Training never samples the test problems: GRPO raises the answers that beat their group on training problems, and as [§2](#a-checkable-task) said, that change reaches the 44 only through the weights all problems share. If it carries over, GRPO could improve accuracy just by making those occasional right answers more likely.
 
-To test this, every fixed problem is split into two groups: **inside the 44**, where at least one of the untrained model's eight samples had been right, and **outside the 44**, where none had. From [`what_changed`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
+To test this, every fixed problem is split into two sets: **inside the 44**, where at least one of the untrained model's eight samples had been right, and **outside the 44**, where none had. From [`what_changed`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
 <!-- RECEIPT: s6c -->
 ```text
@@ -806,7 +806,7 @@ To test this, every fixed problem is split into two groups: **inside the 44**, w
   a fix outside them is one none of its 8 samples showed.
 ```
 
-Most fixes, in every run, came from the 44 problems where the untrained model had already shown it could sometimes produce the right answer. Seed 0 fixed 22 of those 44, against 10 of the other 81 (125 minus 44). The 44 are only 35.2% of the 125 problems greedy got wrong, so they're disproportionately represented among the fixes. Much of the gain, with real rewards or shuffled, is consistent with sharpening: answers already within the model's sampled behavior becoming its first choice.
+Most fixes, in every run, came from the 44 problems where the untrained model had already shown it could sometimes produce the right answer. Seed 0 fixed 22 of those 44, against 10 of the other 81 (125 minus 44). The 44 are only 35.2% of the 125 problems greedy got wrong, but they supplied 22 of seed 0's 32 fixes. Much of the gain, with real rewards or shuffled, is consistent with sharpening: answers already within the model's sampled behavior becoming its first choice.
 
 #### What about the problems outside the 44?
 
@@ -818,7 +818,7 @@ $$P(\text{no right answer in 8 samples}) = (1 - 0.1)^8 = 0.9^8 \approx 0.43$$
 
 So even an answer the model writes one time in ten stays hidden from eight samples about 43% of the time. Not seeing a right answer isn't proof that the model couldn't write one, and some of the fixes outside the 44 were probably rare right answers the first sampling missed.
 
-The comparison with the controls still tells us something. Inside the 44, the real runs fixed 22 to 28 problems against 9 to 17 for the controls; outside, 10 to 20 against 4 to 7. The real rewards went with extra fixes in both groups. What this experiment can't tell us is how much of that is new arithmetic behavior and how much is better selection among answers the model could already write.
+The comparison with the controls still tells us something. Inside the 44, the real runs fixed 22 to 28 problems against 9 to 17 for the controls; outside, 10 to 20 against 4 to 7. The real rewards went with extra fixes in both sets. What this experiment can't tell us is how much of that is new arithmetic behavior and how much is better selection among answers the model could already write.
 
 #### What can we conclude?
 
@@ -826,7 +826,7 @@ The results support three conclusions. First, the model improved its numerical a
 
 Looking deeper would take more experiments: a larger sampling budget for the baseline, harder or longer multiplication problems, and checks on whether the gains carry over to other arithmetic.
 
-For this experiment, GRPO made the model more reliable at producing correct products. It didn't need to discover every right answer from scratch. For many problems it already had some chance of writing the right answer, and training turned some of those occasional successes into its first choice.
+For this experiment, GRPO made the model more reliable at producing correct products. For many test problems it already had some chance of writing the right answer, and training on other problems turned some of those occasional successes into its first choice.
 
 ---
 
@@ -834,29 +834,29 @@ For this experiment, GRPO made the model more reliable at producing correct prod
 
 In this experiment, deciding whether an answer is correct was easy: a program checks the product and returns a reward of 1 or 0. Most things we want from a language model aren't so easy to verify. Was the reply helpful? Did it follow the user's intent? Was the explanation clear, honest and appropriate? There's no simple function that answers all of these.
 
-This is where **reinforcement learning from human feedback (RLHF)** comes in. Instead of writing a program to score replies, we train a model to predict which replies people would prefer, then use that model's scores as rewards for reinforcement learning. The underlying idea is the loop we've built in this post, and the biggest difference is where the reward comes from. There's no demo for this section; it describes how the best-known recipe fits the pieces above.
+This is where **reinforcement learning from human feedback (RLHF)** comes in. Instead of writing a program to score replies, we train a model to predict which replies people would prefer, then use that model's scores as rewards for reinforcement learning. The underlying idea is the loop we've built in this post, with a learned model where our program was. There's no demo for this section; it describes how the best-known recipe fits the pieces above.
 
-#### The original RLHF recipe
+#### The InstructGPT recipe
 
-[InstructGPT](https://arxiv.org/abs/2203.02155) (Ouyang et al., 2022) set out an influential three-step recipe for training language models to follow instructions (§3.1). This section follows that original recipe; RLHF is the broader idea of learning from human preferences, and not every version of it follows these steps exactly.
+[InstructGPT](https://arxiv.org/abs/2203.02155) (Ouyang et al., 2022) made an influential three-step recipe widely known by applying it to training language models to follow instructions (§3.1). The method itself follows Ziegler et al. (2019) and Stiennon et al. (2020), who used it for stylistic text continuation and summarization. This section follows InstructGPT's version; RLHF is the broader idea of learning from human preferences, and not every version of it follows these steps exactly.
 
 **Step 1: supervised fine-tuning (SFT).** Human annotators write good replies to a collection of prompts, and the pretrained model is fine-tuned to imitate them. This is the same supervised learning as the earlier posts and [§1](#sequence-log-probability): given a target answer, raise its token log-probs. The result is an instruction-following model that RL starts from.
 
-**Step 2: a reward model from human preferences.** For each prompt, the model writes several candidate replies, and annotators rank them by which they prefer. InstructGPT ranked between 4 and 9 replies per prompt and turned each ranking into every pair it contains, a preferred reply and a less-preferred one. A separate **reward model**, a language model with one number as its output, learns to give the preferred replies higher scores. Unlike our multiplication check, which returns 0 or 1, it produces a learned score.
+**Step 2: a reward model from human preferences.** For each prompt, the model writes several candidate replies, and annotators rank them by which they prefer. InstructGPT ranked between 4 and 9 replies per prompt and turned each ranking into every pair it contains, a preferred reply and a less-preferred one: 6 pairs from a ranking of 4, 36 from a ranking of 9. A separate **reward model**, a language model with one number as its output, learns to give the preferred replies higher scores. Unlike our multiplication check, which returns 0 or 1, it produces a learned score.
 
-Write $$r_\phi(x, y)$$ for the reward model's score for reply $$y$$ to prompt $$x$$, where $$\phi$$ stands for its trainable weights; $$y_w$$ and $$y_l$$ for the preferred and less-preferred reply in a pair; and $$\sigma$$ for the sigmoid, which maps the difference between two scores to a value between 0 and 1, read as the probability that $$y_w$$ is the better reply. For each pair, the loss is
+Write $$r_\phi(x, y)$$ for the reward model's score for reply $$y$$ to prompt $$x$$ (InstructGPT's letters for what §3 called $$o$$ and $$q$$), where $$\phi$$ stands for its trainable weights; $$y_w$$ and $$y_l$$ for the preferred and less-preferred reply in a pair; and $$\sigma$$ for the sigmoid, which maps the difference between two scores to a value between 0 and 1, read as the probability that $$y_w$$ is the better reply. For each pair, the loss is
 
 $$-\log \sigma\big(r_\phi(x, y_w) - r_\phi(x, y_l)\big)$$
 
-averaged over pairs (§3.5, Equation 1). If the preferred reply already scores much higher, the loss is small. If the two score about the same, it's larger, and if the less-preferred reply scores higher, it's larger still. Training pushes the reward model to reproduce the ordering people gave. InstructGPT used a 6B reward model, even for its largest policy, because "175B RM training could be unstable".
+averaged over pairs (§3.5, Equation 1). If the preferred reply already scores much higher, the loss is small. If the two score about the same, it's larger, and if the less-preferred reply scores higher, it's larger still. Training pushes the reward model to reproduce the ordering people gave. InstructGPT used a 6B reward model, even for its largest, 175B policy, because it "saves a lot of compute" and "175B RM training could be unstable and thus was less suitable to be used as the value function during RL".
 
 **Step 3: optimize the policy with PPO.** Now the reward model replaces the multiplication check. The policy writes a reply, the reward model scores it, and PPO uses that score to update the policy. This is where [§3](#policy-gradients) to [§5](#one-update) come together: sampled replies, rewards, advantages, probability ratios and clipped updates.
 
-The reward model and the value model aren't the same thing. The reward model scores a finished reply by learned human preference. The **value model**, PPO's learned baseline from [§4](#groups-and-advantages), predicts the reward still to come from a point partway through a reply, which PPO uses to compute advantages. InstructGPT used both, initializing the value model from the reward model. The two choices are separate: GRPO drops the value model, not the learned reward model. DeepSeekMath, which introduced GRPO, trained it against a learned reward model, and it's this post that replaced the reward model with a program.
+The reward model and the value model aren't the same thing. The reward model scores a finished reply by learned human preference. The **value model**, PPO's learned baseline from [§4](#groups-and-advantages), predicts the reward still to come from a point partway through a reply, which PPO uses to compute advantages. InstructGPT used both, initializing the value model from the reward model. The two choices are separate: GRPO drops the value model, not the learned reward model. DeepSeekMath, which introduced GRPO, trained it against a learned reward model, and this post, like Prover-V1.5 and R1 in [§4](#groups-and-advantages), scores with a program instead.
 
 #### Why RLHF also needs a KL penalty
 
-Once the policy is optimized against a learned reward model, another problem appears: it can find ways to earn high scores while moving far from the behavior we originally wanted. InstructGPT guards against this partly by penalizing divergence from the SFT model. It adds "a per-token KL penalty from the SFT model at each token" to the reward (Equation 2), with $$\beta = 0.02$$. Write $$\pi_\theta$$ for the policy being trained, $$\pi^{SFT}$$ for the frozen SFT model, and $$D_{KL}$$ for the KL divergence of [§5](#one-update). In simplified form, the objective is
+Once the policy is optimized against a learned reward model, another problem appears: it can find ways to earn high scores while moving far from the behavior we originally wanted, which is called **reward hacking**. InstructGPT guards against this partly by penalizing divergence from the SFT model. It adds "a per-token KL penalty from the SFT model at each token" to the reward (Equation 2), with $$\beta = 0.02$$. Write $$\pi_\theta$$ for the policy being trained, $$\pi^{SFT}$$ for the frozen SFT model, and $$D_{KL}$$ for the KL divergence of [§5](#one-update). In simplified form, the objective is
 
 $$\mathbb{E}\big[r_\phi(x, y)\big] - \beta\, D_{KL}\big(\pi_\theta \,\Vert\, \pi^{SFT}\big)$$
 
@@ -864,28 +864,28 @@ where the average is over prompts and the replies the policy writes. In Instruct
 
 #### The biggest challenge: reward hacking
 
-The most important limitation of RLHF is that a learned reward model only approximates human preferences. It's a network trained on a finite set of comparisons, so it can learn useful patterns and still have blind spots. Optimize a policy hard against it, and the policy may find replies the reward model scores highly that aren't actually helpful or preferred by people. This is called **reward hacking**: the policy exploits weaknesses in the reward signal instead of improving the behavior the reward was meant to measure.
+The most important limitation of RLHF is that a learned reward model only approximates human preferences. It's a network trained on a finite set of comparisons, so it can learn useful patterns and still have blind spots. Optimize a policy hard against it, and the policy may find replies the reward model scores highly that aren't actually helpful or preferred by people. That's what reward hacking means: the policy exploits weaknesses in the reward signal instead of improving the behavior the reward was meant to measure.
 
-Our multiplication experiment is less exposed to this. The program computes the correct product itself, so a wrong number can't earn a 1 by sounding convincing. But programmatic rewards have limits too: they measure only what we've defined. Ours rejects `35 x 11 = 385`, one of [§2](#a-checkable-task)'s samples, even though the arithmetic is right, because the prompt asked for just the number. The model is rewarded for producing exactly the requested output, not for understanding multiplication in a broader sense. A reward function defines what the model is optimized to do, but it doesn't guarantee that the model learns everything we care about.
+Our multiplication experiment is less exposed to this. The program computes the correct product itself, so a wrong number can't earn a 1 by sounding convincing. But programmatic rewards have limits too: they measure only what we've defined. Ours rejects `35 x 11 = 385`, one of [§2](#a-checkable-task)'s samples, even though the arithmetic is right, because the prompt asked for just the number. The model is rewarded for producing exactly the requested output, not for understanding multiplication in a broader sense.
 
 #### Why DeepSeek-R1 uses verifiable rewards
 
 This distinction helps explain [DeepSeek-R1](https://arxiv.org/abs/2501.12948)'s approach. For reasoning tasks with checkable answers, it scores replies with rules instead of a learned reward model: one rule checks whether the final answer is right, and a separate format rule checks that the reasoning sits in the expected structure (§2.2). Its authors give reward hacking as the reason: "we abstain from applying neural reward models—whether outcome-based or process-based—to reasoning tasks", because "neural reward models are susceptible to reward hacking during large-scale reinforcement learning". R1 doesn't drop learned reward models from every stage, though: for general data, where no rule can check the answer, its later stage uses them (§3.1).
 
-R1's format rule isn't the same as this post's lone-integer check, but the two share the kind of judge that matters here, a program rather than a network. That gives two ways to get a reward:
+R1's format rule isn't the same as this post's lone-integer check, but the two share the kind of judge that matters here, a program rather than a network. Training against a program's check like this is called **RL with verifiable rewards** (RLVR), and it sits beside RLHF as the other way to get a reward:
 
 | Approach | Where the reward comes from | Example |
 | --- | --- | --- |
 | RLHF | a model trained on human preferences | helpfulness and reply quality |
 | RL with verifiable rewards (RLVR) | a program or rule-based check | math answers, code execution |
 
-Both can use the same policy-gradient methods. The key difference is how they decide which replies deserve higher rewards.
+Both can use the same policy-gradient methods.
 
 #### Connecting back to our experiment
 
-Our multiplication demo is a small example of RL with verifiable rewards. The program checks the final answer and its format, and GRPO uses the resulting rewards to update the model without ever showing it a target answer. After training, held-out greedy accuracy rose in every real run, and format-valid answers went from 91.0% to between 98.0% and 99.0% ([§6](#training)). As [§7](#what-it-learned) showed, most of the improvement wasn't cleaner output: the model became more likely to give the right number.
+Our multiplication demo is a small example of RL with verifiable rewards. The program checks the final answer and its format, and GRPO uses the resulting rewards to update the model without ever showing it a target answer. After training, held-out greedy accuracy rose in every real run, by more than in any shuffled-reward control, and format-valid answers went from 91.0% to between 98.0% and 99.0% ([§6](#training)). As [§7](#what-it-learned) showed, most of the improvement wasn't cleaner output: the model became more likely to give the right number.
 
-SFT learns from examples of what to say, and RL learns from feedback about what worked. For tasks with checkable answers, that feedback can come from a program; for tasks that need human judgment, it can come from a learned reward model. The machinery can look the same either way, and that's why the reward deserves as much attention as the algorithm. The optimization algorithm determines how the model learns from feedback; the reward function determines what that feedback means.
+SFT learns from examples of what to say, and RL learns from feedback about what worked. For tasks with checkable answers, that feedback can come from a program; for tasks that need human judgment, it can come from a learned reward model. The machinery can look the same either way, so it's the reward that decides what the feedback means, and it deserves as much attention as the algorithm.
 
 ---
 
@@ -928,7 +928,7 @@ The terms this post leans on; anything not listed is defined where it first appe
 | surrogate | the clipped term whose gradient is the policy-gradient step | §5 |
 | KL divergence | how different two probability distributions are; 0 when equal | per token, against the reference |
 | $$k_3$$, $$d_{i,t}$$ | Schulman's KL estimate $$e^{d} - d - 1$$, with $$d = \log \pi_{\text{ref}} - \log \pi_\theta$$ | §5 |
-| $$\beta$$ | the weight on the KL term | 0.04 |
+| $$\beta$$ | the weight on the KL term | 0.04 here, in the loss; InstructGPT's 0.02 in §8, in the reward |
 | reference model $$\pi_{\text{ref}}$$ | the frozen model the KL is measured against | the same network, adapters off |
 | seed | the number that sets a run's starting adapter weights and the answers it samples | three per kind of run, §6 |
 | control | the same training with each group's rewards shuffled among its answers, so a 1 no longer says which answer was right | §6, three seeds |
@@ -942,9 +942,9 @@ The terms this post leans on; anything not listed is defined where it first appe
 - Williams, [Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning](https://link.springer.com/article/10.1007/BF00992696) (Machine Learning 1992) — REINFORCE, §3's update. §4 gives $$\Delta w_{ij} = \alpha_{ij}(r - b_{ij})e_{ij}$$ with $$e_{ij} = \partial \ln g_i / \partial w_{ij}$$, the "characteristic eligibility", and a baseline "conditionally independent of" the output; Theorem 1 shows the expected update follows the gradient of the expected reward, and $$(r - b_{ij})\,\partial \ln g_i / \partial w_{ij}$$ "represents an unbiased estimate". It proves nothing about which baseline is best, saying its results "offer no basis for comparing various choices of reinforcement baseline" (p. 236). §8.3 reports that in experiments a reinforcement-comparison baseline speeds convergence, and that the baseline minimizing "the variance of the individual weight changes" is "not the mean reinforcement" (p. 245). (Page numbers are the journal's.)
 - Sutton and Barto, [Reinforcement Learning: An Introduction](http://incompleteideas.net/book/the-book-2nd.html) (2nd ed., MIT Press 2018) — §13.4, p. 329: "In general, the baseline leaves the expected value of the update unchanged, but it can have a large effect on its variance." Cited in §3.
 - Schulman et al., [Proximal Policy Optimization Algorithms](https://arxiv.org/abs/1707.06347) (2017) — PPO. Equation 1 is the policy-gradient estimator with an advantage, cited in §3; Equation 7 is the clipped objective of §5, with "say, ϵ = 0.2" and the clip described as "a lower bound (i.e., a pessimistic bound)" (§3).
-- Ouyang et al., [Training language models to follow instructions with human feedback](https://arxiv.org/abs/2203.02155) (2022) — InstructGPT, §8's recipe: the three steps (§3.1), a 6B reward model trained on rankings of 4 to 9 replies with the pairwise loss of Equation 1, because "175B RM training could be unstable" (§3.5), and PPO with "a per-token KL penalty from the SFT model at each token" in the reward (Equation 2, $$\beta = 0.02$$ in Appendix C.4).
+- Ouyang et al., [Training language models to follow instructions with human feedback](https://arxiv.org/abs/2203.02155) (2022) — InstructGPT, §8's recipe: the three steps (§3.1), a 6B reward model trained on rankings of 4 to 9 replies with the pairwise loss of Equation 1, because "175B RM training could be unstable" (§3.5), a value model initialized from the reward model ("The value function is initialized from the RM", §3.5), and PPO with "a per-token KL penalty from the SFT model at each token" in the reward (Equation 2, $$\beta = 0.02$$ in Appendix C.4).
 - Shao et al., [DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models](https://arxiv.org/abs/2402.03300) (2024) — introduces GRPO (§4.1), with a learned reward model. The value model is "a substantial memory and computational burden"; the group-normalized advantage (§4.1.2) and the objective of Equation 3 are what §4 and §5 implement; the KL is added "to the loss" rather than the reward, estimated as in Equation 4; training used $$\beta = 0.04$$, 64 answers per question, and "a single update following each exploration stage" (§4.2). Figure 7 is §2's majority-vote versus at-least-one result.
-- DeepSeek-AI, [DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning](https://arxiv.org/abs/2501.12948) (arXiv v2, 2025; published in Nature 645 as "DeepSeek-R1 incentivizes reasoning in LLMs through reinforcement learning"; section numbers here are arXiv v2's) — GRPO with rule-based rewards for accuracy and format (§2.2), a per-answer ratio, and the reason given in §8: "we abstain from applying neural reward models—whether outcome-based or process-based—to reasoning tasks", because they "are susceptible to reward hacking during large-scale reinforcement learning".
+- DeepSeek-AI, [DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning](https://arxiv.org/abs/2501.12948) (arXiv v2, 2025; published in Nature 645 as "DeepSeek-R1 incentivizes reasoning in LLMs through reinforcement learning"; section numbers here are arXiv v2's) — GRPO with rule-based rewards for accuracy and format (§2.2), a per-answer ratio, and the reason given in §8: "we abstain from applying neural reward models—whether outcome-based or process-based—to reasoning tasks", because they "are susceptible to reward hacking during large-scale reinforcement learning". Its later stage does use learned reward models for general data (§3.1, Model-based Rewards: "For general data, we resort to reward models to capture human preferences").
 - Schulman, [Approximating KL Divergence](http://joschu.net/blog/kl-approx.html) (2020) — the $$k_3$$ estimator of §5, $$(r - 1) - \log r$$ for a probability ratio $$r$$, unbiased and "guaranteed to be positive" (never negative).
 - Yu et al., [DAPO: An Open-Source LLM Reinforcement Learning System at Scale](https://arxiv.org/abs/2503.14476) (NeurIPS 2025) — dynamic sampling (§3.2), which keeps only groups with some right and some wrong answers because "A zero advantage results in zero policy gradients". Cited in §4 and §5.
 - Liu et al., [Understanding R1-Zero-Like Training: A Critical Perspective](https://arxiv.org/abs/2503.20783) (COLM 2025) — Dr. GRPO: the length bias of dividing by $$\lvert o_i \rvert$$ and the difficulty bias of dividing by the group's standard deviation (§3.1), and a version without either (§3.2). Cited in §4, §5 and §6.
