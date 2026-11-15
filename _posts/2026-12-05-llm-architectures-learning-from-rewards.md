@@ -1,14 +1,18 @@
 ---
 title: "LLM Architecture Refresh [8]: Learning from Rewards"
-date: 2026-12-05 09:00:00 -0800
+date: 2026-11-21 09:00:00 -0800
 categories: [LLM Architecture Refresh, Reinforcement Learning]
 tags: [reinforcement-learning, grpo, ppo, rlhf, policy-gradient, lora, qwen, pytorch]
 description: >-
-  Training a small language model from a score instead of an answer: it writes
-  several answers to a multiplication problem, a program checks each one, and
-  the model is pushed toward the answers that beat its other tries. GRPO built
-  by hand on Qwen2.5-0.5B-Instruct with LoRA, two seeds, a shuffled-reward
-  control, and where RLHF fits.
+  What happens when we train a language model using rewards instead of correct
+  answers? In this post, I implement Group Relative Policy Optimization (GRPO)
+  from scratch using Qwen2.5-0.5B-Instruct and LoRA. The model generates
+  multiple solutions to multiplication problems, receives rewards from a
+  programmatic verifier, and learns by comparing its attempts. I train it from
+  three random seeds, and three more times with each group's rewards shuffled,
+  to separate what the reward taught from what the training loop does on its
+  own, and look at how RLHF runs the same loop with a learned judge in place of
+  a program.
 math: true
 pin: true
 published: false
@@ -16,31 +20,32 @@ published: false
 
 ## The first post without an answer key
 
-Seven posts in, every model in this series has learned by copying.
+For the first seven posts in this series, whenever I trained a model, I showed it what the right answer looked like. This time, I want to try something different: tell the model only whether its answer is correct, and let it figure out how to improve.
 
-[Post 1](/posts/llm-architectures-attention-and-rope/) took a transformer block apart and put a cost on every piece. [Post 2](/posts/llm-architectures-kv-cache/) cached keys and values so a model stops redoing work for every new token. [Post 3](/posts/llm-architectures-flash-attention/) computed attention in tiles to move fewer bytes. [Post 4](/posts/llm-architectures-quantization/) stored each weight in fewer bits. [Post 5](/posts/llm-architectures-mixture-of-experts/) built a model that runs only some of its parameters for each token. [Post 6](/posts/llm-architectures-lora/) fine-tuned a model by training a small adapter beside its frozen weights. [Post 7](/posts/llm-architectures-multimodal/) taught a language model to answer questions about pictures by training a small connector between two frozen models.
+Most of those posts didn't train anything. Posts [1](/posts/llm-architectures-attention-and-rope/) to [5](/posts/llm-architectures-mixture-of-experts/) were about running a model and what that costs: a transformer block taken apart, [keys and values cached](/posts/llm-architectures-kv-cache/), [attention computed in tiles](/posts/llm-architectures-flash-attention/), [weights stored in fewer bits](/posts/llm-architectures-quantization/), and a model that runs only some of its parameters for each token. [Post 6](/posts/llm-architectures-lora/) and [post 7](/posts/llm-architectures-multimodal/) did train something, a small adapter beside a frozen model and a small connector between two frozen ones, and both trained it the same way. Every example came with a target, a fact for post 6, a caption like `a red square` or the answer `three` to "How many shapes are there?" for post 7, and the loss measured how far the model's next token was from it. That's **supervised learning**: learning from target outputs someone wrote down.
 
-Whenever one of those posts trained something, it had a right answer to copy: a fact for post 6, a caption or `three` for post 7. The loss measured how far the model's next token was from that answer, and training pulled it closer.
+For a lot of tasks, though, it's easier to check an answer than to write down the one right way to reach it. A program can tell whether a product came out right, whether code passes its tests, or whether a meeting ended up on the calendar, without anyone demonstrating the steps. **Reinforcement learning** (RL) learns from that kind of check. The model acts, gets a score for the outcome, and training pushes it toward whatever scored well, with no target to copy.
 
-For a lot of tasks, though, it's easier to check an answer than to write down the one right way to reach it. A program can tell whether a product came out right, whether code passes its tests, or whether a meeting ended up on the calendar, without anyone demonstrating the steps. **Reinforcement learning** (RL) trains on that check. The model tries several answers to the same question, a program scores each one, and the model is pushed toward the answers that scored better than its other tries.
+This post builds one version of that loop by hand, on a laptop, with a task small enough to watch: two-digit multiplication. The model writes several answers to each question, a program scores each one 1 if it's right and 0 if it isn't, and the model is pushed toward the answers that beat its other tries. I also train it from three random seeds, and three more times with each group's rewards shuffled among its answers, because seeing accuracy go up isn't enough. I want to know whether the model is actually learning from the reward.
 
-This post builds that loop by hand, on a laptop, with a task small enough to watch: two-digit multiplication. The question it tests is whether a score of 1 or 0, with no answer to copy, is enough to make a small model better at problems it never trained on. And if it is, what exactly did the score teach?
+That leaves two questions. Can a score of 1 or 0, with no answer to copy, make a small model better at problems it never trained on? And if it can, how do we tell what the score actually taught?
 
 ### The short version {#the-short-version}
 
-Can a model get better at a task from nothing but a right-or-wrong score?
+Can a small language model learn from a right-or-wrong score, without ever being shown the right answer?
 
-I took **Qwen2.5-0.5B-Instruct**, a small chat model, and asked it to multiply two-digit numbers. Out of the box it gets 37.5% of 200 test problems right ([§2](#a-checkable-task)). Then I trained it with **GRPO** (Group Relative Policy Optimization), the method DeepSeek used for its math and reasoning models, written out in about twenty lines rather than imported. For each question the model writes eight answers, a program gives each a 1 if it's the right integer and a 0 otherwise, and each answer is compared with its own group's average: the ones above it are made more likely, the ones below less ([§4](#groups-and-advantages), [§5](#one-update)). Only a LoRA adapter trains, a small set of weights beside the frozen ones, as in [post 6](/posts/llm-architectures-lora/).
+I took **Qwen2.5-0.5B-Instruct**, a small chat model, and asked it to multiply two-digit numbers. Out of the box it gets 37.5% of 200 test problems right ([§2](#a-checkable-task)). Then I trained it with **GRPO** (Group Relative Policy Optimization), the method DeepSeek used for its math and reasoning models, with the sampling, the scoring and the update written out by hand rather than imported from an RL library. For each question the model writes eight answers, a program gives each a 1 if it's the right integer and a 0 otherwise, and each answer is compared with its own group's average: the ones above it are made more likely, the ones below less ([§4](#groups-and-advantages), [§5](#one-update)). Only a LoRA adapter trains, a small set of weights beside the frozen ones, as in [post 6](/posts/llm-architectures-lora/).
 
-After 60 steps, two runs from different random starting points (seeds) got **50.5%** and **59.0%** of the same 200 unseen problems right. A control run that trained identically, except that each batch's rewards were shuffled among its answers, fell to **33.5%** ([§6](#training)). The two seeds landed far apart, so the honest summary is "it helped, by somewhere in that range", and two runs can't say more precisely.
+After 60 steps, three runs with different random **seeds**, the number that sets a run's starting adapter weights and the answers it samples, got **50.5%**, **59.0%** and **57.0%** of the same 200 unseen problems right. To check that the reward was what taught it, I also ran a control three times. It trained the same way, except that each group's rewards were shuffled among its eight answers, so a 1 no longer said which answer had earned it. The controls improved too, to **47.0%**, **42.0%** and **42.0%**, but by less: the real runs gained between 13.0 and 21.5 points, the controls between 4.5 and 9.5, and the weakest real run beat the best control ([§6](#training)). So the training loop on its own gains a few points, and what the reward said about which answers were right is what adds the rest.
 
-A few other things became clearer along the way:
+The same runs also showed where learning from a group's scores runs thin:
 
-- **RL can only reinforce what the model already sometimes does.** The untrained model got 58.5% of the test problems right in at least one of eight tries, against 37.5% for its single best guess. That gap is the raw material ([§2](#a-checkable-task)).
+- **The model has to find a right answer first.** The untrained model got 58.5% of the test problems right in at least one of eight tries, against 37.5% for its single best guess. A group with a right answer in it is what gives training something to push toward. An update changes weights that every problem shares, though, so its effect isn't limited to those problems ([§2](#a-checkable-task), [§7](#what-it-learned)).
 - **Most groups teach nothing.** When all eight answers are right, or all are wrong, every answer scores exactly the group average and gets no push at all. Before training, that was 61.1% of groups of eight ([§4](#groups-and-advantages)).
-- **The gain was mostly arithmetic, not format.** Of the problems the first seed newly got right, 27 had been a wrong number and only 5 had been something other than a lone number ([§7](#what-it-learned)).
-- **The training reward was a poor guide.** Logged as ten-step averages, it was noisy, and for the first seed it hardly moved, from 0.498 to 0.537, while the same run's test score rose 13.0 points. The curve that's easiest to watch was the least useful one here ([§6](#training)).
-- **RLHF is the same loop with a different judge.** In RLHF, reinforcement learning from human feedback, the judge is a model trained on which replies people preferred, and DeepSeek-R1's authors explain why they'd rather trust a program ([§8](#where-rlhf-fits)).
+- **The training reward was a poor guide.** Logged as ten-step averages, seed 0's hardly moved after the first ten steps, from 0.498 to 0.537 with a dip on the way, while its test score rose 13.0 points ([§6](#training)).
+- **The seeds landed far apart.** The three runs differ only in their seed, and gained 13.0, 21.5 and 19.5 points. Three runs give a range, not an error bar. They can say it helped, and by more than the control, but not by exactly how much ([§6](#training)).
+
+What improved was mostly the numbers. Of the problems seed 0 newly got right, 27 had been a wrong number and only 5 had been something other than a lone number, and 22 of those 32 were problems one of the untrained model's eight samples had already got right ([§7](#what-it-learned)). That's mostly the model giving, as its first answer, a product it could already sometimes write; it doesn't show the model learned a general way to multiply. RLHF, reinforcement learning from human feedback, puts a model trained on people's preferences where this post's program is. It's a bigger recipe than this loop, with fine-tuning and a learned reward model before the RL step, and the best-known version trains with PPO rather than groups. DeepSeek-R1's authors explain why they'd rather trust a program wherever one can check the answer ([§8](#where-rlhf-fits)).
 
 None of this makes a good calculator, and it isn't meant to. Multiplication is here because the reward is unambiguous and cheap, so every number below can be checked.
 
@@ -56,9 +61,9 @@ uv sync && uv run demo08
 
 The code is in [`demos/d08_rewards.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). There's no RL library in it: the sampling, the reward, the group comparison and the loss are all written out, and the loss itself is one function, [`grpo_objective`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). The adapters are post 6's [`lora.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/lora.py). Every number this post quotes is printed by that program, and each block of its output, which I call a **receipt**, names the function that printed it.
 
-The demo trains three times, and the whole run takes about half an hour on my Mac. `uv run demo08 --quick` runs every section at toy size, to check that it works before committing the time.
+The demo trains six times, and on my Mac the whole run took about an hour by the clock. That's a rough figure rather than a receipt, since the program doesn't print its own run time. `uv run demo08 --quick` runs every section at toy size, to check that it works before committing the time.
 
-**The model.** [Qwen2.5-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct) is the instruction-tuned version of the Qwen2.5-0.5B that posts [4](/posts/llm-architectures-quantization/), [6](/posts/llm-architectures-lora/) and [7](/posts/llm-architectures-multimodal/) used ([the report](https://arxiv.org/abs/2412.15115)). Instruction-tuned means it was trained further, after pretraining, to answer questions in a chat format, which is what this task needs: a base model asked "What is 23 × 47?" is as likely to continue the text as to answer it. It's small enough to train on a laptop in fp32, and the frozen copy that training compares it against costs no extra memory ([§5](#one-update)). fp32 means four bytes per number, as in posts 6 and 7.
+**The model.** [Qwen2.5-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct) is the instruction-tuned version of the Qwen2.5-0.5B that posts [4](/posts/llm-architectures-quantization/), [6](/posts/llm-architectures-lora/) and [7](/posts/llm-architectures-multimodal/) used ([the report](https://arxiv.org/abs/2412.15115)). Instruction-tuned means it was trained further, after pretraining, to answer questions in a chat format, which is what this task needs: a base model asked "What is 23 × 47?" is as likely to continue the text as to answer it. It's small enough to train on a laptop in fp32, four bytes per number as in posts 6 and 7, and the frozen copy of the starting model that training keeps it close to costs no extra memory ([§5](#one-update)).
 
 **The task.** Each question is "What is *a* × *b*? Answer with just the number.", with *a* and *b* between 10 and 99. The 256 training problems and 200 test problems don't overlap: if 23 × 47 is in training, neither 23 × 47 nor 47 × 23 is in the test set. The demo's opening lines, from [`main`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
@@ -74,7 +79,7 @@ The demo trains three times, and the whole run takes about half an hour on my Ma
 
 The **reward** is the score an answer gets: 1 if the answer is the right integer, 0 for anything else. **Format-valid** means the answer is a lone integer, so the program can read a number out of it at all. `1081`, `1,081` and `1081.` are format-valid; `= 1081` and `23 x 47 = 1081` aren't, so they score 0 even when the number in them is right. That's a deliberate choice, and [§7](#what-it-learned) shows what it did.
 
-**Seeds.** Each training run starts from a fixed **seed**, the number that sets its random starting adapter weights and the answers it happens to sample, so rerunning the demo on the same machine prints the same results. A different machine can sum floating-point numbers in a different order, and sampling turns tiny differences into different answers, so expect different scores there. That's why [§6](#training) trains with two seeds and reports both.
+**Seeds.** Each training run starts from a fixed **seed**, the number that sets its random starting adapter weights and the answers it happens to sample, so rerunning the demo on the same machine prints the same results. A different machine can sum floating-point numbers in a different order, and sampling turns tiny differences into different answers, so expect different scores there. That's why [§6](#training) trains with three seeds and reports all three.
 
 ### Table of Contents
 
@@ -89,19 +94,19 @@ Skip to [the short version](#the-short-version) for the findings without the der
 7. [What it actually learned](#what-it-learned)
 8. [Where RLHF fits](#where-rlhf-fits)
 
-Then [a sidebar of questions](#sidebar), [what's next](#whats-next), and [all notation](#appendix-all-notation) at the end.
+Then [what's next](#whats-next) and [all notation](#appendix-all-notation) at the end.
 
 ---
 
 ### 1. What next-token training measures {#sequence-log-probability}
 
-Before training on a score, it helps to be exact about what training on an answer does, because RL ends up changing the same number.
+Before training on a score, I want to be exact about what training on an answer does. Supervised learning and RL both work by changing the probabilities a model gives the tokens of an answer. They differ in where that answer comes from, and in what decides whether it should become more likely or less likely.
 
 A language model doesn't produce an answer in one go. It produces one **token** at a time, and at each step it gives every token in its vocabulary a probability of coming next. A **token's log-probability** (log-prob) is the natural logarithm of the probability the model gave that token, given everything before it. Probabilities are between 0 and 1, so log-probs are 0 or negative: a log-prob of 0 means the model was certain, and the more negative, the more surprised it was.
 
-The probability of a whole answer is the product of its tokens' probabilities, because each token is chosen given the ones before it. Logarithms turn a product into a sum, so the **sequence log-prob** of an answer is the sum of its tokens' log-probs. That sum is the number this post is about.
+The probability of a whole answer is the product of its tokens' probabilities, because each token is chosen given the question and the tokens before it. Logarithms turn a product into a sum, so the **sequence log-prob** of an answer is the sum of its tokens' log-probs. It's always tied to the question: it says how likely the model is to write that answer, given that question.
 
-To score an answer, the model is shown the question and the answer together and asked, at every answer position, how likely the real next token was. That's **teacher forcing**, the same trick [post 7](/posts/llm-architectures-multimodal/#stage-one) used: one forward pass scores the whole answer, because each position only sees the positions before it. The question is context, so its positions are **masked out**: they're read but not scored.
+To score an answer, the model is shown the question and the answer together and asked, at every answer position, how likely the real next token was. That's **teacher forcing**, the same trick [post 7](/posts/llm-architectures-multimodal/#stage-one) used: one forward pass scores the whole answer, because each position only sees the positions before it. The question is context, so its positions are **masked out** of the loss. The model still reads them, and every answer token's probability depends on them, but they aren't scored themselves.
 
 Here's Qwen scoring the right answer to 23 × 47, from [`sequence_logprob`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
@@ -123,7 +128,7 @@ Here's Qwen scoring the right answer to 23 × 47, from [`sequence_logprob`](http
 
 The question becomes 45 tokens once the **chat template** wraps it in the markers the instruct model was trained with, and none of them are scored. Qwen's tokenizer writes numbers one digit per token, so `1081` is four tokens, and the fifth is `<|im_end|>`, the token that ends a chat turn. It's scored like any other, because stopping is part of the answer: a model that wrote `1081` and kept going would be wrong.
 
-The model is confident about every token but one. It gives the third digit, `8`, a probability of only 0.0572, and that one token costs most of the answer's log-prob. Adding up the five log-probs:
+The model is confident about every token but one. It gives the third digit, `8`, a probability of only 0.0572, and that one token costs most of the answer's log-prob. Adding up the five log-probs, also from [`sequence_logprob`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
 <!-- RECEIPT: s1b -->
 ```text
@@ -134,21 +139,47 @@ The model is confident about every token but one. It gives the third digit, `8`,
   same, for the wrong answer "1091"  -7.1006
 ```
 
-The sum is −3.2286, and $$e^{-3.2286}$$ is 0.0396, the probability the model gives this exact answer, digit by digit and then stopping. The **cross-entropy** loss that supervised training minimizes is the same sum turned around: the mean of the negative log-probs over the answer tokens, here 0.6457 ([post 6](/posts/llm-architectures-lora/#loss-and-exact-match) walked through it). For comparison, the wrong answer `1091` has a sequence log-prob of −7.1006, so the model already considers it much less likely.
+The sum is −3.2286, and $$e^{-3.2286}$$ is 0.0396: given this question, the probability that the model writes exactly these five tokens in this order. That isn't the chance it gets 23 × 47 right. `1,081` would also score as right, and it's a different sequence of tokens with its own probability. The **cross-entropy** loss that supervised training minimizes is the same sum turned around: the mean of the negative log-probs over the answer tokens, here 0.6457 ([post 6](/posts/llm-architectures-lora/#loss-and-exact-match) walked through it, calling it simply the loss). For comparison, the wrong answer `1091` has a sequence log-prob of −7.1006, so the model already considers it much less likely.
 
-**Supervised fine-tuning** (SFT), what every earlier post did, pushes that sum up for an answer someone wrote. Its gradient, the signal that says which way to nudge each weight, only exists once you hand it the answer's text: it's the gradient of `1081`'s log-prob, and without `1081` there's nothing to differentiate.
+**Supervised fine-tuning** (SFT), the kind of training posts 6 and 7 did, lowers that cross-entropy for an answer someone wrote, which raises the log-probs of its tokens. Its gradient, the signal that says which way to nudge each weight, only exists once you hand it the answer's text: it's the gradient of `1081`'s log-prob, and without `1081` there's nothing to differentiate.
 
-Reinforcement learning keeps the same sum and changes where the answer comes from. The model writes its own answers, a program scores them, and training pushes each answer's sequence log-prob up or down depending on how it scored. Nobody has to supply `1081`, only a way to check it. The rest of the post is about how "depending on how it scored" becomes a gradient.
+Reinforcement learning changes where the answer comes from. The model writes its own answers, a program scores them, and training makes each answer more likely or less likely depending on how its score compares with the model's other answers to the same question. It still works through each answer's token log-probs, but weighted by that comparison, so nobody has to supply `1081`, only a way to check it. The loss isn't SFT's cross-entropy, and it isn't the raw sequence log-prob either. [§3](#policy-gradients) derives the basic weighting, and the GRPO loss in [§5](#one-update) adds a limit on how far one batch can move a token's probability and a penalty for drifting from the starting model.
+
+Supervised learning tells the model what to say. Reinforcement learning lets it try, checks what it said, and uses that to change what it's likely to say next.
+
+![Two panels side by side for the question 23 × 47. Supervised fine-tuning: the given answer 1081, then raise the log-probs of its tokens. GRPO: the model samples its own answers such as 1081 and 1091, a program scores them 1 and 0, their advantages are plus and minus, and 1081's log-probs go up while 1091's go down. Both panels end in one shared box, the model's token probabilities](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/sft-vs-grpo-light.png){: .light width="1000" height="644" }
+![Two panels side by side for the question 23 × 47. Supervised fine-tuning: the given answer 1081, then raise the log-probs of its tokens. GRPO: the model samples its own answers such as 1081 and 1091, a program scores them 1 and 0, their advantages are plus and minus, and 1081's log-probs go up while 1091's go down. Both panels end in one shared box, the model's token probabilities](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/sft-vs-grpo-dark.png){: .dark width="1000" height="644" }
+_Both methods update token probabilities; they differ in where the training signal comes from._
 
 ---
 
 ### 2. A task with a checkable answer {#a-checkable-task}
 
-RL needs two things from a task: answers the model will sometimes get right, and a way to tell which ones those are. Two-digit multiplication has both. The check is one line of arithmetic, and a 0.5B model is right often enough to have something to build on, and wrong often enough to have room to improve.
+Before training anything, there's a question worth asking: can the model already produce correct answers, even when its first guess is wrong?
 
-There are two ways to get an answer out of the model. **Greedy** decoding takes the most likely token at every step, so it always gives the same answer, the model's single best guess. **Sampling** draws each token at random according to the model's probabilities, so asking eight times can give eight different answers. How spread out those draws are is set by the **temperature** $$T$$. At $$T = 1$$, used throughout this post, the model's probabilities are used exactly as they are. The demo's sampler applies nothing else, no top-k or top-p cutoff, so the probabilities GRPO computes later are exactly the ones the answers were drawn from.
+It matters because GRPO learns by comparing several answers to the same question. If the model always writes the same answer, or every answer gets the same reward, there's little useful feedback to learn from.
 
-How good is the model before any training? From [`the_baseline`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py), on the 200 test problems, greedy once and sampled eight times each:
+I chose two-digit multiplication for this experiment. It's simple enough to check with one line of code, but hard enough that a 0.5B model makes mistakes. That gives us both ingredients RL needs: answers the model sometimes gets right, and plenty of room to improve.
+
+#### Greedy decoding and sampling
+
+There are two ways to get an answer out of the model in this post.
+
+**Greedy** decoding takes the most likely token at every step. Given the same prompt and model, it writes the same answer every time, assuming the computation itself runs the same way each time. That answer is the model's single best guess.
+
+**Sampling** draws each next token at random according to the model's probabilities. Asking the same question eight times can give eight different answers, including ones greedy decoding would never pick.
+
+How random the draws are is set by the **temperature** $$T$$:
+
+- At $$T = 1$$, tokens are drawn from the model's probabilities exactly as they are.
+- At $$T < 1$$, the probabilities get sharper, so the likely tokens are favored even more.
+- At $$T > 1$$, they get flatter, giving unlikely tokens a better chance.
+
+This post uses $$T = 1$$ throughout, with no top-k or top-p filtering (common tweaks that drop unlikely tokens before drawing). That keeps the answers drawn from exactly the probabilities GRPO computes later.
+
+#### How good is the model before training?
+
+I tested the untrained model on the 200 test problems two ways: one greedy answer per problem, and eight sampled answers per problem. From [`the_baseline`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
 <!-- RECEIPT: s2a -->
 ```text
@@ -161,29 +192,57 @@ How good is the model before any training? From [`the_baseline`](https://github.
     of the problems greedy gets wrong 44/125 (35.2%)
 ```
 
-Greedy gets 37.5% right, and 91.0% of its answers are lone integers, so the instruct model mostly does as it's told about format. Sampled answers are a little worse on both counts, 34.3% and 86.8%, which is what you'd expect from drawing less likely tokens some of the time.
+Greedy gets 37.5% right, and 91.0% of its answers are lone integers, so the instruct model mostly does as it's told about format. Sampled answers are a little worse on both counts, 34.3% and 86.8%. That makes sense: sampling sometimes picks a less likely token instead of the most likely one.
 
-**117 of the 200 problems were answered right in at least one of the eight samples**, and of the 125 problems greedy gets wrong, 44 had a right answer somewhere among the samples. The model can produce the right product for many problems it doesn't usually give. That's what RL works with: it can only raise the probability of answers the model actually writes. A problem the model never gets right in any sample gives it nothing to reinforce. DeepSeekMath's authors saw the same limit at scale: RL improved how often a majority vote over $$K$$ samples was right, but not how often at least one of $$K$$ samples was ([Shao et al., Figure 7](https://arxiv.org/abs/2402.03300)).
+But counting single answers misses something important. What if the model gets eight tries at each problem?
 
-The sampled answers that weren't lone integers show the other way to score 0, from [`the_baseline`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
+**117 of the 200 problems (58.5%) were answered right in at least one of the eight samples.** That share, problems with at least one right answer in eight tries, is often called **pass@8**. And of the 125 problems greedy gets wrong, 44 (35.2%) had a right answer somewhere among the samples.
+
+![Two rows of horizontal bars for the untrained model on 200 test problems. Top: one greedy guess is right on 37.5%, and at least one of eight samples is right on 58.5%, a difference of 21 points. Bottom: of the 125 problems the greedy guess gets wrong, 44 had a right answer in some sample and 81 had none in any of the eight](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/baseline-reach-light.png){: .light width="1000" height="547" }
+![Two rows of horizontal bars for the untrained model on 200 test problems. Top: one greedy guess is right on 37.5%, and at least one of eight samples is right on 58.5%, a difference of 21 points. Bottom: of the 125 problems the greedy guess gets wrong, 44 had a right answer in some sample and 81 had none in any of the eight](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/baseline-reach-dark.png){: .dark width="1000" height="547" }
+_One greedy guess gets 37.5% of the 200 test problems right; at least one of eight samples is right on 58.5%. Of the 125 problems greedy gets wrong, 44 had a right answer among the samples._
+
+In other words, the model can sometimes write the right product even for problems its best guess gets wrong. That's the opportunity RL can exploit. GRPO doesn't need us to supply the right answer as a training target. It needs the model to write answers that get different rewards, so it can learn which ones to favor.
+
+Pass@8 and greedy accuracy are different measurements, though. Greedy accuracy is one try per problem. Pass@8 is eight tries, with a program that already knows the answer picking out the right one, which nobody gets to do when the model is actually used. So the 21-point gap (58.5 minus 37.5) says there are right answers for training to reinforce. It doesn't forecast how far greedy accuracy will rise: in [§6](#training) the three training runs gained 13.0, 21.5 and 19.5 points. And the demo doesn't sample eight answers per problem after training, so it can't say whether pass@8 itself moved.
+
+The 44 tell us more than the 117. They're the problems where the model's default answer is wrong but a right one is within reach, and they set up a question for later: did training mostly make those 44 right, or did it also fix problems where none of the eight samples had been right? [§7](#what-it-learned) splits the fixed problems along exactly that line.
+
+There's an important limitation, though. If all eight answers to a problem are wrong, they all get a reward of 0. Each one scores exactly the group's average, so with advantages measured against the group, that group gives no learning signal. The same happens if all eight are right. [§4](#groups-and-advantages) counts how often that happens.
+
+This doesn't mean RL can never learn a problem it starts out getting wrong. An update changes weights that every problem shares, so it can carry over to other problems, and later samples may find right answers earlier ones missed. The 200 test problems are never trained on at all, so anything that changes on them, the 44 included, changes through that sharing. But without variation in rewards, GRPO has nothing useful to learn from that particular group.
+
+DeepSeekMath's authors saw a related limit at scale: RL improved how often the most common answer among $$K$$ samples was right, a majority vote, but not how often at least one of the $$K$$ samples was ([Shao et al., Figure 7](https://arxiv.org/abs/2402.03300)). My reading of that is that RL can make a model more reliable at correct answers it could already reach, without necessarily widening the set of problems it can reach by sampling.
+
+#### Correct arithmetic isn't always a correct answer
+
+There's one more detail worth understanding before we start training: the reward checks both the number and the format the prompt asked for.
+
+The prompt asks for just the number, but some sampled answers aren't. The first three, one per problem, from [`the_baseline`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
 <!-- RECEIPT: s2b -->
 ```text
-  Sampled answers that are not a lone integer, first three:
+  Sampled answers not a lone integer, first three, one per problem:
     "35 x 11 = 385"
-    "35 x 11 = 385"
-    "35 x 11 = 385"
+    "3, 854"
+    "26 x 83 = 2118"
 ```
 
-All three are the same problem, because a problem's eight samples sit next to each other, and all three are right: 35 × 11 is 385. They score 0 anyway, because the answer was asked to be "just the number". The reward checks exactly what the program checks, and nothing else. Keep 35 × 11 in mind for [§7](#what-it-learned).
+The first has the right product inside a sentence, the second splits a number with a comma and a space, and the third is a sentence with the wrong product: 26 × 83 is 2158. All three score 0, the same as a wrong number, because the program checks the format as strictly as the number.
+
+That's intentional. The reward measures whether the model gave the answer it was asked for, not just whether the right number appears somewhere in it.
+
+It also raises a question for later: when accuracy goes up after training, is the model getting better at multiplication, or just at answering in the right format? We'll come back to that in [§7](#what-it-learned), and to 35 × 11 and 26 × 83 with it.
+
+For now, the baseline tells us what we need to know. The model knows how to produce more correct answers than it reliably chooses. GRPO gives us a way to turn some of those occasional successes into more consistent behavior.
 
 ---
 
 ### 3. From rewards to a gradient {#policy-gradients}
 
-SFT has an obvious gradient: raise the log-prob of the answer you were given. With a reward there's no given answer, only scores for the answers the model wrote. This section turns those scores into an update, and it needs a little vocabulary first.
+In supervised fine-tuning (SFT) we already know which answer we want, and training raises its log-prob. Reinforcement learning (RL) starts somewhere else. Nobody hands the model the answer: it writes its own, and a reward scores each one. So SFT tells the model which answer to make more likely, and RL uses the reward to decide whether an answer the model wrote should become more likely or less. This section turns that score into an update, and it needs a little vocabulary first.
 
-In RL terms, the model is the **policy**: the rule that picks what to do. Writing an answer is the **action**. The **reward** is the score the action gets. In general an agent can collect rewards over many steps, and the total is called the **return**; here there's one reward per answer, at the end, so the return is just that reward. The symbols:
+In RL terms, the model is the **policy**: the rule that picks what to do. For a language model the policy gives a probability to each next token, and multiplying those together gives the probability of a whole answer (§1's sum, in log-probs). Here a whole answer counts as one **action**: the model gets a multiplication question, writes an answer, and the **reward** is the score that answer gets, 1 if it's right and 0 if not. In general an agent can collect rewards over many steps, and the total is called the **return**; here there's one reward per answer, at the end, so the return is just that reward. The symbols:
 
 | symbol | means | here |
 |---|---|---|
@@ -193,7 +252,7 @@ In RL terms, the model is the **policy**: the rule that picks what to do. Writin
 | $$\pi_\theta(o \mid q)$$ | the probability the policy gives answer $$o$$ to question $$q$$ | 0.0396 for `1081` |
 | $$\log \pi_\theta(o \mid q)$$ | that answer's sequence log-prob, §1's sum | −3.2286 |
 | $$r$$ | the reward the answer got | 1 or 0 |
-| $$b$$ | a **baseline**: a reference score to compare $$r$$ against, chosen without looking at which answer was written | §4 uses the group's average |
+| $$b$$ | a **baseline**: a reference score to compare $$r$$ against, chosen without looking at which answer was written | how well the model usually does on $$q$$; §4 estimates it from a group of answers |
 | $$\alpha$$ | the learning rate, how big each nudge is | |
 | $$\nabla_\theta$$ | the gradient with respect to the weights: which way to nudge each one to raise what follows | |
 
@@ -201,13 +260,43 @@ The update that comes out is due to [Williams (1992)](https://link.springer.com/
 
 $$\Delta\theta = \alpha\,(r - b)\,\nabla_\theta \log \pi_\theta(o \mid q)$$
 
-Read it right to left. $$\nabla_\theta \log \pi_\theta(o \mid q)$$ is exactly the direction SFT would step in if someone had handed it $$o$$ as the answer: the direction that makes $$o$$ more likely. $$(r - b)$$ decides how far to step, and which way. An answer that scored above the baseline is made more likely, in proportion to how far above; an answer below it is made less likely. With $$r - b = 1$$ for every answer, this would be SFT on the model's own answers.
+Read it right to left, one piece at a time.
 
-Williams wrote it per weight, as $$\Delta w_{ij} = \alpha_{ij}(r - b_{ij})e_{ij}$$, where $$e_{ij} = \partial \ln g_i / \partial w_{ij}$$, the derivative of the log of the probability $$g_i$$ that unit $$i$$ gave its output, is what he called the "characteristic eligibility". It's the same quantity as $$\nabla_\theta \log \pi_\theta$$, one weight at a time.
+1. $$\nabla_\theta \log \pi_\theta(o \mid q)$$ says what to change. It's exactly the direction SFT would step in if someone had handed it $$o$$ as the answer: the direction that makes $$o$$ more likely. The difference from SFT is that the model wrote $$o$$ itself.
+2. $$r - b$$ says which way to step, and how far. This difference, how much better the answer did than expected, is called its **advantage**. An answer that scored above the baseline has a positive advantage and is made more likely, in proportion to how far above; an answer below it has a negative advantage and is made less likely.
+3. $$\alpha$$ sets the size of the step.
 
-**What Williams proved, and what he didn't.** His Theorem 1 says that, on average over the answers the policy might write, this update points in the same direction as the gradient of the expected reward: $$E\{\Delta W \mid W\} = \alpha\,\nabla_W E\{r \mid W\}$$. So each update is a noisy estimate of the direction that raises the average score, and in his words, $$(r - b_{ij})\,\partial \ln g_i / \partial w_{ij}$$ "represents an unbiased estimate". The condition is that the baseline is "conditionally independent of" the action, which is why $$b$$ mustn't depend on which answer was written. Any such baseline keeps the estimate unbiased, including $$b = 0$$, and Williams says plainly that his results "offer no basis for comparing various choices of reinforcement baseline".
+The reward says whether an answer was good, the log-prob gradient says how to make that answer more or less likely, and the advantage connects the two. With $$r - b = 1$$ for every answer, this would be SFT on the model's own answers.
 
-So why have one? Look at what $$b = 0$$ does with a reward of 1 or 0. A wrong answer has $$r - b = 0$$ and gets no update at all; only right answers move, always up. A question the model already gets right every time still pushes all its answers up, though there's nothing left to learn. With $$b$$ set to how well the model usually does on that question, a right answer to a hard question counts for a lot, a right answer to an easy one for little, and wrong answers are pushed down. The difference $$r - b$$, how much better an answer did than expected, is called its **advantage**. The update in the paper that introduced PPO ([Schulman et al.](https://arxiv.org/abs/1707.06347), Equation 1), the method [§4](#groups-and-advantages) describes, is this one with an estimated advantage $$\hat A$$ in place of $$r - b$$, and the rest of this post is about where that estimate comes from.
+**Why it points uphill.** What we want is a high average reward. Write $$\mathbb{E}_{o \sim \pi_\theta}[\,r\,]$$ for the average reward over the answers the policy might write to $$q$$, each weighted by its probability. The verifier has no gradient: it can say `1081` is right, but not how to change any LoRA weight to make right answers likelier. The probabilities do have one, and that's enough, because of the **policy-gradient identity**:
+
+$$\nabla_\theta\, \mathbb{E}_{o \sim \pi_\theta}[\,r\,] = \mathbb{E}_{o \sim \pi_\theta}\big[\,r\,\nabla_\theta \log \pi_\theta(o \mid q)\,\big]$$
+
+It follows from the derivative of the log, $$\nabla_\theta \pi_\theta = \pi_\theta\,\nabla_\theta \log \pi_\theta$$. On the left is the direction that raises the average reward, which we can't compute directly. On the right is the average of something we can compute for one sampled answer: its reward times the gradient of its log-prob. The reward never needs a gradient of its own. The gradient comes from the model's log-prob, and the verifier only supplies the weight.
+
+**What Williams proved, and what he didn't.** His Theorem 1 says that, on average over the answers the policy might write, this update is $$\alpha$$ times the gradient of the expected reward. So each update is a noisy estimate of the direction that raises the average score, and in his words, $$(r - b)\,\nabla_\theta \log \pi_\theta$$ "represents an unbiased estimate". Only the average is promised; a single update can still point the wrong way. The condition is that the baseline is "conditionally independent of" the action, which is why $$b$$ mustn't depend on which answer was written. When it doesn't, its part of the update averages to zero, because the probabilities of all the possible answers always add up to 1:
+
+$$\mathbb{E}_{o \sim \pi_\theta}\big[\,b\,\nabla_\theta \log \pi_\theta(o \mid q)\,\big] = b \sum_o \nabla_\theta \pi_\theta(o \mid q) = b\,\nabla_\theta 1 = 0$$
+
+Any such baseline keeps the estimate unbiased, including $$b = 0$$, and Williams says plainly that his results "offer no basis for comparing various choices of reinforcement baseline".
+
+**So why have one?** Take a question the model gets right 80% of the time. With $$b = 0$$:
+
+| answer | $$r$$ | advantage $$r - b$$ |
+|---|---|---|
+| right | 1 | +1 |
+| wrong | 0 | 0 |
+
+A wrong answer gets no update at all; only right answers move, always up. A question the model already gets right every time still pushes all its answers up, though there's nothing left to learn. Now set $$b$$ to how well the model usually does on that question, $$b = 0.8$$:
+
+| answer | $$r$$ | advantage $$r - b$$ |
+|---|---|---|
+| right | 1 | +0.2 |
+| wrong | 0 | −0.8 |
+
+A right answer is still pushed up, but only a little, because it's what the model does most of the time anyway. A wrong answer is pushed down hard, because it did much worse than expected. On a hard question with $$b = 0.2$$ it flips: a rare right answer gets +0.8 and a wrong one −0.2. So a right answer to a hard question counts for a lot and a right answer to an easy one for little. A baseline like this also makes each noisy step less noisy [CITE: a baseline that tracks the expected reward lowers the variance of the REINFORCE estimate], though that's a separate result from Williams's.
+
+**From REINFORCE to PPO and GRPO.** Two practical questions are left. Where does $$b$$ come from, when "how well the model usually does on this question" isn't something we can look up? And what stops one step from making a sampled answer far likelier than it should be? The update in the paper that introduced **PPO** (Proximal Policy Optimization, [Schulman et al.](https://arxiv.org/abs/1707.06347), Equation 1), the method most language-model RL used before GRPO, is this one with an estimated advantage $$\hat A$$ in place of $$r - b$$. [§4](#groups-and-advantages) is about where that estimate comes from: PPO's answer is a second network, and GRPO's is to ask the same question several times and compare the rewards. [§5](#one-update) is about the second question.
 
 ---
 
@@ -217,11 +306,11 @@ The baseline should be "how well the model usually does on this question". Getti
 
 **PPO's answer: a second network.** **PPO** (Proximal Policy Optimization) is the method most language-model RL used before GRPO, including RLHF ([§8](#where-rlhf-fits)). It trains a **value model**: a second network that reads the question and the answer so far and predicts the reward to come. Its prediction is the baseline. That means training and holding a second large model next to the first, which DeepSeekMath's authors call "a substantial memory and computational burden" ([Shao et al., §4.1.1](https://arxiv.org/abs/2402.03300)).
 
-**GRPO's answer: ask the question several times.** **GRPO** (Group Relative Policy Optimization) was introduced in the same DeepSeekMath paper. Instead of predicting how well the model usually does on a question, it measures it: sample a **group** of $$G$$ answers to the same question, score them all, and use the group's own average as the baseline. Each answer's advantage is its reward compared with the rest of its group, divided by the group's spread (§4.1.2 of the paper):
+**GRPO's answer: ask the question several times.** **GRPO** (Group Relative Policy Optimization) was introduced in the same DeepSeekMath paper. Instead of predicting how well the model usually does on a question, it measures it: sample a **group** of $$G$$ answers to the same question, score them all, and use the group's own average as the baseline. Each answer's advantage is its reward compared with the rest of its group, divided by the group's spread (§4.1.2 of the paper). With $$r_i$$ the reward of answer $$i$$, and std the **standard deviation**, a measure of how spread out the rewards are:
 
 $$\hat A_i = \frac{r_i - \operatorname{mean}(r_1, \ldots, r_G)}{\operatorname{std}(r_1, \ldots, r_G) + 0.0001}$$
 
-Here $$r_i$$ is the reward of answer $$i$$, and std is the **standard deviation**, a measure of how spread out the rewards are; the demo uses the sample standard deviation, which divides by $$G - 1$$ rather than $$G$$. The 0.0001 isn't in the paper's formula. It's there so a group whose rewards are all equal divides by something other than zero. Every token of answer $$i$$ shares the one advantage $$\hat A_i$$. In [`group_advantages`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py), with one row per group:
+The demo uses the sample standard deviation, which divides by $$G - 1$$ rather than $$G$$. The 0.0001 isn't in the paper's formula. It's there so a group whose rewards are all equal divides by something other than zero. Every token of answer $$i$$ shares the one advantage $$\hat A_i$$. In [`group_advantages`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py), with one row per group:
 
 ```python
     mean = rewards.mean(dim=1, keepdim=True)
@@ -229,7 +318,7 @@ Here $$r_i$$ is the reward of answer $$i$$, and std is the **standard deviation*
     return (rewards - mean) / (std + eps)
 ```
 
-One thing to keep straight about history: DeepSeekMath introduced GRPO with a learned reward model doing the scoring. Scoring with a program that checks the answer came later, with [DeepSeek-R1](https://arxiv.org/abs/2501.12948) (§2.2), and that's the version this demo builds.
+One thing to keep straight about history: DeepSeekMath introduced GRPO with a learned reward model doing the scoring, a network trained to score answers ([§8](#where-rlhf-fits)). Scoring with a program that checks the answer came later, with [DeepSeek-R1](https://arxiv.org/abs/2501.12948) (§2.2), and that's the version this demo builds.
 
 **Three groups.** The demo first estimated each training question's **pass rate**, the share of its sampled answers that are right, then picked the question with the lowest, the one nearest 50%, and the highest, and sampled a group of eight answers to each. From [`groups_and_advantages`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py), the hardest:
 
@@ -249,7 +338,7 @@ One thing to keep straight about history: DeepSeekMath introduced GRPO with a le
   mean 0.000   std 0.000   (r - mean) / (std + 0.0001)
 ```
 
-Every answer is a near miss, all eight score 0, the mean is 0 and so is the spread, and every advantage is exactly zero. The middle question:
+Every answer is a near miss, all eight score 0, the mean is 0 and so is the spread, and every advantage is exactly zero. The middle question, also from [`groups_and_advantages`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
 <!-- RECEIPT: s3b -->
 ```text
@@ -267,7 +356,7 @@ Every answer is a near miss, all eight score 0, the mean is 0 and so is the spre
   mean 0.500   std 0.535   (r - mean) / (std + 0.0001)
 ```
 
-Four right, four wrong. The mean is 0.500, the sample standard deviation is 0.535, and each answer's advantage is ±0.935: the four `1472`s are pushed up by the same amount the four wrong answers are pushed down. `New York` gets the same −0.935 as `1452`. The reward is 0 for both, and the advantage can't tell a near miss from nonsense. And the easiest:
+Four right, four wrong. The mean is 0.500, the sample standard deviation is 0.535, and each answer's advantage is ±0.935: the four `1472`s are pushed up by the same amount the four wrong answers are pushed down. `New York` gets the same −0.935 as `1452`. The reward is 0 for both, and the advantage can't tell a near miss from nonsense. And the easiest, from the same [`groups_and_advantages`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
 <!-- RECEIPT: s3c -->
 ```text
@@ -285,7 +374,7 @@ Four right, four wrong. The mean is 0.500, the sample standard deviation is 0.53
   mean 1.000   std 0.000   (r - mean) / (std + 0.0001)
 ```
 
-All right, all zero again. A question that's always right and a question that's never right teach the model exactly the same amount, nothing. In both, every answer is exactly as good as the group's average, so there's nothing to prefer.
+All right, all zero again. A question that's always right and a question that's never right both teach the model nothing. In both, every answer is exactly as good as the group's average, so there's nothing to prefer. GRPO can only learn the distinctions the reward makes, and only from groups where the rewards differ.
 
 **How often does a group teach nothing?** For the 256 training questions, the demo sampled 16 answers each:
 
@@ -298,7 +387,7 @@ All right, all zero again. A question that's always right and a question that's 
     mean pass rate                   0.326
 ```
 
-97 questions were never answered right in 16 tries and 25 always were. A group of answers to one of those questions will almost always be all-equal. Then, cutting another 16 fresh samples per question into groups of different sizes and counting the groups whose rewards are all equal, from [`groups_and_advantages`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
+97 questions were never answered right in 16 tries and 25 always were, 122 of the 256 between them. A group of answers to one of those questions will almost always be all-equal. Then, cutting another 16 fresh samples per question into groups of different sizes and counting the groups whose rewards are all equal, from [`groups_and_advantages`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
 <!-- RECEIPT: s3e -->
 ```text
@@ -315,21 +404,33 @@ All right, all zero again. A question that's always right and a question that's 
   so plugging in an estimated p overstates it (Jensen's inequality).
 ```
 
-With the demo's $$G = 8$$, **61.1% of groups carry no signal**. Bigger groups help: a question with a pass rate of 20% is unlikely to give eight wrong answers in a row, and less likely still to give sixteen. But each answer costs a full generation, so a bigger group buys fewer wasted questions with more samples per question.
+With the demo's $$G = 8$$, **61.1% of groups carry no signal**, and only 38.9% have both a right and a wrong answer in them.
 
-The **measured** column counts real groups. The **analytic** column is what you'd predict from the pass rates alone: if a question is right with probability $$p$$ and the $$G$$ answers are independent, all $$G$$ are right with probability $$p^G$$ and all wrong with probability $$(1-p)^G$$, so the group is all-equal with probability $$p^G + (1-p)^G$$, averaged over the questions. It overshoots a little, more for bigger $$G$$, and the receipt says why. Each $$p$$ is itself estimated from 16 samples, and because $$p^G + (1-p)^G$$ curves upward on both sides, an estimate that's wrong in either direction raises it on average. That's **Jensen's inequality**, and it's why the prediction is a little too high.
+![Bar chart of the share of GRPO groups whose rewards are all equal, by group size G = 2, 4, 8 and 16; the share falls as G grows, and the predicted values sit slightly above the measured ones](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/all-equal-groups-light.png){: .light width="1000" height="612" }
+![Bar chart of the share of GRPO groups whose rewards are all equal, by group size G = 2, 4, 8 and 16; the share falls as G grows, and the predicted values sit slightly above the measured ones](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/all-equal-groups-dark.png){: .dark width="1000" height="612" }
+_Share of groups whose answers all got the same reward, so every advantage is zero. Bars: measured on 16 fresh samples per question. Diamonds: predicted from each question's estimated pass rate. Values from the s3e receipt._
 
-The field has two responses to this, both with a direct line to this table. [DAPO](https://arxiv.org/abs/2503.14476) (§3.2) uses **dynamic sampling**: it filters out groups whose answers are all right or all wrong and keeps sampling until a batch is full of groups that teach something, because "A zero advantage results in zero policy gradients". [Dr. GRPO](https://arxiv.org/abs/2503.20783) (§3.1) points at the division by the standard deviation. A group with one right answer in eight has a small spread, so dividing by it makes that one answer's advantage large. Questions that are nearly always right or nearly always wrong get weighted more than questions in the middle, a **difficulty bias**, and Dr. GRPO drops the division (§3.2). This demo keeps it, to match DeepSeekMath.
+Bigger groups help: a question with a pass rate of 20% gives an all-equal group of two with probability $$0.2^2 + 0.8^2 = 0.68$$, and an all-equal group of eight with only $$0.2^8 + 0.8^8 \approx 0.168$$. But each answer costs a full generation, and which group size is the better buy depends on what you count. Per 1,000 generated answers, groups of two give about 73 groups with a right and a wrong answer in them, and groups of sixteen about 32, so small groups cover more questions that teach something. Counted by answers it goes the other way: in a mixed group every answer's reward differs from the mean, so every answer gets a nonzero advantage, and the share of answers that carry signal is the share of mixed groups, 14.6% at $$G = 2$$ and 50.8% at $$G = 16$$. Neither count says how useful each gradient is. What they do show is that group size trades how many questions get a signal against how many answers get one.
+
+The **measured** column counts real groups. The **analytic** column is what you'd predict from the pass rates alone: if a question is right with probability $$p$$ and the $$G$$ answers are independent, all $$G$$ are right with probability $$p^G$$ and all wrong with probability $$(1-p)^G$$, so the group is all-equal with probability $$p^G + (1-p)^G$$, averaged over the questions. It overshoots a little, more for bigger $$G$$. Each $$p$$ is itself estimated from 16 samples, and because $$p^G + (1-p)^G$$ curves upward on both sides for any $$G$$ of 2 or more, an estimate that's wrong in either direction raises it on average. That's **Jensen's inequality**, and it says the prediction should come out too high on average, which is what the table shows. It doesn't account for the exact gaps: the measured column is itself a count over a few hundred groups, 512 at $$G = 8$$ and 256 at $$G = 16$$, with noise of its own.
+
+The field has two responses to this, both with a direct line to this table. [DAPO](https://arxiv.org/abs/2503.14476) (§3.2) uses **dynamic sampling**: it filters out groups whose answers are all right or all wrong and keeps sampling until a batch is full of groups that teach something, because "A zero advantage results in zero policy gradients". [Dr. GRPO](https://arxiv.org/abs/2503.20783) (§3.1) points at the division by the standard deviation. A group with one right answer in eight has a small spread, so dividing by it makes that one answer's advantage large. Questions that are nearly always right or nearly always wrong get weighted more than questions in the middle, a **difficulty bias**, and Dr. GRPO drops the division (§3.2). This demo keeps it, to match DeepSeekMath. DAPO is about getting groups that teach something, and Dr. GRPO about how much each one counts once you have it.
+
+The group's average also isn't quite the baseline of [§3](#policy-gradients). Williams's guarantee needs a baseline chosen without looking at which answer was written, and the group's average includes answer $$i$$'s own reward. Without the division, that costs only a rescaling. Some algebra on the mean gives
+
+$$r_i - \operatorname{mean}(r_1, \ldots, r_G) = \frac{G-1}{G}\Big(r_i - \operatorname{mean}(\text{the other } G-1 \text{ rewards})\Big)$$
+
+and the other answers were sampled independently of answer $$i$$, so their average is a fair baseline for it. The step is the unbiased one shrunk by $$\tfrac{G-1}{G}$$, which is $$\tfrac{7}{8}$$ at $$G = 8$$. The standard deviation depends on $$r_i$$ as well, and once you divide by it Williams's theorem no longer covers the update. That's the part Dr. GRPO objects to. So GRPO does away with the value model, but it swaps in a new dependency: the model has to write answers that get different rewards.
 
 ---
 
 ### 5. One update by hand {#one-update}
 
-With advantages in hand, the update is the REINFORCE step of [§3](#policy-gradients) with two safety features from PPO bolted on. This section takes one group, the 46 × 32 group from [§4](#groups-and-advantages), and updates on it by hand.
+With advantages in hand, the update is the REINFORCE step of [§3](#policy-gradients): raise the log-prob of answers with a positive advantage and lower it for answers with a negative one. GRPO adds two safety features from PPO to that step, a clipped probability ratio and a KL penalty, both meant to limit how far the policy moves. This section explains both, then takes one group, the 46 × 32 group from [§4](#groups-and-advantages), and runs two gradient steps on it by hand.
 
-**Reusing answers, and the ratio.** Sampling is the slow part, so PPO and GRPO allow several gradient steps, called **inner steps**, on the same batch of sampled answers. After the first step, though, the policy being trained is no longer the one that wrote the answers. The **probability ratio** tracks how far it's moved, token by token: the probability the current policy gives a token, divided by the probability the policy that sampled it gave it. A ratio of 1 means no change. On the first inner step it's exactly 1 everywhere, because the two policies are the same.
+**Reusing answers, and the ratio.** Sampling is the slow part, so PPO and GRPO allow several gradient steps, called **inner steps**, on the same batch of sampled answers. After the first step, though, the policy being trained is no longer the one that wrote the answers. The **probability ratio** tracks how far it's moved, token by token: the probability the current policy gives a token, divided by the probability the policy that sampled it gave it. A ratio of 1 means no change, 1.2 means the token is 20% more likely than when it was sampled, and 0.5 means half as likely. On the first inner step it's exactly 1 everywhere, because the two policies are the same.
 
-**Clipping.** PPO limits how far one batch can push a token's ratio. Its objective (Equation 7 of the [PPO paper](https://arxiv.org/abs/1707.06347)) takes the smaller of two terms: the ratio times the advantage, and the same with the ratio clipped to the range $$1 - \epsilon$$ to $$1 + \epsilon$$, "say, ϵ = 0.2". Once a token's ratio has moved past the clip in the direction the advantage wants, for example a right answer's token already more than 1.2 times as likely, the clipped term wins, it's constant, and that token stops contributing to the gradient. The paper calls the result "a lower bound (i.e., a pessimistic bound)" on the unclipped objective.
+**Clipping.** PPO's objective (Equation 7 of the [PPO paper](https://arxiv.org/abs/1707.06347)) takes the smaller of two terms: the ratio times the advantage, and the same with the ratio clipped to the range $$1 - \epsilon$$ to $$1 + \epsilon$$, "say, ϵ = 0.2". The demo uses 0.2 too, so the range is 0.8 to 1.2. For a right answer, with a positive advantage, the objective wants its tokens more likely, but once a token's ratio is past 1.2 the clipped term wins, it's constant, and that token stops contributing to the gradient. For a wrong answer the boundary is 0.8: once a token is less than 0.8 times as likely, pushing it further down earns nothing. So the clip takes away the incentive to go further, but it doesn't stop a token from going further. Every token shares the same weights, and an update aimed at other tokens can still carry this one past 1.2 or below 0.8. The paper calls the result "a lower bound (i.e., a pessimistic bound)" on the unclipped objective. It bounds the objective, and not how far the policy can move.
 
 **The KL term.** **KL divergence** measures how different two probability distributions are; it's zero when they're identical and grows as they drift apart. GRPO keeps the policy close to a frozen **reference model**, here the starting model, by subtracting $$\beta$$ times an estimate of the KL divergence between them. Where that penalty goes differs by method. PPO as used for RLHF subtracts it from the reward, token by token ([§8](#where-rlhf-fits)); GRPO, in DeepSeekMath's words, "instead of adding KL penalty in the reward, GRPO regularizes by directly adding the KL ... to the loss".
 
@@ -375,7 +476,7 @@ Other papers write GRPO differently. DeepSeek-R1 computes one ratio per answer r
 
 <!-- RECEIPT: s4a -->
 ```text
-  The group for 46 x 32 from section 3, adapters fresh, lr 3e-05.
+  The group for 46 x 32 from post §4, adapters fresh, lr 3e-05.
   2 gradient steps on the same 8 answers (GRPO's inner steps).
 
   step  ratio min  ratio max  clipped  surrogate         KL      loss
@@ -391,11 +492,15 @@ Other papers write GRPO differently. DeepSeek-R1 computes one ratio per answer r
   advantage's direction, that token's surrogate gradient is zero.
 ```
 
-Step 1 is the clean case. The policy is the sampler, so every ratio is exactly 1, nothing is clipped, and the policy is also the reference, so the KL is zero (the −1.44e-08 is float rounding). The surrogate's value is zero too, because the advantages of a group always add up to zero, but its gradient isn't: it's §3's REINFORCE step, with the group's advantages as weights.
+Step 1 is the clean case. The policy is the sampler, so every ratio is exactly 1, nothing is clipped, and the policy is also the reference, so the KL is zero (the −1.44e-08 is float rounding). The surrogate's value is zero too, because the advantages of a group always add up to zero. Its gradient isn't zero, though. At a ratio of 1, the gradient of $$\rho_{i,t}$$ is the gradient of the token's log-prob, $$\log \pi_\theta(o_{i,t})$$, and the KL term's gradient is zero at $$d = 0$$, so the step-1 gradient is
 
-Step 2 reuses the same eight answers, and shows why PPO-style methods need their safety features. One step at this learning rate moved some tokens a long way. The smallest ratio is 0.0001: some token now has a ten-thousandth of the probability it had when it was sampled, and the wrong answers are the ones being pushed down. The largest is 1.4386, a right answer's token that's become more likely than the clip allows. 28.9% of answer tokens are past the clip in their advantage's direction, and contribute no gradient from the surrogate.
+$$\nabla_\theta \mathcal{J} = \frac{1}{G}\sum_{i=1}^{G}\frac{\hat A_i}{\lvert o_i\rvert}\sum_{t=1}^{\lvert o_i\rvert}\nabla_\theta \log \pi_\theta(o_{i,t})$$
 
-The KL estimate has gone from zero to 4.52e+02. Since the starting policy was also the reference, that token's $$d$$ is the log of about ten thousand, and $$e^{d}$$ grows exponentially: one token is enough to make the average enormous. The loss, +18.0031, is now almost all KL penalty, 0.04 times the KL, against a surrogate of +0.0580. And the KL estimate's guarantee no longer holds here: it's an unbiased estimate for tokens sampled from the current policy, and these were sampled from the policy of one step ago. This is why the training runs in [§6](#training) take one inner step per batch, as DeepSeekMath's own runs did ("a single update following each exploration stage", §4.2). With one inner step, every ratio is 1, so the clip never binds and the surrogate's gradient is exactly REINFORCE with group advantages, averaged over each answer's tokens.
+That's §3's REINFORCE step, with the group's advantages as weights and each answer's tokens averaged. The advantages cancel in the value, but the gradients don't, because the right and wrong answers are different tokens with different gradients. A loss of zero doesn't mean there's nothing to learn.
+
+Step 2 reuses the same eight answers, and shows why PPO-style methods need their safety features. One step at this learning rate moved some tokens a long way. The smallest ratio is 0.0001: some token now has about a ten-thousandth of the probability it had when it was sampled. The receipt doesn't say which token, but it's probably in one of the wrong answers, since those are the ones being pushed down. The largest is 1.4386, a token about 44% more likely than when it was sampled, probably in a right answer. It's past the clip's 1.2 after a single step, which is the clip failing to keep a token inside its range, as described above. 28.9% of answer tokens are past the clip in their advantage's direction, and contribute no gradient from the surrogate.
+
+The KL estimate has gone from zero to 4.52e+02. That's the average of the per-token estimates over these answers' tokens, which the current policy didn't sample, so it's a sampled estimate and not the KL divergence between the two models' full distributions. The demo doesn't print it token by token, but the arithmetic shows how a few tokens could do it. The starting policy was also the reference, so for every token here $$d$$ is minus the log of its ratio, and $$e^{d}$$ is one over the ratio. A token whose ratio fell to 0.0001 has a $$d$$ of about 9.21 (the log of ten thousand), and its estimate alone is about ten thousand. The ratio is printed to four decimal places, so that's an order of magnitude, not an exact value. The loss, +18.0031, is now almost all KL penalty: it's minus the surrogate plus 0.04 times the KL, and working back, (18.0031 + 0.0580) / 0.04 = 451.53, which the receipt rounds to 4.52e+02. And the KL estimate's guarantee no longer holds here: it's an unbiased estimate for tokens sampled from the current policy, and these were sampled from the policy of one step ago. This is why the training runs in [§6](#training) take one inner step per batch, as DeepSeekMath's own runs did ("a single update following each exploration stage", §4.2). With one inner step, the policy is the sampler when the gradient is taken, so every ratio is 1, the clip never binds, and the surrogate's gradient is the step-1 gradient above. The KL term doesn't switch off, though. After the first step the policy isn't the reference any more, so $$d$$ isn't zero, and the penalty pulls toward the starting model on every step after that.
 
 What did the two steps do to each answer? Each answer's sequence log-prob before and after, from [`one_update`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
@@ -416,11 +521,15 @@ What did the two steps do to each answer? Each answer's sequence log-prob before
   wrong answers whose log-prob fell  4 of 4
 ```
 
-Each of the four copies of the right answer rose from −0.593 to −0.049, and every wrong answer fell. There was no value network and no labelled answer, only eight samples and their scores, and the group's own average decided which way each one moved. `1352` and `1452` fell by around four, while `New York`, already the least likely answer by far, fell by less than one.
+Each of the four copies of the right answer rose from −0.593 to −0.049, and every wrong answer fell. There was no value model and no labelled answer, only eight samples and their scores, and the group's own average decided which way each one moved.
 
 ---
 
 ### 6. Training it {#training}
+
+§5 updated the model once, on one group. Does repeating that make it better at multiplication, on problems it never trained on? To find out, I trained it for 60 steps, three times from different seeds, and then tested each run on the 200 held-out problems from [§2](#a-checkable-task). I also trained three controls on shuffled rewards, to check whether the gain came from the reward or from running the loop at all.
+
+#### The setup
 
 Training repeats §5 many times, on fresh answers each step. The settings, from [`training`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
@@ -437,11 +546,21 @@ Training repeats §5 many times, on fresh answers each step. The settings, from 
   sampling                           T = 1.0, at most 24 tokens
 ```
 
-Each step samples eight training questions, eight answers to each, scores them, computes advantages within each group, and takes one gradient step with **AdamW**, the optimizer posts 6 and 7 used, on the LoRA adapters. LoRA is post 6's: rank 8, on all seven projection matrices of every layer. The reference never changes. Sixty steps draw 480 questions from a pool of 256, so the model sees each training question only a few times.
+Each step samples eight training questions, eight answers to each, scores them, computes advantages within each group, and takes one gradient step with **AdamW**, the optimizer posts 6 and 7 used, on the LoRA adapters. LoRA is post 6's: rank 8, on all seven projection matrices of every layer. The reference never changes. Sixty steps draw 480 questions from a pool of 256, 1.875 per question on average. Each step draws its eight afresh, so some questions come up more often than others, and some may not come up at all.
 
-**The control.** A rising score after training could come from the reward, or from something else in the loop: sampling, the KL term, the optimizer, or just nudging the weights at all. To separate them, the demo runs a **control** that does everything the same, except that before computing advantages it shuffles the batch's 64 rewards among its 64 answers ([`grpo_train`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py)). Each step keeps the same number of 1s and the same average reward; only which answer gets which reward is random. If the control improves too, the reward wasn't what taught it.
+With one inner step per batch, the policy taking the step is the one that sampled the answers, so when the gradient is computed every ratio is 1 and the clip never binds, as in [§5](#one-update). The KL term still acts. The reference stays fixed while the policy moves, and the KL-to-ref column below shows how far it gets.
 
-**During training.** Three runs, two real seeds and the control, each logged every ten steps:
+#### The control
+
+A rising score after training could come from the reward, or from something else in the loop: sampling, the KL term, the optimizer, or just nudging the weights at all. To separate them, the demo runs a **control** that does everything the same, except that before computing advantages it shuffles each group's eight rewards among that group's eight answers ([`grpo_train`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py)). Every group keeps its own rewards, so the share of groups with no signal and the size of the advantages are what the real rewards would give; only which answer gets which reward is random.
+
+Take §4's group for 46 × 32, whose eight answers scored 0, 0, 1, 0, 1, 0, 1, 1. A shuffle might hand out 1, 0, 0, 1, 0, 1, 0, 1 instead (my example; the demo doesn't print its shuffles). Four answers still score 1, and every advantage is still ±0.935, but now `New York` and both `1452`s are pushed up, and three of the four `1472`s are pushed down.
+
+Whatever the controls gain, they gain without being told which answers were right, so comparing them with the real runs is the best test this demo has of what the reward taught. The control runs from three seeds too.
+
+#### During training
+
+Six runs, three real seeds and three controls, each logged every ten steps, from [`training`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
 <!-- RECEIPT: s5b -->
 ```text
@@ -467,30 +586,66 @@ Each step samples eight training questions, eight answers to each, scores them, 
   50          0.586             60.0%     0.2506    4.84
   60          0.591             66.2%     0.2588    4.94
 
+  GRPO, seed 2
+
+  step  mean reward  no-signal groups  KL to ref  length
+  --------------------------------------------------------
+  10          0.366             60.0%     0.1505    5.42
+  20          0.523             66.2%     0.2729    5.11
+  30          0.450             70.0%     0.3115    4.83
+  40          0.570             65.0%     0.2407    4.88
+  50          0.581             62.5%     0.2233    4.95
+  60          0.614             70.0%     0.2289    5.08
+
   control: shuffled rewards, seed 0
 
   step  mean reward  no-signal groups  KL to ref  length
   --------------------------------------------------------
-  10          0.391              3.8%     0.0493    5.72
-  20          0.362              2.5%     0.0734    5.42
-  30          0.277             16.2%     0.2406    5.45
-  40          0.166             28.7%     0.3828    6.15
-  50          0.159             27.5%     0.4323    7.05
-  60          0.183             27.5%     0.4983    7.63
+  10          0.436             61.3%     0.1295    5.31
+  20          0.325             66.2%     0.0990    6.43
+  30          0.047             86.2%     0.5233   12.40
+  40          0.097             73.8%     0.5028    8.51
+  50          0.311             66.2%     0.1725    5.93
+  60          0.372             62.5%     0.1603    5.58
+
+  control: shuffled rewards, seed 1
+
+  step  mean reward  no-signal groups  KL to ref  length
+  --------------------------------------------------------
+  10          0.287             65.0%     0.0441    5.83
+  20          0.333             63.7%     0.0665    5.47
+  30          0.356             71.2%     0.1063    4.95
+  40          0.334             70.0%     0.2396    5.10
+  50          0.356             62.5%     0.1584    5.15
+  60          0.394             56.2%     0.1892    5.10
+
+  control: shuffled rewards, seed 2
+
+  step  mean reward  no-signal groups  KL to ref  length
+  --------------------------------------------------------
+  10          0.284             63.7%     0.0208    5.76
+  20          0.323             71.2%     0.0582    5.83
+  30          0.231             80.0%     0.0822    5.41
+  40          0.362             66.2%     0.0434    5.77
+  50          0.306             66.2%     0.0907    5.61
+  60          0.447             63.7%     0.0860    5.24
 
   Each row averages the 10 steps up to it. no-signal groups:
-  all G training rewards equal (for the control, the shuffled ones).
+  all G training rewards equal. A control shuffles rewards only within
+  each group, so this share is the one its unshuffled rewards would give.
   length: answer tokens, <|im_end|> included.
 ```
 
-Read the columns one at a time.
+These logs are for watching each run. Each row averages a different draw of questions, so judging whether the model improved takes the fixed held-out test after them. Read the columns one at a time.
 
-- **mean reward** is the true reward of the sampled answers, averaged over ten steps. For the real runs it doesn't climb much once the log begins: seed 0 goes from 0.498 to 0.537 with a dip to 0.456 on the way, seed 1 from 0.425 to 0.591. Each row covers 80 questions drawn at random, some easy and some hard, so it's noisy. Both first rows are already well above the 0.326 mean pass rate the untrained model had on these same questions in [§4](#groups-and-advantages), which suggests much of the change came in the first ten steps, which the first row averages over. The control's true reward falls, to 0.183.
-- **no-signal groups** is the share of groups whose training rewards were all equal. For the real runs it's between 50.0% and 73.8%: most of each step's 64 answers taught nothing, just as §4 predicted. The control's is much lower at the start, because shuffling scatters the 1s across questions and most groups end up with a mix. It has plenty of nonzero advantages, and none of them mean anything.
-- **KL to ref** is the per-token KL estimate against the starting model, before each step's update. All three runs drift away from the reference, and the control ends further from it than either real run, so it isn't sitting still. It's moving, in no useful direction.
-- **length** is the answer length in tokens. The real runs stay around five tokens, four digits and `<|im_end|>`; the control's answers grow from 5.72 to 7.63 tokens.
+- **mean reward** is the true reward of the sampled answers, averaged over ten steps. For seed 0 it hardly climbs once the log begins, from 0.498 to 0.537 with a dip to 0.456 on the way; seed 1 goes from 0.425 to 0.591 and seed 2 from 0.366 to 0.614. Each row covers 80 questions drawn at random, some easy and some hard, so it's noisy. All three first rows are already above the 0.326 mean pass rate the untrained model had on these same questions in [§4](#groups-and-advantages), so some of the change may have come early. The log can't show that, though. Its first row averages steps 1 to 10, with no row for step 1 alone, and the 0.326 was estimated separately, from 16 samples per question, rather than logged from the answers these runs sampled. Control 0's first row, 0.436, is above it too, another reason not to lean on that comparison. For a control, the true reward is what its answers would have scored before the shuffle. Controls 1 and 2 end higher than they start, from 0.287 to 0.394 and from 0.284 to 0.447. Control 0 went off course: over the ten steps to step 30 its reward averaged 0.047, and it had recovered to 0.372 by step 60.
+- **no-signal groups** is the share of groups whose training rewards were all equal. For the real runs it's between 50.0% and 73.8%: most of each step's 64 answers taught nothing, just as §4 predicted. A control shuffles only within each group, so its share is the one its true rewards would give, between 56.2% and 86.2%. The 86.2% is control 0's bad stretch, and with a mean reward of 0.047, nearly all of those groups were all wrong.
+- **KL to ref** is the per-token KL estimate against the starting model, before each step's update. Every run drifts away from the reference. By step 60 each control sits closer to it than any real run, between 0.0860 and 0.1892 against 0.2289 to 0.2588. Control 0's highest, 0.5233, came in its bad stretch.
+- **length** is the answer length in tokens. The real runs stay around five tokens, four digits and `<|im_end|>`, and controls 1 and 2 stay between 4.95 and 5.83. Control 0's answers grew to 12.40 tokens in its bad stretch, then came back to 5.58. The demo doesn't say why. My guess is the length bias Dr. GRPO identifies ([Liu et al., §3.1](https://arxiv.org/abs/2503.20783)), where averaging over each answer's tokens pushes a long answer with a negative advantage down less per token than a short one, but nothing here tests it.
 
-**On problems it never trained on.** The test that matters is the 200 held-out problems, answered greedily after training:
+#### On problems it never trained on
+
+The test that matters is the 200 held-out problems from [§2](#a-checkable-task), the ones the untrained model got 37.5% of right, answered greedily after training, also from [`training`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
 <!-- RECEIPT: s5c -->
 ```text
@@ -499,12 +654,45 @@ Read the columns one at a time.
   untrained                          37.5%         91.0%
   GRPO, seed 0                       50.5%         98.0%   +13.0
   GRPO, seed 1                       59.0%         99.0%   +21.5
-  control: shuffled rewards, seed 0  33.5%         89.0%    -4.0
+  GRPO, seed 2                       57.0%         98.5%   +19.5
+  control: shuffled rewards, seed 0  47.0%         91.0%    +9.5
+  control: shuffled rewards, seed 1  42.0%         93.5%    +4.5
+  control: shuffled rewards, seed 2  42.0%         93.0%    +4.5
 ```
 
-Both real runs improved, seed 0 by 13.0 points and seed 1 by 21.5, and both nearly stopped writing anything but lone integers. The control, with the same loop and the same number of 1s per batch, got worse: 4.0 points below the untrained model, and slightly worse at format too. So the improvement came from the reward's information about which answers were right, not from the training loop itself.
+![Bar chart of test accuracy on 200 held-out problems. The untrained model is at 37.5%. The three GRPO runs are at 50.5%, 59.0% and 57.0%. The three shuffled-reward controls are at 47.0%, 42.0% and 42.0%. Every GRPO run is above every control](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/heldout-accuracy-light.png){: .light width="1000" height="531" }
+![Bar chart of test accuracy on 200 held-out problems. The untrained model is at 37.5%. The three GRPO runs are at 50.5%, 59.0% and 57.0%. The three shuffled-reward controls are at 47.0%, 42.0% and 42.0%. Every GRPO run is above every control](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/heldout-accuracy-dark.png){: .dark width="1000" height="531" }
+_Greedy accuracy on 200 test problems the model never trained on, for the untrained model, three GRPO runs and three controls trained on shuffled rewards. The dashed line is the untrained model._
 
-How big the improvement is, two seeds can't pin down. The runs differ only in their seed, and one ended at 50.5% while the other ended at 59.0%. With two runs there's no way to put an error bar on either number, so the claim this receipt supports is that both seeds improved a lot and the control didn't, and not that GRPO adds a particular number of points. Seed 0's training reward, which barely moved while its test score rose 13.0 points, is also a warning about watching the training curve alone, which the [sidebar](#sidebar) comes back to.
+All three real runs improved, by 13.0, 21.5 and 19.5 points, and nearly stopped writing anything but lone integers, at 98.0% to 99.0% format-valid. Part of that gain may be format alone, and [§7](#what-it-learned) splits it.
+
+#### Did the reward matter?
+
+The controls improved too, by 9.5, 4.5 and 4.5 points, though their format barely moved from the untrained model's 91.0%, ending between 91.0% and 93.5%. Summed up by kind of run, also from [`training`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
+
+<!-- RECEIPT: s5d -->
+```text
+  Change in test accuracy over the untrained model, points:
+
+  model                      runs   mean    min    max
+  ------------------------------------------------------
+  GRPO                          3  +18.0  +13.0  +21.5
+  control: shuffled rewards     3   +6.2   +4.5   +9.5
+
+  3 runs each: min to max is a range, not an error bar.
+```
+
+The ranges don't overlap. The weakest real run, seed 0 at +13.0, beat the best control, control 0 at +9.5. So the loop on its own, with rewards that say nothing about which answer was right, gained a few points, and the real reward added more: on average +18.0 against +6.2, a gap of 11.8 points (18.0 minus 6.2). The demo doesn't show why the controls improved. Whatever it is comes from the loop itself, since their rewards carried nothing about which answer earned them. Rewards that carry no information have raised accuracy before: [Spurious Rewards](https://arxiv.org/abs/2506.10947) (Shao et al.) gave each answer a reward of 1 at random and still saw Qwen2.5-Math-7B gain 21.4 points on MATH-500, against 29.1 with real rewards, while the same rewards did little for Llama and OLMo models. Their explanation runs through PPO's clip, which can't be what happened here: with one inner step per batch the ratio is always 1, and in their own runs set up that way, random rewards "fail to yield consistent performance". [Chen et al.](https://arxiv.org/abs/2512.16912) dispute the clip explanation, so neither paper tells us why these controls gained.
+
+How big each part is, three seeds can't pin down. The real runs differ only in their seed, and ended anywhere from 50.5% to 59.0%; the controls spread from 42.0% to 47.0%. Three runs give a range, and there's no honest error bar to put on either mean, so the claim this receipt supports is that every real run gained more than every control, and not that GRPO's reward adds a particular number of points.
+
+#### Why training reward and test accuracy disagree
+
+Seed 0's training reward, which barely moved while its test score rose 13.0 points, is also a warning about watching the training curve alone. The training reward is measured on sampled answers at $$T = 1$$, on whichever eight questions a step drew, and averaged over steps, so it's noisy and it measures something different from greedy test accuracy. The link can break the other way too: [ToolRL](https://arxiv.org/abs/2504.13958) (Qian et al.) found that "higher training rewards do not necessarily translate to better generalization". A reward curve is a training diagnostic, and the evaluation needs its own held-out set.
+
+#### What we learned
+
+The six runs support three conclusions. GRPO raised held-out accuracy in every run, from a reward that said only right or wrong and never gave the answer. Every real run gained more than every shuffled control, so which answers the reward marked right mattered, though three seeds can't say by how much. And most groups still taught nothing: in every ten-step row of the real runs' logs, between 50.0% and 73.8% of groups had all eight rewards equal.
 
 ---
 
@@ -534,27 +722,47 @@ To count them, the demo sorts every test problem that changed:
 - **format fixed**: the answer wasn't a lone integer, and became the right one. This includes cases like 26 × 83, where the product inside the sentence was wrong too.
 - **broken**: the answer was right, and became wrong.
 
-From [`what_changed`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py), for all three runs:
+From [`what_changed`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py), for all six runs, where `seed N` is a real run and `ctrl N` the control with the same seed:
 
 <!-- RECEIPT: s6b -->
 ```text
-  wrong -> right    seed 0  seed 1  shuffled, seed 0
-  ----------------------------------------------------
-  arithmetic fixed      27      42                 8
-  format fixed           5       5                 0
-  broken                 6       4                16
-  net                   26      43                -8
+  test answers      seed 0  seed 1  seed 2  ctrl 0  ctrl 1  ctrl 2
+  ------------------------------------------------------------------
+  arithmetic fixed      27      42      39      24      16      13
+  format fixed           5       5       5       0       3       0
+  broken                 6       4       5       5      10       4
+  net                   26      43      39      19       9       9
 
   arithmetic fixed: a wrong lone integer became the right one.
   format fixed: not a lone integer became the right one.
   broken: right became wrong. net: problems gained.
 ```
 
-Most of the gain is arithmetic. For seed 0, 27 problems went from a wrong number to the right one and 5 from a sentence to the right number, and 6 that were right broke, for a net gain of 26 problems, the +13.0 points of [§6](#training). Seed 1 fixed more arithmetic, 42, and the same 5 formats. Format couldn't have contributed much either way: 91.0% of the untrained model's greedy answers were already lone integers, so there was little format left to fix.
+Most of the gain is arithmetic. For seed 0, 27 problems went from a wrong number to the right one and 5 from a sentence to the right number, and 6 that were right broke, for a net gain of 26 problems, the +13.0 points of [§6](#training). Seeds 1 and 2 fixed more arithmetic, 42 and 39, and the same 5 formats. Format couldn't have contributed much either way: 91.0% of the untrained model's greedy answers were already lone integers, so there was little format left to fix.
 
-The control is the noise floor. It fixed 8 problems and broke 16, with a reward that carried no information. So changing a model's weights by this much moves a couple of dozen answers whether or not it learns anything, and a seed's 27 or 42 arithmetic fixes should be read against the control's 8, not against zero.
+The controls are the noise floor, and it isn't zero. With rewards that carried nothing about which answer was right, they fixed 24, 19 and 13 problems and broke 5, 10 and 4, for net gains of 19, 9 and 9. Almost all of it is arithmetic; only control 1 fixed any formats, 3. Control 0's 24 arithmetic fixes come close to seed 0's 27. So a seed's net 26, 43 or 39 should be read against the controls' 9 to 19, not against zero.
 
-What this doesn't show is whether the model learned anything new about multiplication or got better at giving answers it could already sometimes produce. [§2](#a-checkable-task) found 44 problems that greedy got wrong but some sample got right, and RL raises the probability of answers the model samples. The demo doesn't check whether the problems it fixed are those same ones, so I can't tell the two stories apart from these receipts.
+Getting more products right can still mean two things. The model could have learned something new about multiplication, or it could have got better at giving answers it could already sometimes produce. Call the second **sharpening**: making an answer the model could already sample its first choice. [§2](#a-checkable-task) found 44 problems that greedy got wrong but at least one of eight samples got right, and RL raises the probability of answers the model samples. A fix among those 44 is sharpening. A fix outside them is a problem where none of the eight samples had been right. From [`what_changed`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py), every fixed problem split by which side of that line it fell on:
+
+<!-- RECEIPT: s6c -->
+```text
+  Fixed problems (arithmetic + format), split by post §2's set: the 44
+  problems the untrained model got wrong greedily but right in >=1 of 8
+  samples.
+
+  fixed problems    seed 0  seed 1  seed 2  ctrl 0  ctrl 1  ctrl 2
+  ------------------------------------------------------------------
+  all fixed             32      47      44      24      19      13
+    in the 44           22      27      28      17      13       9
+    outside the 44      10      20      16       7       6       4
+
+  A fix in the 44 sharpens an answer the model could already sample;
+  a fix outside them is one none of its 8 samples showed.
+```
+
+Most fixes, in every run, are inside the 44, although those are only 35.2% of the 125 problems greedy got wrong ([§2](#a-checkable-task)). Seed 0 fixed 22 of the 44 and 10 of the other 81 (125 minus 44). So most of what training did, real reward or shuffled, was sharpening.
+
+The real runs also fixed 10, 20 and 16 problems outside the 44, against the controls' 7, 6 and 4. That's weaker evidence of a new skill than it looks, because eight samples is a small look: an answer the model writes one time in ten is missed by all eight samples 43% of the time (0.9 to the 8th power is 0.43). Some of those fixes were probably answers the model could already write, just rarely. What the table does show is where the reward's extra gain landed, and it's on both sides of the line: 22 to 28 fixes inside the 44 for the real runs against 9 to 17 for the controls, and 10 to 20 outside against 4 to 7.
 
 ---
 
@@ -570,35 +778,17 @@ Multiplication has a program for a judge. Most of what people want from a chat m
 
 The KL term is there too, in the other place [§5](#one-update) mentioned. InstructGPT adds "a per-token KL penalty from the SFT model at each token" to the reward, so the reward PPO maximizes is the reward model's score minus $$\beta \log\big(\pi^{RL}(y \mid x) / \pi^{SFT}(y \mid x)\big)$$ (Equation 2), with $$\beta = 0.02$$. And it uses PPO's value model, initialized from the reward model.
 
-So RLHF is §3 to §5 with a learned judge and a learned baseline. The judge is the risky part. A program that checks multiplication can't be talked into giving a wrong product a 1, but a reward model is a network trained on a finite set of comparisons, and a policy optimized hard against it can find replies it scores highly that people wouldn't, a failure called **reward hacking**. DeepSeek-R1's authors give it as their reason for scoring with rules (§2.2): "we abstain from applying neural reward models ... susceptible to reward hacking during large-scale reinforcement learning". R1's rules check whether the final answer is right and whether the reasoning sits in the expected format, which is this post's reward with a format check added.
+So RLHF is §3 to §5 with a learned judge and a learned baseline. The judge is the risky part. A program that checks multiplication can't be talked into giving a wrong product a 1, but a reward model is a network trained on a finite set of comparisons, and a policy optimized hard against it can find replies it scores highly that people wouldn't, a failure called **reward hacking**. DeepSeek-R1's authors give it as their reason for scoring reasoning tasks with rules (§2.2): "we abstain from applying neural reward models—whether outcome-based or process-based—to reasoning tasks", because "neural reward models are susceptible to reward hacking during large-scale reinforcement learning". For general data, where no rule can check the answer, R1's later stage does use reward models (§3.1). R1's rules check whether the final answer is right and whether the reasoning sits in the expected format, which is this post's reward with a format check added.
 
-A program can be gamed too, just more narrowly: it rewards exactly what it checks. Here that included the format, and [§7](#what-it-learned) showed the model learning it.
+A program can be gamed too, more narrowly: it rewards what it checks and nothing more. Here it checked the format as well as the number, and the model learned both: format-valid answers went from 91.0% to between 98.0% and 99.0% in the three real runs ([§6](#training)), while most of the gain was arithmetic ([§7](#what-it-learned)).
 
 ---
-
-### Sidebar: questions this post can answer {#sidebar}
-
-Some questions this material gets asked, and what this post's numbers say about them.
-
-> **"The training reward barely moved. Did RL do anything?"**
-
-Check the held-out score before deciding. Here the logged reward for seed 0 went from 0.498 to 0.537 (seed 1's rose more, from 0.425 to 0.591), and seed 0's greedy accuracy on 200 unseen problems went from 37.5% to 50.5%. The training reward is measured on sampled answers at $$T = 1$$, on whichever eight questions a step drew, and averaged over steps, so it's noisy and it measures something different from greedy test accuracy. The link can break the other way too: [ToolRL](https://arxiv.org/abs/2504.13958) (Qian et al.) found that "higher training rewards do not necessarily translate to better generalization". A reward curve is a training diagnostic, and the evaluation needs its own held-out set.
-
-> **"We have the right answers. Why not just fine-tune on them?"**
-
-For multiplication you could, and that's why it's a good task for checking the machinery: the reward can't be wrong. RL is for when you can check an answer but can't write a good one down, or when there are many right answers and you don't want to pick one. The two methods are also closer than they look. [§3](#policy-gradients) showed the policy-gradient step is SFT's step on the model's own answers, weighted by advantage, and with one inner step that's what this demo's training step is, plus the KL term.
-
-> **"61% of our groups give zero advantage. What do we do?"**
-
-Use bigger groups, or spend the samples where they count. §4's table shows the trade: going from 8 to 16 answers per group drops the no-signal share from 0.611 to 0.492, at twice the samples per question. DAPO's dynamic sampling throws away all-right and all-wrong groups and samples more questions instead. And a question the model never gets right can't be fixed by either: no group for it ever contains a right answer to reinforce ([§2](#a-checkable-task)).
-
-> **"Seed 0 gained 13 points and seed 1 gained 21.5. Which goes in the report?"**
-
-Both, and the control beside them. Two seeds that differ this much say the result is real in direction but not in size: the control, with the same loop, lost 4.0 points. Reporting only the better seed, or only the average, hides how much a single run varies. Before claiming a number, run more seeds, and compare every run against a control trained the same way.
 
 ### What's next {#whats-next}
 
 This post trained a model on a score for a task that ends in one number. The posts after it use the same loop for something more useful: teaching a small model to call tools, where a program can check whether the call was right. Post 9 starts from demonstrations, training on examples of good tool calls the way the earlier posts trained on answers, so that the model writes calls often enough for a reward to have something to reinforce.
+
+If you'd like to see GRPO at a larger scale before then, two of my earlier study notes cover it: [a beginner's guide to RL for language models](/posts/cs336-reinforcement-learning-for-language-model/) and [a GRPO run on Qwen2.5-Math-1.5B](/posts/grpo-math-reasoning-lambda-cloud/).
 
 ### Appendix: all notation {#appendix-all-notation}
 
@@ -632,7 +822,7 @@ The terms this post leans on; anything not listed is defined where it first appe
 | $$k_3$$, $$d_{i,t}$$ | Schulman's KL estimate $$e^{d} - d - 1$$, with $$d = \log \pi_{\text{ref}} - \log \pi_\theta$$ | §5 |
 | $$\beta$$ | the weight on the KL term | 0.04 |
 | reference model $$\pi_{\text{ref}}$$ | the frozen model the KL is measured against | the same network, adapters off |
-| control | the same training with each batch's rewards shuffled among its answers | §6 |
+| control | the same training with each group's rewards shuffled among its answers, so a 1 no longer says which answer was right | §6, three seeds |
 | reward model | a network trained on people's rankings to score replies; RLHF's judge | §8 |
 | reward hacking | a policy finding replies its judge scores highly that aren't actually good | §8 |
 
@@ -642,9 +832,11 @@ The terms this post leans on; anything not listed is defined where it first appe
 - Schulman et al., [Proximal Policy Optimization Algorithms](https://arxiv.org/abs/1707.06347) (2017) — PPO. Equation 1 is the policy-gradient estimator with an advantage, cited in §3; Equation 7 is the clipped objective of §5, with "say, ϵ = 0.2" and the clip described as "a lower bound (i.e., a pessimistic bound)" (§3).
 - Ouyang et al., [Training language models to follow instructions with human feedback](https://arxiv.org/abs/2203.02155) (2022) — InstructGPT, §8's recipe: the three steps (§3.1), a 6B reward model trained on rankings of 4 to 9 replies with the pairwise loss of Equation 1, because "175B RM training could be unstable" (§3.5), and PPO with "a per-token KL penalty from the SFT model at each token" in the reward (Equation 2, $$\beta = 0.02$$ in Appendix C.4).
 - Shao et al., [DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models](https://arxiv.org/abs/2402.03300) (2024) — introduces GRPO (§4.1), with a learned reward model. The value model is "a substantial memory and computational burden"; the group-normalized advantage (§4.1.2) and the objective of Equation 3 are what §4 and §5 implement; the KL is added "to the loss" rather than the reward, estimated as in Equation 4; training used $$\beta = 0.04$$, 64 answers per question, and "a single update following each exploration stage" (§4.2). Figure 7 is §2's majority-vote versus at-least-one result.
-- DeepSeek-AI, [DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning](https://arxiv.org/abs/2501.12948) (Nature 2025) — GRPO with rule-based rewards for accuracy and format (§2.2), a per-answer ratio, and the reason given in §8: "we abstain from applying neural reward models ... susceptible to reward hacking during large-scale reinforcement learning".
+- DeepSeek-AI, [DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning](https://arxiv.org/abs/2501.12948) (arXiv v2, 2025; published in Nature 645 as "DeepSeek-R1 incentivizes reasoning in LLMs through reinforcement learning"; section numbers here are arXiv v2's) — GRPO with rule-based rewards for accuracy and format (§2.2), a per-answer ratio, and the reason given in §8: "we abstain from applying neural reward models—whether outcome-based or process-based—to reasoning tasks", because they "are susceptible to reward hacking during large-scale reinforcement learning".
 - Schulman, [Approximating KL Divergence](http://joschu.net/blog/kl-approx.html) (2020) — the $$k_3$$ estimator of §5, $$(r - 1) - \log r$$ for a probability ratio $$r$$, unbiased and "guaranteed to be positive" (never negative).
 - Yu et al., [DAPO: An Open-Source LLM Reinforcement Learning System at Scale](https://arxiv.org/abs/2503.14476) (NeurIPS 2025) — dynamic sampling (§3.2), which keeps only groups with some right and some wrong answers because "A zero advantage results in zero policy gradients". Cited in §4.
 - Liu et al., [Understanding R1-Zero-Like Training: A Critical Perspective](https://arxiv.org/abs/2503.20783) (COLM 2025) — Dr. GRPO: the length bias of dividing by $$\lvert o_i \rvert$$ and the difficulty bias of dividing by the group's standard deviation (§3.1), and a version without either (§3.2). Cited in §4.
-- Qian et al., [ToolRL: Reward is All Tool Learning Needs](https://arxiv.org/abs/2504.13958) (NeurIPS 2025) — GRPO for tool calls, scored against reference calls; quoted in the sidebar: "higher training rewards do not necessarily translate to better generalization".
+- Qian et al., [ToolRL: Reward is All Tool Learning Needs](https://arxiv.org/abs/2504.13958) (NeurIPS 2025) — GRPO for tool calls, scored against reference calls; quoted in §6: "higher training rewards do not necessarily translate to better generalization".
+- Shao et al., [Spurious Rewards: Rethinking Training Signals in RLVR](https://arxiv.org/abs/2506.10947) (ICML 2026; quotes from arXiv v2) — random rewards ("all responses receive a reward of 1 with chance indicated by the parameter", §2.2) raised Qwen2.5-Math-7B's MATH-500 accuracy by 21.4 points against 29.1 with ground-truth rewards, and rarely helped Llama or OLMo models (§3). They attribute it to a clipping bias, which they call a conjecture (Appendix B.1), and report that with clipping removed, including by "a single gradient update ... per rollout", random rewards "fail to yield consistent performance" (§4). Cited in §6.
+- Chen et al., [Exploration vs Exploitation: Rethinking RLVR through Clipping, Entropy, and Spurious Reward](https://arxiv.org/abs/2512.16912) (2025) — with Qwen2.5-Math-7B and random rewards, "disabling clipping often results in improvement", and they conclude "upper clipping bias is not the mechanism driving the observed gains under random rewards" (§3.2). Cited in §6.
 - Qwen Team, [Qwen2.5 Technical Report](https://arxiv.org/abs/2412.15115) (2024) — the model family, including the instruction-tuned 0.5B used here (§1).
