@@ -4,7 +4,9 @@ Han's Jekyll (Chirpy) blog. Pushing `main` deploys the live site through GitHub 
 
 - **LLM Architecture Refresh series** (`_posts/*-llm-architectures-*.md`, code in
   `~/Documents/GitHub/llm-architectures-refresher`): read `~/.claude/projects/-Users-hanyu/memory/MEMORY.md`
-  first. All series memories live there, not in this project's memory folder.
+  first. All series memories live there, not in this project's memory folder. Status and plans are in
+  `~/Documents/GitHub/research-content-assistant/plans/`; the map of where every kind of context lives is that
+  repo's `CONTEXT.md`.
 - **Review and publishing go through `/research:publish`**, from the `research` plugin in
   `~/Documents/GitHub/research-content-assistant` (enabled in `.claude/settings.json`; its agents are
   `research:auditor`, `research:first-reader`, `research:promo-writer`). Han approves each post on his phone
