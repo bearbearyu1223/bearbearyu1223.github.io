@@ -1,6 +1,6 @@
 ---
 title: "Agentic Workflows [1]: Honeyguide: building an agent that learns a new codebase (and checking that it did)"
-date: 2026-12-12 09:00:00 -0800
+date: 2026-11-16 09:00:00 -0800
 categories: [Agentic Workflows, Code Understanding]
 tags: [agentic-workflow, claude-code, subagents, coding-agents, code-understanding, evaluation]
 description: >-
@@ -37,9 +37,9 @@ Can an agent learn a codebase once, so I don't pay for it to re-read the repo wi
 
 **What it is** ([§2](#whats-in-the-build)). Honeyguide is five roles in Claude Code: a 🗺️ **Cartographer** that explores the repo and writes the map, an 🔦 **Investigator** that answers questions, a 🧵 **Tracer** that answers "what happens when..." questions as a path through the code, a ✅ **Checker** that re-reads each claim against the lines it cites, and the 🧭 **Guide**, the Claude Code session you're already in, which hands each question to the right agent. Everything exact (finding line numbers, hashing code, reading git) is a plain script. The page never starts Claude: a question asked on the map waits in an inbox until the session picks it up.
 
-**How it's kept honest** ([§3](#how-its-kept-honest)). An agent never types a line number. It quotes the code it means, and a script finds those lines at a pinned commit, so every pointer on the map resolves to real code. That proves the lines exist, and nothing more, so each claim also says what kind of evidence it rests on (read in the source, asserted by a test, seen when the code ran, inferred, and so on), and a separate Checker reads the cited lines again and marks whether they support the claim. For flows, a script runs the code on a toy input and records which functions actually ran, which catches paths that reading alone gets wrong. When the code changes, claims whose lines changed are marked stale and aren't served as fact until they're re-checked.
+**How it's kept honest** ([§3](#how-its-kept-honest)). An agent never types a line number. It quotes the code it means, and a script finds those lines at a pinned commit, so every pointer on the map resolves to real code. That proves the lines exist, and nothing more, so each claim also says what kind of evidence it rests on (read in the source, asserted by a test, seen when the code ran, inferred, and so on), and a separate Checker reads the cited lines again and marks whether they support the claim. For flows, a script runs the code on a toy input and records which functions actually ran (a **runtime trace**), which catches paths that reading alone gets wrong. When the code changes, claims whose lines changed are marked stale and aren't served as fact until they're re-checked.
 
-**The test** ([§5](#does-the-map-pay-off)). Two repos, each pinned to one commit: Andrej Karpathy's nanochat, mostly written before the model's training cutoff, and waku-agent, a personal assistant agent written after it. The same model answers the same frozen questions four ways: with no access to the code, exploring the repo, exploring with a free script-built outline, and exploring with the map. Splitting the questions by whether their code predates the model's cutoff separates learning the repo from remembering it.
+**The test** ([§5](#does-the-map-pay-off)). Two repos, each pinned to one commit: Andrej Karpathy's nanochat, mostly written before June 2026, the training cutoff of the Claude models used here, and waku-agent, a personal assistant agent written after it. The same model answers the same frozen questions four ways: with no access to the code, exploring the repo, exploring with a free script-built outline, and exploring with the map. Splitting the questions by whether their code predates the model's cutoff separates learning the repo from remembering it.
 
 <!-- TODO(draft): the results paragraph, written from outputs/eval_<repo>.txt once the eval has run: the paired
 differences map - explore, map - outline, explore - no-access with their 95% CIs; learning vs remembering on the
@@ -51,8 +51,6 @@ before/after-cutoff subsets; cost per correct answer and the break-even point, o
 ### Setup
 
 The code is in [Honeyguide](https://github.com/bearbearyu1223/honeyguide), a separate repo from the LLM Architecture Refresh series, but this post follows that series' rule: every number below is printed by a program, and each block of program output, a **receipt**, is pasted byte for byte from a capture in the repo's `outputs/` folder. Next to the receipts is the **recipe**: the exact command that prints them.
-
-<!-- TODO(draft): the Honeyguide repo goes public at publish; check the link resolves then. -->
 
 You'll need Claude Code and [uv](https://docs.astral.sh/uv/), the Python package manager the series uses. Honeyguide's own scripts use only Python's standard library.
 
@@ -127,7 +125,7 @@ Honeyguide is my attempt at both: a map that's checked against the code claim by
 
 ### 2. What's in the build {#whats-in-the-build}
 
-Honeyguide is built from three things Claude Code already provides, plus a page and some scripts.
+Honeyguide is built from pieces Claude Code already provides, plus a page and some scripts. It's one plugin: the Guide is its `honeyguide` skill, and the other four roles are its subagents.
 
 - A **subagent** is a separate Claude instance that the main conversation starts for one task. In the docs' words, "Each subagent runs in its own context window with a custom system prompt, specific tool access, and independent permissions", and it starts from a "fresh, isolated context window" ([Claude Code docs, subagents](https://code.claude.com/docs/en/sub-agents)). It does the task in its own context "and returns only the summary", so the main conversation gets the report without everything the subagent read.
 - A **skill** is a `SKILL.md` file of instructions that Claude Code loads automatically when it's relevant, or that you call by name with `/skill-name`. A **plugin** bundles skills, subagents and a few other kinds of add-on into one package ([Claude Code docs, glossary](https://code.claude.com/docs/en/glossary)).
@@ -160,12 +158,12 @@ What happens to a question is the part I cared most about getting right:
 3. That agent works in its own context, with the map and any earlier answers about the same code as a starting point.
 4. The answer is written back to disk, and the page shows it next to your question.
 
-The page never starts Claude itself. Everything runs in the one session you opened, under the permissions you gave it, and you can watch it in the terminal. RepoRabbit has an option to launch Claude Code in the background whenever a question was saved; here, nothing runs that you didn't start.
+The page never starts Claude itself. Everything runs in the one session you opened, under the permissions you gave it, and you can watch it in the terminal. RepoRabbit has an option to launch Claude Code in the background whenever a question is saved; here, nothing runs that you didn't start.
 
 <!-- TODO(draft): confirm against the v1 code how the session notices the inbox (watcher, hook or polling), and say
 it in one sentence. -->
 
-While agents work, their avatars (the emoji above) animate in the panel beside the thread they're working on, with one small indicator at the top of the map when the panel is closed. Every answer names the agent that wrote it, and a follow-up on an answer remembers which words you selected, so a thread can branch.
+While agents work, their avatars (small honey-drop faces, one per role) animate in the panel beside the thread they're working on, with one small indicator at the top of the map when the panel is closed. Every answer names the agent that wrote it, and a follow-up on an answer remembers which words you selected, so a thread can branch.
 
 <!-- FIGURE F2 (mechanism; role names and emoji): the page never starts Claude. Page -> inbox -> one Claude Code
 session (the Guide) -> Cartographer / Investigator / Tracer / Checker -> answer written back -> page. -->
@@ -191,7 +189,7 @@ An **anchor** is a claim's pointer into the code. The agent writing a claim supp
 
 From the resolved lines the script also builds the two links in the code preview: a GitHub permalink pinned to that exact commit, so it shows the same lines next year, and an "open in editor" link to the line in your local copy. If the quoted text can't be found, or turns up in more than one place, the script refuses to save the claims and lists each problem, so the agent has to fix its quote.
 
-That's a real guarantee, but a narrow one. An anchor proves the cited lines exist at that commit. It doesn't prove that they say what the claim says. A claim that a function retries on a timeout can point at the right function, and resolve perfectly, when the function never retries at all. Catching that takes the next two guards.
+That's a real guarantee, but a narrow one. An anchor proves the cited lines exist at that commit. It doesn't prove that they say what the claim says. A claim that a function retries on a timeout can point at the right function, and resolve perfectly, when the function never retries at all. Catching that is the Checker's job, and for flows, the runtime trace's.
 
 #### Evidence labels {#evidence-labels}
 
@@ -207,13 +205,13 @@ Each claim carries a label saying what kind of evidence it rests on:
 | searched, not found | the agent looked for something and it isn't there |
 | general knowledge (not from this repo) | true in general, like how a library function behaves, and not a claim about this code |
 
-On the page each label is a small shape beside the claim (a solid dot, a ring, a diamond and so on), so you can tell them apart without relying on colour, with the label's name on hover. Agents mix general knowledge into answers about specific code all the time, and the last label keeps it from passing as something the repo says. It has no anchor, and the Checker skips it.
+On the page each label is a small shape beside the claim, so you can tell them apart without relying on colour, with the label's name on hover: a solid dot for read in source, a small square for a test, a ringed dot for seen at runtime, a triangle for docs, a ring for inferred, a dotted ring for searched, not found, and an outlined diamond for general knowledge. Agents mix general knowledge into answers about specific code all the time, and the last label keeps it from passing as something the repo says. It has no anchor, and the Checker skips it.
 
 #### The Checker {#the-checker}
 
-The Checker re-reads each claim next to the lines it cites and gives one verdict: supported or not supported. It works in the background. An answer appears as soon as it's written, its claims gain a small check mark as they're checked, and a claim the Checker doesn't accept gets a quiet flag with the reason, rather than being deleted. The Checker reports; it never edits.
+The Checker re-reads each claim next to the lines it cites and gives one verdict: supported or not supported. It works in the background. An answer appears as soon as it's written. Each claim shows its evidence shape once the Checker has passed it (in an answer, a small check mark too), and a claim the Checker doesn't accept gets a quiet flag with the reason, rather than being deleted. The Checker reports; it never edits.
 
-On the first real maps it turned a lot down. In run 2, the second build of each map ([§4](#the-first-maps) has how the first one went), it marked 102 of nanochat's claims not supported, and 47 of waku-agent's. Going by its notes, most of them were true but cited too few lines to show it.
+On the first real maps it turned a lot down. I built each map twice: run 1 with the Cartographer's first instructions, and run 2 from scratch with rewritten ones ([§4](#the-first-maps) has why). In run 2 it marked 102 of nanochat's 260 claims not supported, and 47 of waku-agent's 266. Going by its notes, most of them were true but cited too few lines to show it.
 
 So the Checker's verdicts now feed a **repair pass**. The Cartographer gets back each claim the Checker turned down, with the Checker's note, and does one of three things: cites more lines (it widens the claim's anchors), rewrites the claim to say only what the cited lines show (it narrows it), or retires it. The Checker then re-checks only the claims that changed. That's one round, and there are at most two. A claim that's still not supported after that keeps its flag, and the page lists it under **Needs a look**. Here's what the pass did to both maps, from [`capture.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/runs/capture.py), which reads the saved records of these runs:
 
@@ -248,7 +246,7 @@ means it was not supported after round r-1) and its current check.
 
 Run 1, the first build, had no repair pass, so its flags stayed. In run 2, round 1 cleared nearly all the flags, most of them by citing more lines, and round 2 cleared the rest without retiring anything. Both maps ended with every claim supported.
 
-That turned out to be too good. While I was recording the demo in [§4](#two-live-questions), I asked how each of nanochat's layers gets its attention window, meaning how many of the earlier tokens a layer can look back over. nanochat gives each layer one of two windows: L (long) covers the whole context, and S (short) a quarter of it, rounded up to a multiple of 128 ([`gpt.py`, line 302](https://github.com/karpathy/nanochat/blob/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd/nanochat/gpt.py#L302)). The Tracer's answer worked the S window out as 512 tokens for a 2048-token context, and pointed out that the comment on that line says 768. I selected those words and asked whether anything else still says 768. The Investigator found that the map did, in a claim the Checker had passed:
+That turned out to be too good. While I was recording an earlier cut of the demo ([§4](#two-live-questions)), I asked how each of nanochat's layers gets its attention window, meaning how many of the earlier tokens a layer can look back over. nanochat gives each layer one of two windows: L (long) covers the whole context, and S (short) a quarter of it, rounded up to a multiple of 128 ([`gpt.py`, line 302](https://github.com/karpathy/nanochat/blob/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd/nanochat/gpt.py#L302)). The Tracer's answer worked the S window out as 512 tokens for a 2048-token context, and pointed out that the comment on that line says 768, which is what the same formula gives for a third of the context: the line divided by 3 until a later commit changed it to 4 and left the comment alone. I selected those words and asked whether anything else still says 768. The Investigator found that the map did, in a claim the Checker had passed:
 
 <!-- RECEIPT: runs-example-d -->
 ```text
@@ -351,9 +349,9 @@ The new rule turned down 39 claims on nanochat and 13 on waku-agent that had pas
         2**attempt and .tmp-then-rename are correct.
 ```
 
-The repair pass fixed most of them. The 4 claims on nanochat and the 1 on waku-agent that it couldn't fix are still flagged under Needs a look.
+The repair pass fixed most of them. The 4 claims on nanochat and the 1 on waku-agent that it couldn't fix are still flagged under Needs a look. Two of nanochat's 4 got only one try in this pass: each had been repaired once already in run 2, and the cap then counted every repair a claim had ever had, so they were out of rounds. The cap now counts two rounds per pass.
 
-None of this makes the Checker proof. It's still Claude checking Claude, and the 768 claim got past it once. So I checked a sample of its verdicts myself.
+None of this makes the Checker proof: the 768 claim got past it once. So I checked a sample of its verdicts myself.
 
 <!-- TODO(draft): Han's hand check hasn't happened yet. Receipt: my agreement with the Checker on a hand-checked sample
 of the final maps' verdicts (after the re-check). Anchors resolved / total isn't printed by any capture yet; claims by
@@ -365,7 +363,7 @@ evidence label are in the maps block (§4). -->
 
 Questions about flow, like "what runs, in order, when the model computes its loss?", are where reading code goes wrong most easily. The reason is **dynamic dispatch**: which function a call reaches is decided when the program runs, not written down at the call. `self.attn(x)` runs whatever object `attn` happens to hold, and from the text alone you often can't tell which class that is. An agent reading the code has to infer it.
 
-So Honeyguide can also watch the code run. Python lets a program register a function that it calls on every function call and return, through [`sys.setprofile`](https://docs.python.org/3.12/library/sys.html#sys.setprofile). It gets a `'call'` event each time a Python function is entered, and separate events (`'c_call'`, `'c_return'`, `'c_exception'`) when Python calls a function written in C. The trace script registers one, runs a small **entry point** (a few lines that build a toy model or a fake client and call into the repo), and keeps only the calls whose code lives in the repo's own package. The result is the ordered list of repo functions that actually ran, each with the file and line where it's defined.
+Honeyguide can also watch the code run. Python lets a program register a function that it calls on every function call and return, through [`sys.setprofile`](https://docs.python.org/3.12/library/sys.html#sys.setprofile). It gets a `'call'` event each time a Python function is entered, and separate events (`'c_call'`, `'c_return'`, `'c_exception'`) when Python calls a function written in C. The trace script registers one, runs a small **entry point** (a few lines that build a toy model or a fake client and call into the repo), and keeps only the calls whose code lives in the repo's own package. The result is the ordered list of repo functions that actually ran, each with the file and line where it's defined.
 
 Here's nanochat building a toy two-layer model, from [`capture.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/trace/capture.py). Indentation is call depth, and `x2` means the same call twice in a row:
 
@@ -388,7 +386,7 @@ GPT.init_weights                                                gpt.py:203
 
 A few things show up even here. `_precompute_rotary_embeddings` runs twice, once while the model is built and again in `init_weights`, which is easy to miss when reading. And `print0`, a logging helper, sits in the middle of the path, so the trace needs filtering before it can serve as an answer key ([§5](#does-the-map-pay-off)).
 
-The trace has blind spots, and it prints them. A call into compiled code shows up as one `'c_call'` event, and as far as I can tell nothing that code does inside it shows up at all, so work done in compiled code is invisible. (Python's docs don't spell that last part out; it's my reading, and the backward step below fits it.) Here are the phases of the nanochat run, counted:
+The trace has blind spots, and it prints them. A call into compiled code shows up as one `'c_call'` event. If that code calls back into a Python function, the call shows up as usual, but as far as I can tell nothing else it does shows up, including its calls to other compiled code, so work done in compiled code is invisible. (Python's docs don't spell that last part out; it's my reading, and the backward step below fits it.) Here are the phases of the nanochat run, counted:
 
 <!-- RECEIPT: trace-nc-phases -->
 ```text
@@ -450,7 +448,7 @@ What this toy run skips (read from the code at this commit)
     nanochat/engine.py:259
 ```
 
-A function whose results are cached doesn't run again on a repeat call, so a trace undercounts those calls too. Where the trace can see, it's exact, and it reproduces. Run twice in fresh processes, and a third time with a different hash seed (the number Python uses to randomize its dictionaries), the path of repo calls came out identical; only the wall time is measured rather than counted:
+(The short window is 128 here, not 512, because the toy model's context is 32 tokens and a quarter of that rounds up to 128.) A function whose results are cached doesn't run again on a repeat call, so a trace undercounts those calls too. Where the trace can see, it's exact, and it reproduces. Run twice in fresh processes, and a third time with a different hash seed (the number Python uses to randomize its dictionaries), the path of repo calls (the 332 kept calls plus the 4 resumes, 336 events) came out identical. The count of all Python calls moved with the hash seed, 9877 against 9748, but none of that change was in the repo's code. Only the wall time is measured rather than counted:
 
 <!-- RECEIPT: trace-nc-repro -->
 ```text
@@ -461,7 +459,7 @@ Reproducibility (fresh process per run)
   kept path, run 1 vs control, PYTHONHASHSEED=1:
     identical (336 events)
   raw calls, runs then control: 9748 / 9748 / 9877
-  wall time, runs then control: 1.1 s / 1.1 s / 1.1 s
+  wall time, runs then control: 1.3 s / 1.1 s / 1.1 s
 ```
 
 Reading and running catch different things. The eval's "what calls X?" questions (§5) take their answers from both: a parse of the source into its **syntax tree** (the AST, the structure Python builds from the text before running it) gives every call it can resolve, and the trace adds calls the AST can't. For nanochat's ten callers questions:
@@ -514,7 +512,7 @@ nothing stale is served as fact. What happened to each saved claim, and refresh 
 
 Here's the page on nanochat's map, in the order a reader meets it. The screenshots are of the real page serving the run 2 map described [below](#the-first-maps), and they follow this post's light or dark theme.
 
-The page opens on a card about the repo itself: its link, the description line from its README, its languages, licence, contributors and history, and the commit the map was made at. The line at its foot says whether the map is still current at that commit. A script reads all of this from git and the repo's files, so none of it is a claim and none of it carries an evidence mark. On the left, the outline lists each Overview topic, each module by its short name and each flow, and marks the one you're reading as you scroll. **Find** (press `/`) filters the outline and searches the map's text.
+The page opens on a card about the repo itself, with the commit the map was made at and a line at its foot saying whether the map is still current there. A script reads everything on it from git and the repo's files, so none of it is a claim and none of it carries an evidence mark. On the left, the outline lists each Overview topic, each module by its short name and each flow, and marks the one you're reading as you scroll. **Find** (press `/`) filters the outline and searches the map's text.
 
 ![The top of the Honeyguide page for nanochat. A card names the repo with a link to github.com/karpathy/nanochat, quotes the README's description, shows a language bar for Python and Shell, and lists the licence, contributors, GitHub status and history, with the mapped-at commit in its corner and a line at its foot saying the map is up to date at that commit. On the left, the outline lists the Overview's topics and the modules by name, with a Find box above them](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/tour-repo-card-light.png){: .light width="1000" height="625" }
 ![The top of the Honeyguide page for nanochat. A card names the repo with a link to github.com/karpathy/nanochat, quotes the README's description, shows a language bar for Python and Shell, and lists the licence, contributors, GitHub status and history, with the mapped-at commit in its corner and a line at its foot saying the map is up to date at that commit. On the left, the outline lists the Overview's topics and the modules by name, with a Find box above them](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/tour-repo-card-dark.png){: .dark width="1000" height="625" }
@@ -548,8 +546,6 @@ And here's the loop in motion, from the demo I recorded on this page: click `gpt
 
 ![A screen recording of the Honeyguide page on nanochat's map, light theme only. The pointer clicks gpt.py on the component map and the map goes into focus mode; Ask about this component opens the panel with the question "What does gpt.py do, and how do the components around it use it?" and it is sent. A terminal in the lower left shows the Claude Code session claiming the question and handing it to the Investigator, while a yellow badge marks the stretch as sped up. The answer appears in the panel with grey chips citing lines of gpt.py, the Checker's marks arrive beside its claims, and a caption at the top reports how many claims pass](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/honeyguide-demo.gif){: width="960" height="600" .shadow }
 _One question, from a click on the component map to a checked answer. The recording is in the light theme only._
-
-<!-- TODO(draft): the Honeyguide repo goes public at publish; check the video link resolves then. -->
 
 The [full video](https://github.com/bearbearyu1223/honeyguide/blob/main/demo/honeyguide-demo.mp4) also shows the outline and Find, a code preview, and a flow diagram in full screen, and the [demo's README](https://github.com/bearbearyu1223/honeyguide/blob/main/demo/README.md) lists every stretch that was sped up and by how much.
 
@@ -638,7 +634,7 @@ A warning is one problem in one block; a block with several kinds of problem, or
 
 #### Two questions, asked live {#two-live-questions}
 
-The demo video shows the loop from [§2](#whats-in-the-build) on the nanochat map, with two real questions. For the recording, each was answered by a non-interactive session (`claude -p`) started as the question was sent, standing in for the session you'd normally have open. The first question was about the attention windows in [§3](#the-checker), and the Guide routed it to the Tracer, because it asks how something gets from one place to another. The second was a follow-up, asked by selecting words in the first answer, and it went to the Investigator:
+I asked two real questions on the nanochat map while recording an earlier cut of the demo (the video above is a later take, with one question). For that recording, each was answered by a non-interactive session (`claude -p`) that my recording script started as the question was sent, standing in for the session you'd normally have open, so the page still didn't start Claude. The first question was about the attention windows in [§3](#the-checker), and the Guide routed it to the Tracer, because it asks how something gets from one place to another. The second was a follow-up, asked by selecting words in the first answer, and it went to the Investigator:
 
 <!-- RECEIPT: runs-demo -->
 ```text
@@ -684,7 +680,7 @@ A map costs something to build, so the question is whether answers from it are b
 
 #### Four conditions
 
-The same model answers the same questions in four conditions. Every run gets the same instructions, the same answer format, and the same tools; the only difference is what extra file it's given.
+The same model answers the same questions in four conditions. Every run gets the same instructions and the same answer format. The three conditions that can see the repo also get the same tools, and differ only in what extra file they're given.
 
 | Condition | Working folder | Tools | Extra context | Passes per question |
 | --- | --- | --- | --- | --- |
@@ -697,11 +693,13 @@ The same model answers the same questions in four conditions. Every run gets the
 
 <!-- FIGURE F5 (mechanism; the condition table above): the four conditions differ only in the extra file they get. -->
 
-The **no-access** run is the control: if the model answers a question with no code at all, it knew the answer already. The **outline** is the free baseline. It costs nothing to build, so if the map can't beat it, the thing paying off is an index, and the learning isn't. **Read, Grep and Glob** are Claude Code's tools for reading a file, searching file contents, and finding files by name.
+An agent's answer to the same question can change from run to run, so the conditions that read the repo answer each question more than once (the last column), and the map condition answers it once on each of three maps built independently, so a result doesn't hang on one good or bad map. The **no-access** run is the control: if the model answers a question with no code at all, it knew the answer already. The **outline** is the free baseline. It costs nothing to build, so if the map can't beat it, the thing paying off is an index, and the learning isn't. **Read, Grep and Glob** are Claude Code's tools for reading a file, searching file contents, and finding files by name.
 
 The maps for the test are built by the Cartographer's instructions with the same three tools, with no shell and no runtime trace. So the test measures the instructions and the map they produce. It doesn't measure the page, the Guide, or the Tracer agent; flow questions are answered with the same instructions as every other question.
 
-**Isolation.** Each run must see only what its condition gives it. Every run starts in a fresh configuration folder with no settings files, no MCP servers (add-on tool servers Claude Code can connect to), no saved sessions and no auto-memory, works on a fresh copy of the pinned commit with no `.git` folder, and has the repos' own agent files (nanochat's `.claude/`, waku-agent's `AGENTS.md`, `CLAUDE.md` and `.claude/`) removed. Maps, outlines, questions and answer keys live outside every working folder. Claude Code's `--bare` mode would have done much of this in one flag, but it "doesn't use your subscription login": it needs an API key, set in `ANTHROPIC_API_KEY` or supplied by an `apiKeyHelper` script ([Claude Code docs, non-interactive mode](https://code.claude.com/docs/en/headless)). These runs use a subscription, so they set each piece separately (`--setting-sources ""`, `--strict-mcp-config`, `--no-session-persistence`, and auto-memory switched off). They also pass `--exclude-dynamic-system-prompt-sections`, which doesn't remove the per-machine parts of Claude Code's system prompt (the working folder, environment details, memory paths and git status); it moves them into the first user message ([CLI reference](https://code.claude.com/docs/en/cli-reference)). So the runs can still see those details, and a pilot checked what they contain: each condition recited its own context, and a script scanned that for anything personal. The tools each condition gets are named in `--tools`, because the default set on macOS and Linux leaves out Glob and Grep.
+**Isolation.** Each run must see only what its condition gives it. Every run starts in a fresh configuration folder with no settings files, no MCP servers (add-on tool servers Claude Code can connect to), no saved sessions and no auto-memory, works on a fresh copy of the pinned commit with no `.git` folder, and has the repos' own agent files (nanochat's `.claude/`, waku-agent's `AGENTS.md`, `CLAUDE.md` and `.claude/`) removed. Maps, outlines, questions and answer keys live outside every working folder.
+
+Claude Code's `--bare` mode would have done much of this in one flag, but it "doesn't use your subscription login": it needs an API key, set in `ANTHROPIC_API_KEY` or supplied by an `apiKeyHelper` script ([Claude Code docs, non-interactive mode](https://code.claude.com/docs/en/headless)). These runs use a subscription, so they set each piece separately (`--setting-sources ""`, `--strict-mcp-config`, `--no-session-persistence`, and auto-memory switched off). They also pass `--exclude-dynamic-system-prompt-sections`, which doesn't remove the per-user context in Claude Code's system prompt, such as the auto-memory location; it moves it into the first user message ([CLI reference](https://code.claude.com/docs/en/cli-reference)). Details like the working folder, platform, shell and OS version are in the conversation anyway, not the system prompt ([Agent SDK, modifying system prompts](https://code.claude.com/docs/en/agent-sdk/modifying-system-prompts)). So the runs can still see those details, and a pilot checked what they contain: each condition recited its own context, and a script scanned that for anything personal. The tools each condition gets are named in `--tools`, because the default set on macOS and Linux leaves out Glob and Grep.
 
 <!-- TODO(draft): a receipt from the isolation pilot (leak scans clean per run, no user, memory or git in the recited
 context, including the sections moved into the first user message) once its capture is printed without
@@ -718,7 +716,7 @@ The questions were generated by a script and frozen, with their answer keys, in 
 | flow | an entry point and a config: "which repo functions run, in order?" | the runtime trace, filtered to repo code; I mark which hops are required | required hops found, their order, and hops that appear in neither the trace nor the AST |
 | why/how | written by me, about ten per repo, with a rubric | my rubric | graded by me blind, with the condition hidden and the order shuffled |
 
-Two examples from nanochat, from [`generate.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/questions/generate.py). The tag in brackets is explained below:
+Two examples from nanochat, from [`generate.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/questions/generate.py). The tag in brackets says whether the answer's code was written before or after the model's training cutoff, more on that below:
 
 <!-- RECEIPT: q-nc-examples -->
 ```text
@@ -772,7 +770,7 @@ Callers questions name their target by design; that's the question.
 
 A model's **training cutoff** is the date after which it saw no training data. Anthropic gives it only to the month: the two models I'm choosing between for these runs, Claude Opus 5.5 and Claude Sonnet 5.5, both list "Reliable knowledge cutoff: Jun 2026", and the same month for their training data ([Anthropic, models overview](https://platform.claude.com/docs/en/about-claude/models/overview)). Code written before the cutoff may be in the model's training data, so a good answer about it could be **memorization**, the model recalling text it was trained on, rather than reading. Code written after the cutoff can only be answered by reading it.
 
-There's evidence that this happens with code. Given only the text of a bug report, "without access to repository structure", models from the Claude 4 generation and earlier named the file with the bug up to 76% of the time on SWE-Bench Verified, a widely used benchmark built from bug reports in public repos, against at most 53% on repos outside it ([SWE-Bench Illusion](https://arxiv.org/abs/2506.12286)). The pattern held on reports that don't mention a file path (§4.2). On competition programming problems, [LiveCodeBench](https://arxiv.org/abs/2403.07974) scored models on "problems released after the cutoff date" and found a "stark drop" for one DeepSeek coding model on problems from after August 2023, while Claude 3 showed no such drop (§5.1). Neither study tested the models used here, or questions about how a repo's code fits together, so this test checks for it directly.
+There's evidence that this happens with code. Given only a repo's name and the text of a bug report, "without access to repository structure", ten OpenAI and Anthropic models released by May 2025 (up to o3 and Claude 4) named the file with the bug up to 76% of the time on SWE-Bench Verified, a widely used benchmark built from bug reports in public repos, against at most 53% on repos outside it ([SWE-Bench Illusion](https://arxiv.org/abs/2506.12286)). The pattern held on reports that don't mention a file path (§4.2). On competition programming problems, [LiveCodeBench](https://arxiv.org/abs/2403.07974) scored models on "problems released after the cutoff date" and found a "stark drop" for one DeepSeek coding model on LeetCode problems from after August 2023, while Claude 3 showed no such drop (§5.1). Neither study tested the models used here, or questions about how a repo's code fits together, so this test checks for it directly.
 
 So each question is tagged by when its answer's code was written, using `git blame` (which records the commit that last changed each line): a question counts as *after* when at least half of its key's lines changed after the cutoff. The generator takes the cutoff as a parameter, and these captures use 2026-06-30. The docs give the cutoff only as a month, June 2026, so code changed during June could fall on either side of it. None of the code these questions are about was changed in June 2026.
 
@@ -811,7 +809,7 @@ The two repos play opposite parts. If the no-access control does well on nanocha
 
 Results are paired by question: each question is answered in every condition, and the comparison is the difference on the same question. The headline differences are map minus explore, map minus outline, and explore minus no access, pooled over each repo's questions, with 95% intervals from resampling the questions (a **bootstrap**). Results per question type are descriptive only, since no type has more than a dozen questions in a repo. A run that hits its limit or fails counts as wrong, and those runs are reported, never quietly re-run.
 
-Cost is counted in tokens of four kinds: **input**, **output**, **cache writes** and **cache reads**. An agent sends the same start of the prompt (its instructions, the files it has already read) with every request, so that start, the **prefix**, can be cached. Saving a prefix is a cache write, priced at 1.25x the base input price if it's kept for 5 minutes or 2x if it's kept for an hour, and Claude Code on a subscription keeps it for an hour. A cache read is input read from a prefix that an earlier request cached, priced at 0.05x the base input price on Claude Opus 5.5 and Sonnet 5.5, not the 0.1x most models use ([Anthropic, prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching), Pricing; [cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking)). Claude Code also reports a dollar figure per run, `costUSD`, but that's its own estimate at API list price (its `costBasis` is `"list"`); on a subscription, it isn't what was paid ([Claude Code docs, costs](https://code.claude.com/docs/en/costs)). The map's own build cost is included, spread over the questions asked of it. The **break-even point** is the number of questions after which the map's answers cost less per correct answer than exploring, if there is one.
+Cost is counted in tokens of four kinds: **input**, **output**, **cache writes** and **cache reads**. An agent sends the same start of the prompt (its instructions, the files it has already read) with every request, so that start, the **prefix**, can be cached. Saving a prefix is a cache write, priced at 1.25x the base input price if it's kept for 5 minutes or 2x if it's kept for an hour, and Claude Code on a subscription keeps it for an hour while you're within the plan's included usage (5 minutes once you're drawing on usage credits). A cache read is input read from a prefix that an earlier request cached, priced at 0.05x the base input price on Claude Opus 5.5 and Sonnet 5.5, not the 0.1x most models use ([Anthropic, prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching), Pricing; [cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking)). Claude Code also reports a dollar figure per run, `costUSD`, but that's its own estimate at API list price (its `costBasis` is `"list"`); on a subscription, it isn't what was paid ([Claude Code docs, costs](https://code.claude.com/docs/en/costs); [cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking)). The map's own build cost is included, spread over the questions asked of it. The **break-even point** is the number of questions after which the map's answers cost less per correct answer than exploring, if there is one.
 
 <!-- TODO(draft): results, from outputs/eval_nanochat.txt and outputs/eval_waku-agent.txt: correct / total per condition
 and repo; the paired differences with CIs; per-type results; capped and errored runs; before / after-cutoff accuracy
@@ -894,7 +892,7 @@ Sources checked on 2026-11-15; Claude Code's docs are for CLI 2.1.325.
 - Anthropic, Claude Code docs, [Subagents](https://code.claude.com/docs/en/sub-agents) — "Each subagent runs in its own context window with a custom system prompt, specific tool access, and independent permissions" (introduction), and it starts from a "fresh, isolated context window" (What loads at startup); the subagent does its work in its own context "and returns only the summary" (introduction). Cited in §2.
 - Anthropic, Claude Code docs, [Glossary](https://code.claude.com/docs/en/glossary) — Skill: "A SKILL.md file …", where Claude Code "loads a skill automatically when relevant, or you invoke it directly with /skill-name"; Plugin: a "bundle of skills, hooks, subagents, and MCP servers"; "Non-interactive mode … Formerly called headless mode". Cited in §2.
 - Anthropic, Claude Code docs, [Memory](https://code.claude.com/docs/en/memory) — `CLAUDE.md` loads from the working folder "and every directory above it", and from subfolders on demand; auto memory loads its first 200 lines or 25KB and "skips anything it can derive from the codebase"; `/init` "creates a file with build commands, test instructions, and project conventions it discovers". Cited in the introduction and §1.
-- Anthropic, Claude Code docs, [CLI reference](https://code.claude.com/docs/en/cli-reference) — the rows for `--output-format` (text, json, stream-json), `--setting-sources`, `--strict-mcp-config`, `--no-session-persistence`, `--exclude-dynamic-system-prompt-sections` (moves the per-machine sections into the first user message) and `--tools` (the default set on macOS, Linux and WSL leaves out Glob and Grep). Cited in §2 and §5.
+- Anthropic, Claude Code docs, [CLI reference](https://code.claude.com/docs/en/cli-reference) — the rows for `--output-format` (text, json, stream-json), `--setting-sources`, `--strict-mcp-config`, `--no-session-persistence`, `--exclude-dynamic-system-prompt-sections` (moves per-user context, such as the auto-memory location, into the first user message) and `--tools` (the default set on macOS, Linux and WSL leaves out Glob and Grep). Cited in §2 and §5.
 - Anthropic, Claude Code docs, [Non-interactive mode](https://code.claude.com/docs/en/headless), the `--bare` section — it "never reads OAuth credentials or the system keychain", takes an API key from `ANTHROPIC_API_KEY` or an `apiKeyHelper`, and "doesn't use your subscription login". Cited in §5.
 - Anthropic, Claude Code docs, [Costs](https://code.claude.com/docs/en/costs) — Claude Code "computes the dollar figure locally from token counts at list price", which for subscribers "isn't relevant for billing purposes"; and [Agent SDK, cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking) — subscription turns use the 1-hour cache, and the reported costs are "client-side estimates, not authoritative billing data". Cited in §5.
 - Anthropic, [Models overview](https://platform.claude.com/docs/en/about-claude/models/overview) — Claude Opus 5.5 and Claude Sonnet 5.5: "Reliable knowledge cutoff | Jun 2026" and "Training data cutoff | Jun 2026", with no day given. Cited in §5.
