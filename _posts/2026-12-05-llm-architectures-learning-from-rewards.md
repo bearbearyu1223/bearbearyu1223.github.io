@@ -36,7 +36,15 @@ Can a small language model learn from a right-or-wrong score, without ever being
 
 I took **Qwen2.5-0.5B-Instruct**, a small chat model, and asked it to multiply two-digit numbers. Out of the box it gets 37.5% of 200 test problems right ([§2](#a-checkable-task)). Then I trained it with **GRPO** (Group Relative Policy Optimization), the method DeepSeek used for its math and reasoning models, with the sampling, the scoring and the update written out by hand rather than imported from an RL library. For each question the model writes eight answers, a program gives each a 1 if it's the right integer and a 0 otherwise, and each answer is compared with its own group's average: the ones above it are made more likely, the ones below less ([§4](#groups-and-advantages), [§5](#one-update)). Only a LoRA adapter trains, a small set of weights beside the frozen ones, as in [post 6](/posts/llm-architectures-lora/).
 
-After 60 steps, three runs with different random **seeds**, the number that sets a run's starting adapter weights and the answers it samples, got **50.5%**, **59.0%** and **57.0%** of the same 200 unseen problems right. To check that the reward was what taught it, I also ran a control three times. It trained the same way, except that each group's rewards were shuffled among its eight answers, so a 1 no longer said which answer had earned it. The controls improved too, to **47.0%**, **42.0%** and **42.0%**, but by less: the real runs gained between 13.0 and 21.5 points, the controls between 4.5 and 9.5, and the weakest real run beat the best control ([§6](#training)). So the training loop on its own gains a few points, and what the reward said about which answers were right is what adds the rest.
+After 60 training steps, three runs with different random **seeds**, the number that sets a run's starting adapter weights and the answers it samples, reached **50.5%**, **59.0%** and **57.0%** accuracy on the same 200 unseen problems, up from the untrained model's 37.5%.
+
+But how much of that improvement came from learning which answers were correct, rather than simply changing the model through training?
+
+To test this, I ran a control experiment. Everything stayed the same, except I shuffled the rewards among the eight answers in each group. The model still received positive and negative feedback, but that feedback no longer reliably identified which answers were right.
+
+The controls improved too, reaching **47.0%**, **42.0%** and **42.0%**. That's a gain of 4.5 to 9.5 points, despite the rewards carrying no useful information about correctness. Shuffled rewards say nothing about which answer was right, but training on them still changes the model, and here all three controls scored higher than the untrained model. These results don't tell us exactly why the controls improved.
+
+What matters is the difference: real-reward training gained 13.0 to 21.5 points, and even its weakest run outperformed the strongest shuffled-reward control. This is evidence that the model learned from the relationship between its answers and their rewards, not merely from undergoing additional training. The controls also remind us that an improvement in test accuracy, by itself, doesn't establish what the model learned ([§6](#training)).
 
 The same runs also showed where learning from a group's scores runs thin:
 
