@@ -16,7 +16,8 @@ published: false
 ---
 
 <!-- TODO(draft): first draft. The intro, short version (except its results), Setup, §1-§3 and the appendix are drafted;
-§4, §5's results and §6 wait for the real page and the eval. No [CITE: ...] markers are left. Honeyguide v1 is still being built: re-read §2 and §3 against the code as built. -->
+§3's Checker receipts and §4's first maps and live questions come from outputs/runs.txt (2026-11-16 runs). §4's
+screenshots and video, Han's Checker sample, §5's results and §6 wait for the redesigned page and the eval. No [CITE: ...] markers are left. Honeyguide v1 is still being built: re-read §2 and §3 against the code as built. -->
 
 ## Asking the same repo the same questions
 
@@ -212,12 +213,153 @@ On the page each label is a small shape beside the claim (a solid dot, a ring, a
 
 The Checker re-reads each claim next to the lines it cites and gives one verdict: supported or not supported. It works in the background. An answer appears as soon as it's written, its claims gain a small check mark as they're checked, and a claim the Checker doesn't accept gets a quiet flag with the reason, rather than being deleted. The Checker reports; it never edits.
 
-Since this is still Claude checking Claude, I checked a sample of its verdicts myself.
+On the first real maps it turned a lot down. In run 2, the second build of each map ([§4](#the-first-maps) has how the first one went), it marked 102 of nanochat's claims not supported, and 47 of waku-agent's. Going by its notes, most of them were true but cited too few lines to show it.
 
-<!-- TODO(draft): receipt from the map/checker capture: anchors resolved / total, claims by evidence label, Checker
-supported / not supported, and my agreement with the Checker on the hand-checked sample. -->
+So the Checker's verdicts now feed a **repair pass**. The Cartographer gets back each claim the Checker turned down, with the Checker's note, and does one of three things: cites more lines (it widens the claim's anchors), rewrites the claim to say only what the cited lines show (it narrows it), or retires it. The Checker then re-checks only the claims that changed. That's one round, and there are at most two. A claim that's still not supported after that keeps its flag, and the page lists it under **Needs a look**. Here's what the pass did to both maps, from [`capture.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/runs/capture.py), which reads the saved records of these runs:
 
-**[RECEIPT: anchors resolved/total, claims by label, Checker verdicts, my agreement with the Checker]**
+<!-- RECEIPT: runs-checker -->
+```text
+checker
+--------------------------------------------------------------------------
+Map claims by Checker verdict. Run 2's state before repair and after each
+round is derived from each claim's repairs history (a repair at round r
+means it was not supported after round r-1) and its current check.
+  repo        stage                  supported not supp. unchecked retired
+  nanochat    run 1 (no repair)            129        20         0       0
+  nanochat    run 2 before repair          158       102         0       0
+  nanochat    after repair round 1         253         7         0       0
+  nanochat    after repair round 2         260         0         0       0
+  waku-agent  run 1 (no repair)            126        12         0       0
+  waku-agent  run 2 before repair          219        47         0       0
+  waku-agent  after repair round 1         265         1         0       0
+  waku-agent  after repair round 2         266         0         0       0
+
+  What repair did, per round (one row per repair action taken):
+  repo        round  anchors replaced  cite more lines  rewritten  retired
+  nanochat        1                85               85         17        0
+  nanochat        2                 5                5          2        0
+  waku-agent      1                45               45          2        0
+  waku-agent      2                 1                1          0        0
+  anchors replaced = the claim's text kept, its anchors replaced; cite
+  more lines = of those, the new anchors cover more source lines than the
+  old; rewritten = the claim's text changed to say only what the cited
+  lines show.
+```
+
+Run 1, the first build, had no repair pass, so its flags stayed. In run 2, round 1 cleared nearly all the flags, most of them by citing more lines, and round 2 cleared the rest without retiring anything. Both maps ended with every claim supported.
+
+That turned out to be too good. While I was recording the demo in [§4](#two-live-questions), I asked how each of nanochat's layers gets its attention window, meaning how many of the earlier tokens a layer can look back over. nanochat gives each layer one of two windows: L (long) covers the whole context, and S (short) a quarter of it, rounded up to a multiple of 128 ([`gpt.py`, line 302](https://github.com/karpathy/nanochat/blob/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd/nanochat/gpt.py#L302)). The Tracer's answer worked the S window out as 512 tokens for a 2048-token context, and pointed out that the comment on that line says 768. I selected those words and asked whether anything else still says 768. The Investigator found that the map did, in a claim the Checker had passed:
+
+<!-- RECEIPT: runs-example-d -->
+```text
+  (d) c_20b0bb0d778f, the claim the Checker passed
+      repo      nanochat
+      text
+        An S layer attends to a quarter of the context rounded up to a
+        multiple of 128 (768 tokens at 2048), and the final layer always
+        gets full context.
+      evidence  read_in_source
+      check     supported (no note)
+      repairs   0
+      anchor    nanochat/gpt.py:302-302
+        short_window = -(-long_window // 4 // 128) * 128  # ceil to FA3
+        tile size (2048 -> 768)
+      anchor    nanochat/gpt.py:313-313
+        window_sizes[-1] = (long_window, 0)
+```
+
+The claim's first anchor is the line that computes the window. The code on it gives 512, and the out-of-date comment at the end of it says 768. The claim repeated the comment, and the Checker, reading the same line, agreed. The anchor couldn't catch this, because the lines exist. Neither could a Checker that only asks whether the lines say what the claim says, since the comment said exactly that.
+
+So the Checker's rule changed to **compute, don't quote**. A claim that states a value (a number, a default, a size, a count, a shape) is supported only if the cited code produces that value, and the Checker works the value out from the code itself. A comment or docstring that states the value doesn't count, except for a claim labelled docs, which only reports what the docs say. Here's the same claim after a check under the new rule and one round of repair, with the Checker's note:
+
+<!-- RECEIPT: runs-example-e -->
+```text
+  (e) c_20b0bb0d778f after the re-check
+      repo      nanochat
+      text
+        An S layer attends to a quarter of the context rounded up to a
+        multiple of 128 (512 tokens for a 2048-token context, although the
+        inline comment says 768), and the final layer always gets full
+        context.
+      check     supported
+      note      (empty)
+      anchor    nanochat/gpt.py:301-313
+        long_window = config.sequence_len
+      re-check repairs  1
+      round 1 rewrite, the Checker's note:
+        nanochat/gpt.py line 302 computes -(-2048 // 4 // 128) * 128 =
+        -(-512 // 128) * 128 = -(-4) * 128 = 512, so an S layer gets 512
+        tokens at 2048, not 768; the 768 is the stale inline comment on
+        that line.
+```
+
+Then I re-checked every claim on both maps that states a value, under the new rule, and ran the repair pass on whatever it turned down:
+
+<!-- RECEIPT: runs-recheck -->
+```text
+recheck
+--------------------------------------------------------------------------
+After the repair pass, a batch run re-checked every map claim that states
+a value under the Checker's new "Compute, don't quote" rule, then ran the
+repair pass (at most 2 rounds). Wall clock from the launcher's start/end
+files; turns and cost from claude -p's JSON result (cost at API list
+price). Claims re-checked: a checked_at later than every one in the map
+saved after repair, or a changed check, note, anchors or text. States and
+repairs come from the repairs history entries this pass added, numbered by
+this pass's rounds (the order of their timestamps); a repair at round r
+means not supported after round r-1.
+  repo         wall min  turns  cost (list)          exit
+  nanochat         19.7     25        $9.19             0
+  waku-agent       10.2     21        $4.20             0
+
+  repo         map claims  re-checked  newly not supp.  still not supp.
+  nanochat            260         117               39                4
+  waku-agent          266          36               13                1
+  newly not supported = re-checked claims the re-check found not supported
+  (before repair); still not supported = of those, not supported after
+  repair round 2.
+```
+
+The new rule turned down 39 claims on nanochat and 13 on waku-agent that had passed before. One said a download is "retried up to 5 times". The loop makes 5 attempts, so a download is retried at most 4 times:
+
+<!-- RECEIPT: runs-example-f -->
+```text
+  (f) c_b9a4c59e2e08, before and after the re-check
+      repo      nanochat
+      before (after repair):
+        text
+          Each shard download is retried up to 5 times with exponential
+          backoff, written to a .tmp file and renamed when complete.
+        check     supported
+        note      (empty)
+        anchor    nanochat/dataset.py:84-133
+          def download_single_file(index):
+      after (after re-check):
+        text
+          Each shard download makes up to 5 attempts (one try plus at most
+          4 retries) with a 2**attempt-second backoff, writing to a .tmp
+          file that is renamed when complete.
+        check     supported
+        note      (empty)
+        anchor    nanochat/dataset.py:84-133
+          def download_single_file(index):
+      re-check repairs  1
+      round 1 rewrite, the Checker's note:
+        max_attempts = 5 with range(1, max_attempts + 1)
+        (nanochat/dataset.py lines 99-100) means 5 attempts in total, i.e.
+        1 try plus up to 4 retries, not 'retried up to 5 times'; backoff
+        2**attempt and .tmp-then-rename are correct.
+```
+
+The repair pass fixed most of them. The 4 claims on nanochat and the 1 on waku-agent that it couldn't fix are still flagged under Needs a look.
+
+None of this makes the Checker proof. It's still Claude checking Claude, and the 768 claim got past it once. So I checked a sample of its verdicts myself.
+
+<!-- TODO(draft): Han's hand check hasn't happened yet. Receipt: my agreement with the Checker on a hand-checked sample
+of the final maps' verdicts (after the re-check). Anchors resolved / total isn't printed by any capture yet; claims by
+evidence label are in the maps block (§4). -->
+
+**[RECEIPT: my agreement with the Checker on a hand-checked sample]**
 
 #### The runtime trace {#the-runtime-trace}
 
@@ -370,6 +512,8 @@ nothing stale is served as fact. What happened to each saved claim, and refresh 
 
 ### 4. What it's like to use {#what-its-like-to-use}
 
+<!-- TODO(draft): screenshots of the redesigned page (UX v4) and the demo video, after T7.17-T7.19 -->
+
 <!-- TODO(draft): a short tour with screenshots of the real page (light and dark) on the nanochat map, and a short GIF:
 read the map, select a passage, ask, the Guide routing it, the avatars at work, the answer with its evidence marks and
 check marks, a follow-up branched from words in the answer, a flow question answered by the Tracer as a path and as a
@@ -378,7 +522,126 @@ the real page, not the mockup. -->
 
 <!-- FIGURE F4 (screenshots + GIF): what using it looks like. Real page, light + dark. -->
 
-**[SCREENSHOTS: the real page on the nanochat map]**
+**[SCREENSHOTS + VIDEO: the redesigned page on the nanochat and waku-agent maps]**
+
+#### The first maps {#the-first-maps}
+
+The Cartographer's first real run on the two repos (run 1) saved a map whose claims all pointed at real code, but its Overview read like a list of labels. Here's the start of nanochat's Overview from run 1, and the same place in run 2's:
+
+<!-- RECEIPT: runs-examples-ab -->
+```text
+  (a) nanochat, run 1: the Overview's first block
+      A minimal single-node LLM harness. --depth sets model size.
+
+  (b) nanochat, run 2 after repair: the Purpose block(s)
+      nanochat trains a small ChatGPT-style model end to end on one GPU
+      node: one script downloads data, trains a byte-pair encoding (BPE)
+      tokenizer, pretrains, fine-tunes and evaluates. Everything is built
+      around one dial. `--depth` sets the layer count and the width
+      follows from it, while batch size, learning rates and weight decay
+      are rescaled from a 12-layer reference.
+
+      Precision is explicit, because one global `COMPUTE_DTYPE` replaces
+      `torch.amp.autocast` and the custom `Linear` casts full-precision
+      (fp32) master weights to the activation dtype. Multi-GPU training
+      uses no DistributedDataParallel (DDP) wrapper, since the optimizer
+      syncs gradients and shards its own state.
+```
+
+Two things made run 1 terse. The Cartographer saved the map through Honeyguide's command line, and the whole map had to fit in a single shell command, so it squeezed the prose to fit. And its instructions gave the Overview no structure to fill.
+
+So I rewrote the Cartographer's instructions, modelled on the structure of RepoRabbit, my earlier project ([§1](#why-a-map)). The Overview now has seven topics, from what the repo is for to which files to read first. A module is now a component, one or more files that work together, with a paragraph on why it's built that way and a few concrete facts. The map is written as draft files that a script checks and saves, so its length is no longer capped. And a **readability check** refuses telegraph text, the clipped style of a telegram: paragraphs too short to explain anything, sentences with no verb, fragments strung together with semicolons, and abbreviations the Overview never spells out. Run 2 built both maps again from scratch with the new instructions. For nanochat:
+
+<!-- RECEIPT: runs-maps-nc -->
+```text
+maps
+--------------------------------------------------------------------------
+Run 1 (old Cartographer brief) against run 2 (Cartographer v2, start
+over), as saved after the repair pass and after the re-check (the final
+state). Checker verdicts are each claim's saved check.
+  nanochat, run 1
+    sections            3 (overview, modules, flows)
+    Overview topics     0 of 7
+    module blocks       25 (0 with more than one file)
+    flows               2 (8 hops)
+    claims              149
+    Checker verdicts    supported 129, not supported 20
+    evidence labels     read_in_source 136, docs 9, asserted_by_test 2,
+                        inferred 2
+    Overview words      36
+  nanochat, run 2 after repair
+    sections            3 (overview, modules, flows)
+    Overview topics     7 of 7 (purpose, users, capabilities, commands,
+                        entry-points, components, start-here)
+    module blocks       13 (8 with more than one file)
+    flows               5 (31 hops)
+    claims              260
+    Checker verdicts    supported 260, not supported 0
+    evidence labels     read_in_source 195, docs 36, inferred 11,
+                        searched_not_found 10, asserted_by_test 8
+    Overview words      323
+```
+
+Run 2's map has all seven topics, five flows instead of two, and an Overview long enough to explain something. It has fewer module blocks because related files are grouped into one component. The Checker's verdicts here are after the repair pass in [§3](#the-checker). Here's the readability check on both repos' Overviews:
+
+<!-- RECEIPT: runs-readability -->
+```text
+readability
+--------------------------------------------------------------------------
+honeyguide.readability.check_readability(strict=True), the check behind
+`map validate --strict`, on the Overview section alone.
+  repo        map                   errors  warnings  warnings by kind
+  nanochat    run 1                      4        11  abbreviation 2,
+                                                    choppy 3, length 1,
+                                                    short 2, verbless 3
+  nanochat    run 2 after repair         0         0  none
+  waku-agent  run 1                      2         5  choppy 1, length 1,
+                                                    semicolons 1, short 1,
+                                                    verbless 1
+  waku-agent  run 2 after repair         0         0  none
+```
+
+A warning is one problem in one block; a block with several kinds of problem, or an Overview where many blocks have one, is an error. Both run-1 Overviews fail, and both run-2 Overviews pass with nothing flagged.
+
+#### Two questions, asked live {#two-live-questions}
+
+The demo video shows the loop from [§2](#whats-in-the-build) on the nanochat map, with two real questions. For the recording, each was answered by a non-interactive session (`claude -p`) started as the question was sent, standing in for the session you'd normally have open. The first question was about the attention windows in [§3](#the-checker), and the Guide routed it to the Tracer, because it asks how something gets from one place to another. The second was a follow-up, asked by selecting words in the first answer, and it went to the Investigator:
+
+<!-- RECEIPT: runs-demo -->
+```text
+demo
+--------------------------------------------------------------------------
+The two live questions, each answered by one claude -p session (stream-
+json transcript; turns, duration_ms and cost from its final result event).
+  q1
+    question id       q_d7c4fd23c771
+    repo              nanochat
+    question          Where is the quarter computed, and how does each
+                      layer's window size reach the attention kernel?
+    route (agent)     tracer
+    subagents run     checker 1, tracer 1
+    turns             12
+    wall clock        180 s (claude -p)
+    posted->answered  103 s (answers.json timestamps)
+    cost (list)       $1.28
+    answer claims     13
+    Checker           supported 4, not supported 9
+  q2
+    question id       q_9b365ac5f974
+    repo              nanochat
+    question          Does anything else still say 768, or a third of the
+                      context: docs, tests, help text, or this map?
+    route (agent)     investigator
+    subagents run     checker 1, investigator 1
+    turns             11
+    wall clock        129 s (claude -p)
+    posted->answered  75 s (answers.json timestamps)
+    cost (list)       $1.08
+    answer claims     9
+    Checker           supported 8, not supported 1
+```
+
+`posted->answered` is the time from asking to the answer appearing on the page. The session ran on after that, because the Checker starts once the answer is up. It passed only 4 of the Tracer's 13 claims, and the other 9 show on the answer with the Checker's notes. At the time, answers had no repair pass; they now get the same one as the map. The second answer is the one that found the map's 768 claim.
 
 ---
 
