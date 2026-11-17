@@ -15,10 +15,6 @@ description: >-
 published: false
 ---
 
-<!-- TODO(draft): outline v2 redraft (2026-11-17), from blog checkpoint 6de328f. The figures team-before-after,
-pilot-scores, adhoc-vs-map and refresh-vs-rebuild: heights are set from the PNGs (2026-11-17) and the
-alt text matches the drawn figures; re-check both if a figure is redrawn. -->
-
 ## Five engineers, one repo
 
 When I open a coding agent in a repository I don't know and ask where something happens, it does what I'd do. It searches for likely names, opens a few files, follows an import or two, and answers. Usually the answer is good. Then the conversation ends, and whatever it worked out goes with it.
@@ -45,9 +41,9 @@ I started out wanting to show that a map makes an agent answer better. On the re
 
 **Are ad-hoc answers worse?** ([§5](#are-ad-hoc-answers-worse)) Not measurably. A Checker that finds its own evidence judged 2.0% of the claims in the pilot's ad-hoc answers not supported or wrong, against 1.0% of a map's unchecked claims, and the interval on the difference includes zero. The errors that do occur are subtle.
 
-**What a shared map costs to keep** ([§6](#what-a-shared-map-costs-to-keep)). Refreshing nanochat's map across a 60-commit rewrite cost about half of a full checked build; a refresh after an ordinary day on waku-agent cost about a fifth. Refresh caught every stale claim that no longer held. Its gap is claims whose cited lines didn't change, which it keeps as they are: when the Cartographer then mapped the new code, it retired 3 of the 216 such claims, and 6 of the 12 claims that cite no code.
+**What a shared map costs to keep** ([§6](#what-a-shared-map-costs-to-keep)). Refreshing nanochat's map across a 60-commit rewrite cost about half of a full checked build of the older, larger code; a refresh after an ordinary day on waku-agent cost about a fifth. Refresh caught every stale claim that no longer held. Its gap is claims whose cited lines didn't change, which it keeps as they are: when the Cartographer then mapped the new code, it retired 3 of the 216 such claims, and 6 of the 12 claims that cite no code.
 
-**Limits** ([§7](#limits-and-large-codebases)). One person, two small repos, one model. That a team saves time is argued here, not measured, and nothing here shows how this works on a large codebase.
+**Limits** ([§7](#limits-and-large-codebases)). One person, one model, two repos: nanochat is small, and waku-agent is larger but most of it lies outside what the questions cover. That a team saves time is argued here, not measured, and nothing here shows how this works on a large codebase.
 
 ### Setup
 
@@ -96,8 +92,16 @@ uv run python eval/refresh/capture.py > outputs/refresh.txt
 
 All but the June check read the saved records of the runs, which aren't in the repo, so the files in `outputs/` are what you get. What you can check without the records is the code the receipts quote: every claim's pointer into the code (its **anchor**, [§3](#anchors)) names a file and its lines at the pinned commit, so you can open line 302 of nanochat's `gpt.py` and work out the attention window yourself.
 
-<!-- TODO(draft): how a reader fetches the two target repos at their pins and builds their uv environments (today the
-scripts expect them in a fixed folder). -->
+The June check needs only the two repos and git. The scripts look for them in a fixed folder, `~/Documents/GitHub/honeyguide-targets/`, and read the pinned commits with `git show` and `git blame`, never the working tree, so a full clone of each is enough, whatever branch it has checked out:
+
+```bash
+mkdir -p ~/Documents/GitHub/honeyguide-targets
+cd ~/Documents/GitHub/honeyguide-targets
+git clone https://github.com/karpathy/nanochat
+git clone https://github.com/ShenSeanChen/waku-agent
+```
+
+A shallow clone won't do: `git blame` needs the history, and the script stops if a pinned commit isn't there ([`repo.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/questions/repo.py)).
 
 **Two kinds of numbers.** Most numbers here are *counted*: claims, verdicts, questions. Some are *measured*, like minutes, tokens and dollars, and they'd move if the runs were repeated. Every dollar figure is Claude Code's own estimate at API list price; these runs used a subscription, so it isn't what was paid ([§4](#what-an-answer-costs)).
 
@@ -139,6 +143,7 @@ Several tools already keep knowledge about a codebase somewhere outside the code
 - **Editor indexes.** Until mid-2026, Cursor turned chunks of a codebase into **embeddings** (lists of numbers that put text with similar meaning close together) in a "specialized vector database", so its agent could search by meaning ([archived docs, 2026-02-25](https://web.archive.org/web/20260225213818/https://cursor.com/docs/context/semantic-search)).
 - **Generated wikis.** [DeepWiki](https://docs.devin.ai/work-with-devin/deepwiki), from Cognition, the makers of Devin, "produces wikis with architecture diagrams, links to sources, and summaries"; its docs don't say whether those links point at particular lines. Google's Code Wiki links every section and answer "directly to the relevant code files and definitions" and "regenerates the documentation after each change" ([Google Developers Blog, 2025-11-13](https://developers.googleblog.com/en/introducing-code-wiki-accelerating-your-code-understanding/)). nanochat's own README sends readers with questions to DeepWiki ([line 8](https://github.com/karpathy/nanochat/blob/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd/README.md?plain=1#L8)).
 - **aider's repo map.** [aider](https://aider.chat/docs/repomap.html) builds a compact map of the repo's symbols with tree-sitter, a library that parses source code ([aider's blog, 2023](https://aider.chat/2023/10/22/repomap.html)), and picks what goes in with "a graph ranking algorithm" over the files and their dependencies.
+- **RepoAgent.** A research system that writes documentation for every class and function in a Python repo and, from a Git pre-commit hook, "only updates the documentation of affected objects" ([Luo et al., 2024](https://arxiv.org/abs/2402.16667), §2.3).
 - **RepoRabbit.** My own earlier attempt, and the closest to this one: a Claude Code subagent that writes an interactive map of a repo, labels each claim by its evidence, rejects any reference that doesn't resolve to a real file and line ([README, line 115](https://github.com/bearbearyu1223/repo-rabbit/blob/b9e9eae/README.md?plain=1#L115)), and flags an explanation when the lines it cites change ([line 177](https://github.com/bearbearyu1223/repo-rabbit/blob/b9e9eae/README.md?plain=1#L177)).
 
 Where their docs say how they stay current, it's by regenerating what changed: Code Wiki "regenerates the documentation after each change", and Cursor's index "updates only changed files, removing old embeddings and creating new ones" ([archived docs](https://web.archive.org/web/20260225213818/https://cursor.com/docs/context/semantic-search)). None of the docs I read describes checking a kept claim against the lines it cites. RepoRabbit came closest, but lines can exist, and stay unchanged, and still not say what the claim says.
@@ -167,14 +172,11 @@ The rule I held to: a job gets its own agent only when a fresh context or parall
 
 The map is a web page. You read it like a document, with an outline on the left. Each module card says what its component does, each claim followed by a small shape for its kind of evidence and a chip naming the lines it cites; click the chip and you see the code.
 
-![The GPT model's module card on nanochat's map: claims about the model, each followed by an evidence shape and grey chips citing lines of nanochat/gpt.py, one paragraph underlined in amber dots with a numbered bubble beside it, and a Design paragraph below that gives the S window as 512 of 2048, not the 768 its comment claims](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/tour-module-card-light.png){: .light width="1000" height="625" }
-![The GPT model's module card on nanochat's map: claims about the model, each followed by an evidence shape and grey chips citing lines of nanochat/gpt.py, one paragraph underlined in amber dots with a numbered bubble beside it, and a Design paragraph below that gives the S window as 512 of 2048, not the 768 its comment claims](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/tour-module-card-dark.png){: .dark width="1000" height="625" }
+![The GPT model's module card on nanochat's map: claims about the model, each followed by an evidence shape and grey chips citing lines of nanochat/gpt.py, one paragraph underlined in amber dots with a numbered bubble beside it, and a Design paragraph below that gives one attention window as 512 tokens of 2048, not the 768 its code comment claims](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/tour-module-card-light.png){: .light width="1000" height="625" }
+![The GPT model's module card on nanochat's map: claims about the model, each followed by an evidence shape and grey chips citing lines of nanochat/gpt.py, one paragraph underlined in amber dots with a numbered bubble beside it, and a Design paragraph below that gives one attention window as 512 tokens of 2048, not the 768 its code comment claims](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/tour-module-card-dark.png){: .dark width="1000" height="625" }
 _nanochat's GPT model, as a teammate reads it: every claim cites its lines, and the dotted underline marks a passage someone has already asked about. The 512 in the Design paragraph is a value the map once got wrong ([§3](#the-checker))._
 
-Select any passage, even inside an answer, and choose **Ask**. The page writes the question and your selection to an **inbox** on disk; the Guide notices it and hands it to an agent, and the answer appears beside the passage. The page never starts Claude itself.
-
-<!-- TODO(draft): confirm against the v1 code how the session notices the inbox (watcher, hook or polling), and say
-it in one sentence. -->
+Select any passage, even inside an answer, and choose **Ask**. The page writes the question and your selection to an **inbox** on disk; the Guide picks it up and hands it to an agent, and the answer appears beside the passage. The page never starts Claude itself. Instead, the skill has the session run `honeyguide watch --follow` under Claude Code's Monitor tool, the watcher re-reads the inbox every second and prints one line per new question, and each line reaches the session as a notification ([`SKILL.md`](https://github.com/bearbearyu1223/honeyguide/blob/main/skills/honeyguide/SKILL.md), step 3).
 
 ![The discussion panel beside the GPT model's card. It quotes an earlier sentence of the map, marked "not found in the current map", then the question "Where is the quarter computed, and how does each layer's window size reach the attention kernel?" and the Tracer's answer, in which the phrase "At 2048 that is 512, not the 768 the inline comment says" is underlined in amber](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/tour-answer-panel-light.png){: .light width="1000" height="625" }
 ![The discussion panel beside the GPT model's card. It quotes an earlier sentence of the map, marked "not found in the current map", then the question "Where is the quarter computed, and how does each layer's window size reach the attention kernel?" and the Tracer's answer, in which the phrase "At 2048 that is 512, not the 768 the inline comment says" is underlined in amber](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/tour-answer-panel-dark.png){: .dark width="1000" height="625" }
@@ -207,17 +209,17 @@ That's a real guarantee, but a narrow one. An anchor proves the cited lines exis
 
 Each claim carries a label saying what kind of evidence it rests on:
 
-| Label | Means |
-| --- | --- |
-| read in source | the agent read the cited lines and they say this |
-| asserted by a test | a test in the repo checks this behaviour |
-| docs | the repo's documentation says so (which can be out of date) |
-| seen at runtime | the runtime trace saw it happen |
-| inferred | worked out from the code without a line that says it directly, e.g. which method a call reaches |
-| searched, not found | the agent looked for something and it isn't there |
-| general knowledge (not from this repo) | true in general, like how a library function behaves, and not a claim about this code |
+| Label | Shape on the page | Means |
+| --- | --- | --- |
+| read in source | filled dot | the agent read the cited lines and they say this |
+| asserted by a test | filled square | a test in the repo checks this behaviour |
+| docs | filled triangle | the repo's documentation says so (which can be out of date) |
+| seen at runtime | small filled dot inside a ring | the runtime trace saw it happen |
+| inferred | hollow circle | worked out from the code without a line that says it directly, e.g. which method a call reaches |
+| searched, not found | dotted hollow circle | the agent looked for something and it isn't there |
+| general knowledge (not from this repo) | hollow diamond | true in general, like how a library function behaves, and not a claim about this code |
 
-On the page each label is a small shape beside the claim. The last label keeps general knowledge, which agents mix into answers all the time, from passing as something the repo says.
+On the page each label is that small shape beside the claim ([`page.css`](https://github.com/bearbearyu1223/honeyguide/blob/main/src/honeyguide/page/page.css)). The last label keeps general knowledge, which agents mix into answers all the time, from passing as something the repo says.
 
 #### The Checker {#the-checker}
 
@@ -225,11 +227,11 @@ The Checker re-reads each claim next to the lines it cites and gives one verdict
 
 I built each map twice. Run 1 used the Cartographer's first instructions and produced an Overview of terse labels; run 2 started over with rewritten instructions, modelled on RepoRabbit's structure, and produced the map described in [§2](#what-honeyguide-is). In run 2 the Checker marked 102 of nanochat's 260 claims not supported, and 47 of waku-agent's 266.
 
-So the Checker's verdicts feed a **repair pass**. The Cartographer gets back each claim the Checker turned down, with the Checker's note, and does one of three things: cites more lines (it widens the claim's anchors), rewrites the claim to say only what the cited lines show (it narrows it), or retires it. The Checker then re-checks only the claims that changed. That's one round, and there are at most two. A claim still not supported after that keeps its flag, and the page lists it under **Needs a look**.
+So the Checker's verdicts feed a **repair pass**. The Cartographer gets back each claim the Checker turned down, with the Checker's note, and does one of three things: cites more lines (it widens the claim's anchors), rewrites the claim to say only what the cited lines show (it narrows it), or retires it. The Checker then re-checks only the claims that changed. That's one round, and a pass has at most two. A claim still not supported after that keeps its flag, and the page lists it under **Needs a look**.
 
-![A loop diagram. The Checker re-reads a claim and its cited lines; supported claims get their evidence shape, and the 102 of 260 not supported go to the Cartographer, which cites more lines, narrows the claim or retires it, and the Checker re-checks only those. Round 1 leaves 7 not supported, round 2 none, so all 260 end supported; anything left after round 2 would go under Needs a look](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/repair-loop-light.png){: .light width="1000" height="439" }
-![A loop diagram. The Checker re-reads a claim and its cited lines; supported claims get their evidence shape, and the 102 of 260 not supported go to the Cartographer, which cites more lines, narrows the claim or retires it, and the Checker re-checks only those. Round 1 leaves 7 not supported, round 2 none, so all 260 end supported; anything left after round 2 would go under Needs a look](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/repair-loop-dark.png){: .dark width="1000" height="439" }
-_A claim the Checker turns down goes back for repair at most twice. On nanochat's run 2, 102 of 260 claims went back, and two rounds brought all of them back supported, most by citing more lines._
+![A loop diagram. The Checker re-reads each of 260 claims and its cited lines; supported claims get their evidence shape, and the 102 of 260 not supported go to the Cartographer, which cites more lines, narrows the claim or retires it. Round 1: 85 anchors replaced (all 85 cite more lines), 17 rewritten, 0 retired; round 2: 5 anchors replaced, 2 rewritten, 0 retired. The Checker re-checks only the claims that changed, at most 2 rounds per pass: 7 not supported after round 1, 0 after round 2. Supported: 158 at once, +95 after round 1, +7 after round 2, so 260 of 260 at the end; a claim still not supported after round 2 would be flagged under Needs a look, and none was on nanochat's run 2](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/repair-loop-light.png){: .light width="1000" height="439" }
+![A loop diagram. The Checker re-reads each of 260 claims and its cited lines; supported claims get their evidence shape, and the 102 of 260 not supported go to the Cartographer, which cites more lines, narrows the claim or retires it. Round 1: 85 anchors replaced (all 85 cite more lines), 17 rewritten, 0 retired; round 2: 5 anchors replaced, 2 rewritten, 0 retired. The Checker re-checks only the claims that changed, at most 2 rounds per pass: 7 not supported after round 1, 0 after round 2. Supported: 158 at once, +95 after round 1, +7 after round 2, so 260 of 260 at the end; a claim still not supported after round 2 would be flagged under Needs a look, and none was on nanochat's run 2](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/repair-loop-dark.png){: .dark width="1000" height="439" }
+_A claim the Checker turns down goes back for repair at most twice per pass. On nanochat's run 2, 102 of 260 claims went back, and two rounds brought all of them back supported, most by citing more lines._
 
 Here's what the pass did to both maps, from [`capture.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/runs/capture.py), which reads the saved records of these runs:
 
@@ -326,11 +328,24 @@ Then I re-checked every claim on both maps that states a value under the new rul
   nanochat            260         117               39                4
   waku-agent          266          36               13                1
   newly not supported = re-checked claims the re-check found not supported
-  (before repair); still not supported = of those, not supported after
-  repair round 2.
+  (before repair); still not supported = of those, not supported when this
+  pass's repair ended (tries each got: the last table below).
 ```
 
-The new rule turned down 39 claims on nanochat and 13 on waku-agent that had passed before; one said a download is "retried up to 5 times", when the loop makes 5 attempts in all. Repair left 4 on nanochat and 1 on waku-agent under Needs a look. Two of nanochat's 4 got only one try in this pass, because the cap then counted every repair a claim had ever had; it now counts two rounds per pass.
+The new rule turned down 39 claims on nanochat and 13 on waku-agent that had passed before; one said a download is "retried up to 5 times", when the loop makes 5 attempts in all. Repair left 4 on nanochat and 1 on waku-agent under Needs a look. Here's how many tries (one repair each) those leftovers got ([`capture.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/runs/capture.py)):
+
+<!-- RECEIPT: runs-recheck-tries -->
+```text
+  Still not supported when this pass ended, by the repairs each claim got
+  (one repair = one try): in this pass (entries it added) and in earlier
+  passes (entries saved before it).
+  repo         tries in this pass    tries before it  claims
+  nanochat                      2                  0       2
+  nanochat                      1                  1       2
+  waku-agent                    2                  0       1
+```
+
+Two of nanochat's 4 got only one try in this pass, after one try in the earlier repair pass, because the cap then counted every repair a claim had ever had. Since [`74e0c69`](https://github.com/bearbearyu1223/honeyguide/commit/74e0c69) it counts two rounds per pass.
 
 None of this makes the Checker proof. It's Claude checking Claude, and the 768 claim got past it once. The only outside look at a Checker's verdicts so far is the spot-check in [§5](#are-ad-hoc-answers-worse), by a different model working from a sheet of the verdicts and the lines they cite, without the source.
 
@@ -417,7 +432,7 @@ Not one key line falls in June, whichever commit date is used. In the pilot, 10 
 
 #### Results {#pilot-results}
 
-Mean score per run, by question type ([`evalscore.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/score/evalscore.py)):
+A score is between 0 and 1 for each run: right or wrong for locate, the overlap with the key's set for callers (the usual F1 score, which counts both naming the right callers and not naming wrong ones), the share of required hops found in the right order for flow, and a grade for why/how. Mean score per run, by question type ([`evalscore.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/score/evalscore.py)):
 
 <!-- RECEIPT: pilot-scores -->
 ```text
@@ -430,7 +445,7 @@ by type (descriptive; mean per run)
   whyhow            5       0.500       0.900       0.900       1.000
 ```
 
-A score is between 0 and 1 for each run: right or wrong for locate, the overlap with the key's set for callers (the usual F1 score), the share of required hops found in the right order for flow, and a grade for why/how. **Lookups are at the ceiling.** Every condition that could read the repo found every locate answer, and callers and flow scores sit between 0.933 and 1.000 whether or not the run had a map. These questions are too easy, for this model on a repo this size, to show what a map adds. The no-access row is the only one with room below it.
+**Lookups are at the ceiling.** Every condition that could read the repo found every locate answer, and callers and flow scores sit between 0.933 and 1.000 whether or not the run had a map. These questions are too easy, for this model on a repo this size, to show what a map adds. The no-access row is the only one with room below it.
 
 <!-- RECEIPT: pilot-paired -->
 ```text
@@ -458,6 +473,10 @@ learning vs remembering: mean score by cutoff subset
 Each difference ([`evalscore.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/score/evalscore.py)) is taken question by question and then averaged, and the interval in brackets is a 95% interval from resampling the questions (a **bootstrap**). Map minus explore over all 20 questions is +0.022, and its interval runs from below zero, so the pilot can't tell the two apart.
 
 **Looking up beats remembering on changed code.** On the 5 questions whose code was written after the cutoff, the model with no access scored 0.200, and every condition with the repo scored 1.000. Before the cutoff, no access already scored 0.893: the model knows a lot of nanochat. That's a case for letting the agent read the code, with or without a map.
+
+![Dot plot of mean score per run for four conditions in two rows, split by whether the questions' code last changed before or after the training cutoff (June 2026). Before the cutoff, 10 questions: no access 0.89, explore 0.95, outline 0.98, map 0.94. After the cutoff, 5 questions: no access 0.20, and explore, outline and map all 1.00, with a bracket marking explore minus no access, +0.800 [+0.400, +1.000]. A footnote says why/how questions carry no cutoff tag and are in neither row](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/cutoff-split-light.png){: .light width="1000" height="541" }
+![Dot plot of mean score per run for four conditions in two rows, split by whether the questions' code last changed before or after the training cutoff (June 2026). Before the cutoff, 10 questions: no access 0.89, explore 0.95, outline 0.98, map 0.94. After the cutoff, 5 questions: no access 0.20, and explore, outline and map all 1.00, with a bracket marking explore minus no access, +0.800 [+0.400, +1.000]. A footnote says why/how questions carry no cutoff tag and are in neither row](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/cutoff-split-dark.png){: .dark width="1000" height="541" }
+_On the 5 questions whose code changed after the cutoff, no access scores 0.20 and every condition that reads the repo 1.00; on older code, no access already scores 0.89._
 
 **Why/how is a hint.** On the five why/how questions the map's answers scored 1.000, explore and outline 0.900 and no access 0.500. They were graded blind by ChatGPT (GPT-6), working from a sheet of answers only ([`evalscore.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/score/evalscore.py)):
 
@@ -532,8 +551,8 @@ The answers are the explore condition's answers to the flow and why/how question
 
 The difference, +0.010, has an interval running from -0.016 to +0.033, so this can't tell them apart. Repeating the check on 3 answers gave the same verdict on 75 of 76 units.
 
-![Two panels. Left: the share of claims the Checker judged not supported or wrong, 2.0% (10 of 489) for ad-hoc answers and 1.0% (1 of 100) for map claims sampled before any Checker pass. Right: the difference, +1.0 percentage points, with a 95% interval from -1.6 to +3.3 that crosses zero](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/adhoc-vs-map-light.png){: .light width="1000" height="592" }
-![Two panels. Left: the share of claims the Checker judged not supported or wrong, 2.0% (10 of 489) for ad-hoc answers and 1.0% (1 of 100) for map claims sampled before any Checker pass. Right: the difference, +1.0 percentage points, with a 95% interval from -1.6 to +3.3 that crosses zero](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/adhoc-vs-map-dark.png){: .dark width="1000" height="592" }
+![Two panels. Left: the share of claims the Checker judged not supported or wrong, 2.0% (10 of 489) for ad-hoc answers and 1.0% (1 of 100) for map claims sampled before any Checker pass. Right: the difference, +1.0 percentage points, with a 95% interval from -1.6 to +3.3 that crosses zero. A footnote gives the spot check by a second model (GPT-6), from a sheet without the source: it agreed with 14 of 14 'supported' verdicts (5 ad-hoc, 9 map), so no disagreement said the Checker was too lenient; it would change 2 of 5 'wrong' verdicts and called 4 of 6 'not supported' borderline](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/adhoc-vs-map-light.png){: .light width="1000" height="592" }
+![Two panels. Left: the share of claims the Checker judged not supported or wrong, 2.0% (10 of 489) for ad-hoc answers and 1.0% (1 of 100) for map claims sampled before any Checker pass. Right: the difference, +1.0 percentage points, with a 95% interval from -1.6 to +3.3 that crosses zero. A footnote gives the spot check by a second model (GPT-6), from a sheet without the source: it agreed with 14 of 14 'supported' verdicts (5 ad-hoc, 9 map), so no disagreement said the Checker was too lenient; it would change 2 of 5 'wrong' verdicts and called 4 of 6 'not supported' borderline](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/adhoc-vs-map-dark.png){: .dark width="1000" height="592" }
 _Ad-hoc answers and a map's unchecked claims are wrong about equally rarely on nanochat; the interval on the difference crosses zero._
 
 The errors that do occur are the kind a reader wouldn't catch. Here are the five the Checker judged wrong, with its notes (some cut short by the capture; [`adhoc.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/adhoc/adhoc.py)):
@@ -590,6 +609,14 @@ spot-check review of the Checker's verdicts
   not_supported        6      2       0           4
   wrong                5      3       2           0
   not_a_claim          5      5       0           0
+  by arm (the spot-check sample each item came from):
+  arm             verdict          items  agree  change  borderline
+  ad-hoc answers  supported            5      5       0           0
+  ad-hoc answers  not_supported        5      2       0           3
+  ad-hoc answers  wrong                5      3       2           0
+  ad-hoc answers  not_a_claim          5      5       0           0
+  map claims      supported            9      9       0           0
+  map claims      not_supported        1      0       0           1
   #6 not_supported (borderline): reasonable inference, presented as
       rationale
   #10 not_supported (borderline): reasonable inference; the mechanism is
@@ -605,7 +632,7 @@ spot-check review of the Checker's verdicts
       source-evidence policy (inference, not a measurement)
 ```
 
-It agreed with all 14 sampled supported verdicts (5 on ad-hoc answers, 9 on map claims), so the sample shows no lenient Checker, though it is small. Every disagreement goes the other way: the reviewer would soften two "wrong" verdicts to supported with a qualification (#11 is the SSSL one above; #15 is the steps one), and called four "not supported" verdicts borderline, all inferences the source doesn't state. Where the Checker erred in this sample, it erred toward strict, so if anything 2.0% overstates how often these ad-hoc answers were wrong, though a sample of 14 supported verdicts can't rule out errors it passed.
+Read the by-arm rows. Of the 479 ad-hoc claims the Checker judged supported, the reviewer saw 5, and it saw 9 supported map claims; it agreed with all of them, so no disagreement said the Checker was too lenient. Its disagreements were all with verdicts against a claim: it would soften two of the five ad-hoc "wrong" verdicts to supported with a qualification (#11 is the SSSL one above; #15 is the steps one), and it called four "not supported" verdicts borderline (three ad-hoc, one map), all inferences the source doesn't state; for two of those it said a strict policy would keep the verdict. What the spot check can't do is bound the errors the Checker missed. Five supported verdicts out of 479 is far too few for that, so 2.0% is the Checker's count, and I can't say from this whether the true rate is higher or lower.
 
 So on nanochat, ad-hoc answers are not measurably worse. The case for a shared map can't rest on accuracy, then. What it buys is exact citations a reader can click, one reviewed record instead of many private ones, and fixing an error once, for everyone, instead of in whichever chat it happened to turn up.
 
@@ -627,7 +654,40 @@ Honeyguide stores each claim with the commit it was checked at and the hash of i
 
 New code that no claim covers is listed, and the Cartographer maps only that: the **re-map**. It can also retire older claims it finds no longer hold. The comparison for each refresh is a **rebuild**: the full pipeline (explore, Checker, repair) from scratch.
 
-E2 spans nanochat's July rewrite: from `dc54a1a` to the pin, 60 commits that changed 33 Python files, +1070 and -2498 lines. E3 is waku-agent's next 2 commits after its pin, which changed 3 files, +155 and -5 lines: the kind of change a team sees every day. All of the receipts below come from [`eval/refresh/capture.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/refresh/capture.py).
+E2 spans nanochat's July rewrite: from `dc54a1a` to the pin, 60 commits that changed 33 Python files, +1070 and -2498 lines. E3 is waku-agent's next 2 commits after its pin, which changed 3 files, +155 and -5 lines: the kind of change a team sees every day. All of the receipts below come from [`eval/refresh/capture.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/refresh/capture.py), starting with the commits and which Honeyguide code each run used:
+
+<!-- RECEIPT: refresh-commits -->
+```text
+  E2  nanochat: nanochat across its July rewrite
+    base                dc54a1a  2026-05-05 03:17 UTC
+    target              92d63d4  2026-07-03 22:54 UTC
+    days apart          59.8
+    commits in between  60
+    .py files changed   33 (+1070 / -2498 lines)
+    all files changed   42 (+1194 / -4079 lines)
+    .py lines at base   9,203 in 36 files
+    .py lines at target 7,775 in 36 files
+  E3  waku-agent: waku-agent, an ordinary day
+    base                2c7e7e6  2026-11-15 05:09 UTC
+    target              21dcd56  2026-11-16 23:08 UTC
+    days apart          1.7
+    commits in between  2
+    .py files changed   3 (+155 / -5 lines)
+    all files changed   3 (+155 / -5 lines)
+    .py lines at base   87,084 in 386 files
+    .py lines at target 87,234 in 387 files
+
+  Honeyguide code at each run's start: the commit the honeyguide-run
+  worktree's HEAD was on (its reflog, git reflog --date=iso-strict) at the
+  time in the run's start file. The reflog records HEAD moves, not
+  uncommitted edits.
+    run                   start (UTC)         commit   HEAD on it since
+    E2 build              2026-11-16 23:34:10 e855908  2026-11-16 23:23:33
+    E2 refresh            2026-11-17 00:55:27 e855908  2026-11-16 23:23:33
+    E3 refresh, attempt 1 2026-11-16 23:23:49 e855908  2026-11-16 23:23:33
+    E3 refresh, attempt 2 2026-11-16 23:25:19 e855908  2026-11-16 23:23:33
+    all 4 runs started on the same commit, e855908
+```
 
 #### What it cost
 
@@ -649,15 +709,36 @@ E2 spans nanochat's July rewrite: from `dc54a1a` to the pin, 60 commits that cha
       subagents cartographer 2, checker 3; result success; permission
       denials 1 (Bash 1)
 
-    rebuild: the build above (same Honeyguide code, full Explore + Checker
-    + repair at the base commit).
+    rebuild: the build above (same Honeyguide commit as the refresh,
+    e855908, by the reflog; full Explore + Checker + repair at the base
+    commit).
     refresh / rebuild:  $ 0.51, wall minutes 0.48
 ```
 
-For E2 the rebuild is a full checked build of nanochat's map at the old commit, run on the same Honeyguide code as the refresh. E3's comparison is weaker, and the capture ([`capture.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/refresh/capture.py)) says why:
+For E2 the rebuild is a full checked build of nanochat's map at the old commit, run on the same Honeyguide commit as the refresh, `e855908`. The old commit is the bigger repo, 9,203 lines of Python against the 7,775 the refresh ended on, so the build had more code to read than a rebuild at the new commit would. A rebuild at the pin would probably cost somewhat less, and the ratio would come out above 0.51.
+
+E3's comparison is weaker, and the capture ([`capture.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/refresh/capture.py)) says why:
 
 <!-- RECEIPT: refresh-cost-e3 -->
 ```text
+  E3  waku-agent: waku-agent, an ordinary day
+    run                      $ list  wall min  session  turns  exit
+    refresh, attempt 1        $0.67       1.3      1.3     16     0
+    refresh, attempt 2        $3.25       8.4      8.4     27     0
+    refresh total             $3.92       9.7      9.7
+
+    tokens                    input   cache read  cache write     output
+    refresh, attempt 1           42      637,196       57,864      7,769
+    refresh, attempt 2          150    3,096,300      256,770     60,533
+
+    refresh, attempt 1: models claude-opus-5-5 ($0.67)
+      subagents checker 1; result success; permission denials 3 (Write 3)
+    refresh, attempt 2: models claude-opus-5-5 ($3.25)
+      subagents cartographer 2, checker 3; result success; permission
+      denials 0
+    refresh, attempt 1: denied writes into the store:
+      drafts/checker/stale-1.json x2, drafts/guide/stale-1.json x1
+
     rebuild: the waku-agent full pipeline at its pin, from runs.txt's runs
     block (run 2 + repair + re-check). It ran on older Honeyguide code
     (runs.txt does not record which commit) and was a different
@@ -681,7 +762,7 @@ _Keeping a map current costs about half a rebuild across a rewrite and about a f
 
 #### What it did
 
-E2's map isn't the 260-claim map from [§3](#the-checker): it's the build above, made at `dc54a1a`, with 310 claims. Here's how the refresh classified them before it started, and what happened after:
+E2's map isn't the 260-claim map from [§3](#the-checker): it's the build above, made at `dc54a1a`, with 310 claims. Here's how the refresh classified them before it started, and what happened after ([`capture.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/refresh/capture.py)):
 
 <!-- RECEIPT: refresh-plan-e2 -->
 ```text
@@ -720,15 +801,26 @@ E2's map isn't the 260-claim map from [§3](#the-checker): it's the build above,
       still held (supported)               15                    2
       no longer held (not supported)       35                   35
       left stale after the refresh          0
+    new claims, Checker    supported  not supp.   other
+      first check                 83          4       0
+      after round 1               87          0       0
+      after round 2               87          0       0
+    repair in the refresh: 1 pass(es), 1 round(s)
+      round 1: anchor 3, rewrite 1
+    older claims repaired in the refresh  0
 ```
 
-All 50 stale claims were re-checked. 35 no longer held, and all 35 were retired; 15 still held, and the re-map retired 2 of those anyway. The re-map wrote 87 new claims, which cite 43 of the 60 new or changed pieces of code no claim had covered; 4 of the new claims failed their first check and one repair round fixed them. Nothing was left stale.
+All 50 stale claims were re-checked, and nothing was left stale. The re-map wrote 87 new claims, which cite 43 of the 60 new or changed pieces of code no claim had covered; 4 of the new claims failed their first check and one repair round fixed them.
+
+![A flow from 310 claims before the refresh, by the plan's class, to 397 claims after it, none stale. Retired 32 flow straight to retired. All 50 stale claims go through the Checker's re-check: 35 no longer held, all retired, and 15 still held, of which the re-map retired 2. Moved 128 and unchanged 88 flow to current, except 3 moved claims the re-map retired; of the 12 unanchored claims, the re-map retired 6. 87 new claims from the re-map join current. After: retired 78 (32 by refresh apply, 46 by the re-map: stale 37, moved 3, unanchored 6) and current 319 (232 kept, 87 new). The 3 moved and 6 unanchored bands are outlined and hatched where they enter retired, with a callout: the gap, hashes matched (or there were none), so the refresh kept them current; the re-map retired them later](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/refresh-flow-light.png){: .light width="1000" height="672" }
+![A flow from 310 claims before the refresh, by the plan's class, to 397 claims after it, none stale. Retired 32 flow straight to retired. All 50 stale claims go through the Checker's re-check: 35 no longer held, all retired, and 15 still held, of which the re-map retired 2. Moved 128 and unchanged 88 flow to current, except 3 moved claims the re-map retired; of the 12 unanchored claims, the re-map retired 6. 87 new claims from the re-map join current. After: retired 78 (32 by refresh apply, 46 by the re-map: stale 37, moved 3, unanchored 6) and current 319 (232 kept, 87 new). The 3 moved and 6 unanchored bands are outlined and hatched where they enter retired, with a callout: the gap, hashes matched (or there were none), so the refresh kept them current; the re-map retired them later](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/refresh-flow-dark.png){: .dark width="1000" height="672" }
+_Every stale claim was re-checked and none was left stale; the claims the hash check couldn't flag are the 3 moved and 6 unanchored ones the re-map later retired._
 
 E3 had little to do: 7 moved claims, 1 stale claim that still held, and 6 new claims citing 10 of the 12 new or changed pieces of code, with nothing retired.
 
 #### Its gap
 
-Look at the re-map's retirements by plan class in E2: moved 3, unanchored 6. Those are claims the refresh had kept current because their hashes matched (or, for unanchored claims, because there was nothing to hash), and that the re-map then retired: 3 of the 216 unchanged or moved claims, and 6 of the 12 unanchored ones. The capture doesn't read why each was retired, because the reason is the agent's own text, so I'll say "retired by the re-map" and not "false". What I can say is how it's possible. A claim can depend on code it doesn't cite: a claim about the repo as a whole, or that something isn't in it, keeps matching hashes while the code around it changes. Half the unanchored claims were retired in E2, and the hash check can't flag any of them. That's the refresh's gap, and [what's next](#whats-next) has the fix I want to try.
+Look at the re-map's retirements by plan class in E2: moved 3, unanchored 6. Those are claims the refresh had kept current because their hashes matched (or, for unanchored claims, because there was nothing to hash), and that the re-map then retired: 3 of the 216 unchanged or moved claims, and 6 of the 12 unanchored ones. The capture doesn't read why each was retired, because the reason is the agent's own text, so I'll say "retired by the re-map" and not "false". What I can say is how it's possible. A claim can depend on code it doesn't cite: a claim about the repo as a whole, or that something isn't in it, keeps matching hashes while the code around it changes. Half the unanchored claims were retired in E2, and the hash check can't flag any of them. That's the refresh's gap, and it isn't new: RepoAgent, which updates the documentation of code objects a commit touches, says its "update is not triggered when an object’s reference objects change" ([Luo et al., 2024](https://arxiv.org/abs/2402.16667), §2.3). [What's next](#whats-next) has the fix I want to try.
 
 ---
 
@@ -736,13 +828,30 @@ Look at the re-map's retirements by plan class in E2: moved 3, unanchored 6. Tho
 
 **What this doesn't show.** The team benefit, engineers saving time by reading one map instead of each exploring, is argued here, not measured: I'm one person, and nobody else has used these maps. The four-way test is a 20-question pilot on one repo. Everything ran on one model, Claude Opus 5.5, which also built the maps it was tested with. The why/how grades and the review of the Checker's verdicts were done by another model from sheets, without the source. The Checker is Claude checking Claude. The runtime traces start from toy entry points, so they see part of each repo.
 
-**Both repos are small.** nanochat has 7,775 lines of Python at its pin, and the map build reads files one by one. On a repo that size, Grep plus Read finds almost anything in a few calls, which is a large part of why lookups hit the ceiling in [§4](#does-an-agent-need-the-map). On a large codebase I'd expect three things to change. Exploring costs more per question, because a search returns hundreds of hits. Building one map by reading files stops scaling. And one map of a monorepo would be too long to read.
+**nanochat is small; waku-agent is larger, but most of it is outside what the questions cover.** Here's the Python at each pin, all of it and the part the questions' answer keys may cite (their **key scope**), from [`june_check.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/cutoff/june_check.py):
+
+<!-- RECEIPT: june-check-pylines -->
+```text
+  Python at the pinned commit: every .py file in the commit's tree (git
+  ls-tree -r), lines counted as wc -l counts them; key scope = the .py
+  files the questions' keys may cite (below).
+                              every .py file           in key scope
+  repo        commit        files      lines       files      lines
+  nanochat    92d63d4          36      7,775          30      6,715
+  waku-agent  2c7e7e6         386     87,084          99     21,564
+  key scope:
+    nanochat: every tracked .py outside tests/, test/, examples/, docs/
+    waku-agent: every tracked .py under waku/ (hosted/, evals/, lab/,
+      scripts/, examples/, docs/ excluded)
+```
+
+nanochat has 7,775 lines of Python, and the map build reads files one by one. On a repo that size, Grep plus Read finds almost anything in a few calls, which is a large part of why lookups hit the ceiling in [§4](#does-an-agent-need-the-map), and the pilot ran only on nanochat. waku-agent has 87,084 lines, but 21,564 in its key scope, the `waku/` package. The rest sits outside it, in folders such as its hosted platform, evals and scripts, which the questions don't cover. Neither is what I'd call a large codebase, and on one I'd expect three things to change. Exploring costs more per question, because a search returns hundreds of hits. Building one map by reading files stops scaling. And one map of a monorepo would be too long to read. These are expectations, not measurements. The one outside measurement I know of that varies with codebase size is Cursor's: with search by meaning available, the code its agent wrote was kept 0.3% more often overall, and 2.6% more often "on large codebases with 1,000 files or more" ([Cursor blog](https://cursor.com/blog/semsearch)). That's code retention, not cost or accuracy, and Cursor has since dropped that search ([§1](#what-already-exists)), but it suggests that size changes what helps.
 
 What I think a large codebase needs, as directions and not results:
 
 - **Per-package maps**, each owned by the team that owns the code and refreshed on its own schedule, with a thin map on top that links them.
-- **An index under the map.** A symbol table and a call graph, built by a parser rather than by an agent reading files, so the Cartographer starts from structure instead of from Grep. aider's repo map is prior art here: it ranks the repo's symbols on a graph of file dependencies, built with tree-sitter ([aider docs](https://aider.chat/docs/repomap.html); [aider's blog, 2023](https://aider.chat/2023/10/22/repomap.html)). <!-- TODO(sources): symbol / call-graph indexes beyond aider (tree-sitter, LSP, SCIP-style code intelligence) and papers on code localization in large repos; verify before naming any or stating specifics. -->
-- **Search over claims.** An agent answering a question should retrieve the few claims that bear on it. The pilot's map runs read the whole map every time, which is part of why they cost twice as much. <!-- TODO(sources): retrieval over documentation for coding agents; verify before citing. -->
+- **An index under the map.** A symbol table and a call graph, built by a parser rather than by an agent reading files, so the Cartographer starts from structure instead of from Grep. aider's repo map is prior art here: it ranks the repo's symbols on a graph of file dependencies, built with tree-sitter ([aider docs](https://aider.chat/docs/repomap.html); [aider's blog, 2023](https://aider.chat/2023/10/22/repomap.html)). Claude Code can already use one kind of index: a code-intelligence plugin connects it to a **language server** (the program that gives an editor go-to-definition), so it "finds definitions and references by symbol instead of by text search" ([Claude Code docs, code intelligence](https://code.claude.com/docs/en/plugins/code-intelligence)); the pilot's runs didn't use it. In research, LocAgent parses a Python repo into a graph of directories, files, classes and functions joined by contain, import, invoke and inherit edges, and has an agent search that graph to find the code an issue needs changed ([Chen et al., ACL 2025](https://arxiv.org/abs/2503.09089), §3.1).
+- **Search over claims.** An agent answering a question should retrieve the few claims that bear on it. The pilot's map runs read the whole map every time, which is part of why they cost twice as much.
 
 None of these has been built or measured here.
 
@@ -770,7 +879,7 @@ The terms this post leans on; anything not listed is defined where it first appe
 | anchor, hash | a claim's pointer into the code, resolved by a script to a line range, commit and a fingerprint of the lines | §3, §6 |
 | evidence label | what kind of evidence a claim rests on | seven labels, §3 |
 | Checker verdict | supported or not supported, after re-reading the cited lines; in E1, also wrong or not a claim | §3, §5 |
-| repair pass | the Cartographer's fix for a claim the Checker turned down: cite more lines, narrow the claim, or retire it; at most two rounds | §3, §6 |
+| repair pass | the Cartographer's fix for a claim the Checker turned down: cite more lines, narrow the claim, or retire it; at most two rounds per pass | §3, §6 |
 | non-interactive mode | running Claude Code from a script with `claude -p` (formerly called headless mode) | §4 |
 | pilot | the four-way test on 20 nanochat questions, before any full run | §4 |
 | no access, explore, outline, map | the four conditions of the test | §4 |
@@ -786,17 +895,19 @@ The terms this post leans on; anything not listed is defined where it first appe
 
 Sources checked on 2026-11-15 and 2026-11-16; Claude Code's docs are for CLI 2.1.325. Quotes are given where the post cites them.
 
-- Anthropic, Claude Code docs: [Subagents](https://code.claude.com/docs/en/sub-agents) (introduction; §2); [Glossary](https://code.claude.com/docs/en/glossary), Skill, Plugin and "Non-interactive mode … Formerly called headless mode" (§2, §4); [Memory](https://code.claude.com/docs/en/memory), `CLAUDE.md` and `/init` (§1); [CLI reference](https://code.claude.com/docs/en/cli-reference), the `--tools` row: the default set on macOS, Linux and WSL leaves out Glob and Grep (§4); [Non-interactive mode](https://code.claude.com/docs/en/headless), the `--bare` section (§4); [Costs](https://code.claude.com/docs/en/costs), which "computes the dollar figure locally from token counts at list price", and [Agent SDK, cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking), the 1-hour cache within a plan's included usage (Setup, §4).
+- Anthropic, Claude Code docs: [Subagents](https://code.claude.com/docs/en/sub-agents) (introduction; §2); [Glossary](https://code.claude.com/docs/en/glossary), Skill, Plugin and "Non-interactive mode … Formerly called headless mode" (§2, §4); [Memory](https://code.claude.com/docs/en/memory), `CLAUDE.md` and `/init` (§1); [CLI reference](https://code.claude.com/docs/en/cli-reference), the `--tools` row: the default set on macOS, Linux and WSL leaves out Glob and Grep (§4); [Non-interactive mode](https://code.claude.com/docs/en/headless), the `--bare` section (§4); [Costs](https://code.claude.com/docs/en/costs), which "computes the dollar figure locally from token counts at list price", and [Agent SDK, cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking), the 1-hour cache within a plan's included usage (Setup, §4); [Code intelligence plugins](https://code.claude.com/docs/en/plugins/code-intelligence), "finds definitions and references by symbol instead of by text search", through an `LSP` tool that is read-only (§7).
 - Anthropic, [Models overview](https://platform.claude.com/docs/en/about-claude/models/overview) — Claude Opus 5.5: "Reliable knowledge cutoff | Jun 2026" and "Training data cutoff | Jun 2026", with no day given. Cited in Setup and §4.
 - Anthropic, [Prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching), Pricing — 1-hour cache writes at 2x the base input price; "Cache hits and refreshes on Claude Opus 5.5 and Claude Sonnet 5.5 are priced at 0.05x the base input price". Cited in §4.
 - aider, [Repository map](https://aider.chat/docs/repomap.html) — "a graph ranking algorithm, computed on a graph where each source file is a node and edges connect files which have dependencies", sized by `--map-tokens`; aider's [blog post of 2023-10-22](https://aider.chat/2023/10/22/repomap.html): "aider uses tree sitter to build the map". Cited in §1 and §7.
 - Cognition, [DeepWiki](https://docs.devin.ai/work-with-devin/deepwiki) (Devin docs) — "produces wikis with architecture diagrams, links to sources, and summaries"; the docs don't say whether links point at line ranges. Cited in §1.
 - Hurley, Rodriguez, Marques and Shams, ["Introducing Code Wiki: Accelerating your code understanding"](https://developers.googleblog.com/en/introducing-code-wiki-accelerating-your-code-understanding/), Google Developers Blog, 2025-11-13 — "regenerates the documentation after each change"; "hyper-linked directly to the relevant code files and definitions". Cited in §1.
-- Cursor: [semantic-search docs, as archived on 2026-02-25](https://web.archive.org/web/20260225213818/https://cursor.com/docs/context/semantic-search) ("specialized vector database"); Heule, Jia and Jain, ["Improving agent with semantic search"](https://cursor.com/blog/semsearch), Cursor blog, 2025-11-06 ("on average 12.5% higher accuracy in answering questions (6.5%–23.5% depending on the model)", on Cursor's own question set); forum thread ["What do you think about Cursor removing the codebase indexing settings?"](https://forum.cursor.com/t/what-do-you-think-about-cursor-removing-the-codebase-indexing-settings/165899), Maxime (Cursor staff) [2026-07-21](https://forum.cursor.com/t/what-do-you-think-about-cursor-removing-the-codebase-indexing-settings/165899/5) and Colin (Community Support Engineer) [2026-07-22](https://forum.cursor.com/t/what-do-you-think-about-cursor-removing-the-codebase-indexing-settings/165899/10). Cited in §1.
+- Cursor: [semantic-search docs, as archived on 2026-02-25](https://web.archive.org/web/20260225213818/https://cursor.com/docs/context/semantic-search) ("specialized vector database"); Heule, Jia and Jain, ["Improving agent with semantic search"](https://cursor.com/blog/semsearch), Cursor blog, 2025-11-06 ("on average 12.5% higher accuracy in answering questions (6.5%–23.5% depending on the model)", on Cursor's own question set); the same post's A/B test: "agent code retention increases by 0.3% when semantic search is available. This effect increases to 2.6% on large codebases with 1,000 files or more" (code retention, not cost; §7); forum thread ["What do you think about Cursor removing the codebase indexing settings?"](https://forum.cursor.com/t/what-do-you-think-about-cursor-removing-the-codebase-indexing-settings/165899), Maxime (Cursor staff) [2026-07-21](https://forum.cursor.com/t/what-do-you-think-about-cursor-removing-the-codebase-indexing-settings/165899/5) and Colin (Community Support Engineer) [2026-07-22](https://forum.cursor.com/t/what-do-you-think-about-cursor-removing-the-codebase-indexing-settings/165899/10). Cited in §1 and §7.
+- Luo et al., ["RepoAgent: An LLM-Powered Open-Source Framework for Repository-level Code Documentation Generation"](https://arxiv.org/abs/2402.16667), arXiv 2402.16667v1, EMNLP 2024 System Demonstrations ([Anthology 2024.emnlp-demo.46](https://aclanthology.org/2024.emnlp-demo.46/)) — §2.3: from a Git pre-commit hook, "RepoAgent only updates the documentation of affected objects"; "the update is not triggered when an object’s reference objects change". Cited in §1 and §6.
+- Chen et al., ["LocAgent: Graph-Guided LLM Agents for Code Localization"](https://arxiv.org/abs/2503.09089), arXiv 2503.09089v2, ACL 2025 — §3.1: a graph of {directory, file, class, function} nodes with {contain, import, invoke, inherit} edges, built by parsing each Python file's AST; evaluated on Python repos, not monorepos. Cited in §7.
 - Liang, Garg and Zilouchian Moghaddam, [SWE-Bench Illusion](https://arxiv.org/abs/2506.12286), arXiv preprint 2506.12286v4 (2025-12-01) — given the repo's name and the issue text, "without access to repository structure", models identify the buggy file up to 76% of the time on SWE-Bench Verified (o3) against up to 53% on 245 tasks from 7 repos outside it; models of the Claude 4 generation and earlier. Cited in §4.
 - Jain et al., ["LiveCodeBench: Holistic and Contamination Free Evaluation of Large Language Models for Code"](https://arxiv.org/abs/2403.07974), arXiv 2403.07974v2, ICLR 2025 (cited from v2) — §5.1 evaluates "problems released after the cutoff date". Cited in §4.
 - Python docs, [`sys.setprofile`](https://docs.python.org/3.12/library/sys.html#sys.setprofile) (3.10 to 3.12). Cited in §2.
 - Spottiswoode and Wood, "Culturally determined interspecies communication between humans and honeyguides", *Science* 382(6675):1155–1158, 2023-12-08, [doi:10.1126/science.adh4129](https://doi.org/10.1126/science.adh4129) ([open copy](https://par.nsf.gov/servlets/purl/10524235)), p. 1. Cited in the introduction.
-- [nanochat](https://github.com/karpathy/nanochat/tree/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd) at `92d63d4` — [LICENSE](https://github.com/karpathy/nanochat/blob/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd/LICENSE): MIT, "Copyright (c) 2025 Andrej Karpathy"; [README, line 8](https://github.com/karpathy/nanochat/blob/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd/README.md?plain=1#L8); [`gpt.py`, line 302](https://github.com/karpathy/nanochat/blob/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd/nanochat/gpt.py#L302); 7,775 lines of Python at this commit (`git blame` count). Cited in Setup, §1, §3 and §7.
-- [waku-agent](https://github.com/ShenSeanChen/waku-agent/tree/2c7e7e68d3d65ac19d428bdde7820844d87dfa19) at `2c7e7e6` (2026-11-15, 05:09 UTC) — [LICENSE](https://github.com/ShenSeanChen/waku-agent/blob/2c7e7e68d3d65ac19d428bdde7820844d87dfa19/LICENSE): MIT, "Copyright (c) 2026 Sean Chen (ShenSeanChen)"; [`hosted/LICENSE`](https://github.com/ShenSeanChen/waku-agent/blob/2c7e7e68d3d65ac19d428bdde7820844d87dfa19/hosted/LICENSE): Elastic License 2.0; [LICENSE-BRAND](https://github.com/ShenSeanChen/waku-agent/blob/2c7e7e68d3d65ac19d428bdde7820844d87dfa19/LICENSE-BRAND): brand assets and names aren't MIT (copyright AutoManus Technologies, Inc.); [README, lines 129 to 133](https://github.com/ShenSeanChen/waku-agent/blob/2c7e7e68d3d65ac19d428bdde7820844d87dfa19/README.md?plain=1#L129-L133). Repo created 2026-07-10. Cited in Setup and §6.
+- [nanochat](https://github.com/karpathy/nanochat/tree/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd) at `92d63d4` — [LICENSE](https://github.com/karpathy/nanochat/blob/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd/LICENSE): MIT, "Copyright (c) 2025 Andrej Karpathy"; [README, line 8](https://github.com/karpathy/nanochat/blob/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd/README.md?plain=1#L8); [`gpt.py`, line 302](https://github.com/karpathy/nanochat/blob/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd/nanochat/gpt.py#L302); 7,775 lines of Python at this commit (printed by `june_check.py`). Cited in Setup, §1, §3 and §7.
+- [waku-agent](https://github.com/ShenSeanChen/waku-agent/tree/2c7e7e68d3d65ac19d428bdde7820844d87dfa19) at `2c7e7e6` (2026-11-15, 05:09 UTC) — [LICENSE](https://github.com/ShenSeanChen/waku-agent/blob/2c7e7e68d3d65ac19d428bdde7820844d87dfa19/LICENSE): MIT, "Copyright (c) 2026 Sean Chen (ShenSeanChen)"; [`hosted/LICENSE`](https://github.com/ShenSeanChen/waku-agent/blob/2c7e7e68d3d65ac19d428bdde7820844d87dfa19/hosted/LICENSE): Elastic License 2.0; [LICENSE-BRAND](https://github.com/ShenSeanChen/waku-agent/blob/2c7e7e68d3d65ac19d428bdde7820844d87dfa19/LICENSE-BRAND): brand assets and names aren't MIT (copyright AutoManus Technologies, Inc.); [README, lines 129 to 133](https://github.com/ShenSeanChen/waku-agent/blob/2c7e7e68d3d65ac19d428bdde7820844d87dfa19/README.md?plain=1#L129-L133). Repo created 2026-07-10. Cited in Setup, §6 and §7.
 - [RepoRabbit](https://github.com/bearbearyu1223/repo-rabbit), my earlier Claude Code subagent for exploring a repo. README at `b9e9eae`: [line 115](https://github.com/bearbearyu1223/repo-rabbit/blob/b9e9eae/README.md?plain=1#L115), a reference that "doesn't resolve to a real file and line is rejected"; [line 177](https://github.com/bearbearyu1223/repo-rabbit/blob/b9e9eae/README.md?plain=1#L177), "Each reference stores a hash of the lines it cites … If they changed, that explanation is flagged for the agent to review". Cited in §1 and §3.
