@@ -39,12 +39,14 @@ That leaves two questions. Can an agent learn a repo once and keep what it learn
 
 **The test** ([§5](#does-the-map-pay-off)). Two repos, each pinned to one commit: Andrej Karpathy's nanochat, mostly written before June 2026, the training cutoff of the Claude models used here, and waku-agent, a personal assistant agent written after it. The same model answers the same frozen questions four ways: with no access to the code, exploring the repo, exploring with a free script-built outline, and exploring with the map. Splitting the questions by whether their code predates the model's cutoff separates learning the repo from remembering it.
 
-<!-- TODO(draft): the results paragraph, written from outputs/eval_<repo>.txt once the eval has run: the paired
-differences map - explore, map - outline, explore - no-access with their 95% CIs; learning vs remembering on the
-before/after-cutoff subsets; cost per correct answer and the break-even point, or that it never pays. Bullets of
-36-85 words each, each pointing at its section. -->
+**What the first runs showed** ([§3](#the-checker), [§4](#the-first-maps)). The second maps had an Overview with all seven topics, where the first had none. The Checker turned down 102 of nanochat's 260 claims and 47 of waku-agent's 266, and after two repair rounds all of them passed. Among the passes was a claim that repeated a stale code comment: 768 tokens, where the code computes 512. Re-checked by computing values from the code, 39 more claims failed on nanochat and 13 on waku-agent, and repair left 4 and 1 for me to check.
 
-**[RESULTS: does the map pay off, from the eval capture]**
+The four-way test hasn't run yet, so whether the map pays off is still open, and its results will go in [§5](#does-the-map-pay-off) once it has.
+
+<!-- TODO(draft): once the eval has run, replace the sentence above with a results bullet, written from
+outputs/eval_<repo>.txt: the paired differences map - explore, map - outline, explore - no-access with their 95% CIs;
+learning vs remembering on the before/after-cutoff subsets; cost per correct answer and the break-even point, or that
+it never pays. 36-85 words, pointing at §5. -->
 
 ### Setup
 
