@@ -1,5 +1,5 @@
 ---
-title: "Agentic Workflows [1]: Honeyguide: building an agent that learns a new codebase (and checking that it did)"
+title: "Agentic Workflows [1]: Honeyguide: one checked map of a codebase for the whole team"
 date: 2026-11-16 09:00:00 -0800
 categories: [Agentic Workflows, Code Understanding]
 tags: [agentic-workflow, claude-code, subagents, coding-agents, code-understanding, evaluation]
@@ -153,10 +153,6 @@ Honeyguide is one Claude Code **plugin**, a bundle of skills, subagents and othe
 
 The rule I held to: a job gets its own agent only when a fresh context or parallel work earns it. Anything exact is a script: resolving citations to lines, the runtime trace, validating the map, serving the page, and the eval.
 
-<!-- FIGURE F2 (mechanism; role names and emoji): the page never starts Claude. Page -> inbox -> one Claude Code
-session (the Guide) -> Cartographer / Investigator / Tracer / Checker -> answer written back -> page. Not in the
-current figure batch; draw it or drop this slot. -->
-
 🗺️ **Cartographer.** Explores the repo once and writes the map: an Overview of seven topics, from what the repo is for to which files to read first; modules, each a **component** (one or more files that work together) with a Design paragraph on why it's built that way; and the main flows through the code. In a subagent, reading a whole repo doesn't crowd the Guide's context. It also repairs claims the Checker turns down ([§3](#how-it-keeps-itself-honest)) and maps new code when the repo moves ([§6](#what-a-shared-map-costs-to-keep)).
 
 🔦 **Investigator.** Answers one question or follow-up asked on the map, starting from the map and any earlier answers about the same code, with every claim pointing at code. Each question gets a clean context, and several can run at once.
@@ -193,7 +189,7 @@ _One question, from a click on the component map to a checked answer. The record
 
 The [full video](https://github.com/bearbearyu1223/honeyguide/blob/main/demo/honeyguide-demo.mp4) also shows a code preview and a flow diagram, and the [demo's README](https://github.com/bearbearyu1223/honeyguide/blob/main/demo/README.md) lists every sped-up stretch.
 
-**Where the map lives.** Everything Honeyguide learns about a repo is saved outside the checkout, in `~/.honeyguide/<repo-id>/`: the map, the answers with their evidence and verdicts, and your private notes. The repo id is the repo's remote address plus its first commit, so any clone finds the same map. Today the page is served on your own machine only, so "shared" in this post means a team reading one map; Honeyguide doesn't host it for them yet.
+**Where the map lives.** Everything Honeyguide learns about a repo is saved outside the checkout, in `~/.honeyguide/<repo-id>/`: the map, the answers with their evidence and verdicts, and your private notes. The repo id is the repo's remote address plus its first commit, so any clone finds the same map. Today Honeyguide is single-user: the map lives on your machine and the page is served only there. A team can't share it yet. This post makes the case for a shared map, and sharing is first on the list in [what's next](#whats-next).
 
 ---
 
@@ -754,7 +750,7 @@ None of these has been built or measured here.
 
 ### What's next {#whats-next}
 
-Two things before anything else. The first is a **map health check**: generate a handful of locate and callers questions with keys from the code, answer them with the map in isolated runs, score them with a script, and show the user how many the map got right and where it's thin. It needs no human input, and it would tell a team whether to trust their map. The second is closing the refresh gap from [§6](#its-gap): re-checking unanchored claims, and claims about the repo as a whole, on every refresh, since the hashes can't say when they stop holding, and keeping a question attached when the claim it was asked on is rewritten.
+Three things before anything else. The first is **sharing**: export the map, with its citations, checks and answers, as a static page a team can commit next to the code or host, so the shared map this post argues for exists outside my laptop. The second is a **map health check**: generate a handful of locate and callers questions with keys from the code, answer them with the map in isolated runs, score them with a script, and show the user how many the map got right and where it's thin. It needs no human input, and it would tell a team whether to trust their map. The third is closing the refresh gap from [§6](#its-gap): re-checking unanchored claims, and claims about the repo as a whole, on every refresh, since the hashes can't say when they stop holding, and keeping a question attached when the claim it was asked on is rewritten.
 
 This post starts a new series, Agentic Workflows. The next one goes behind the scenes: the team of agents that helped me write this post. After that, a 💡 **Scout**, an agent that proposes changes worth making to a repo, tested against history: given a repo at an earlier commit, does it propose what the maintainers went on to build?
 
