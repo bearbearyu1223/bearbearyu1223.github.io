@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""PreToolUse gate for the LLM Architecture Refresh series: nothing goes live without Han.
+"""PreToolUse gate for the blog's reviewed posts (the LLM Architecture Refresh series and the posts registered in
+publish.py's EXTRA_POSTS): nothing goes live without Han.
 
 Lives in the blog repo, not in the research plugin, so disabling the plugin can't switch it off. It imports
 publish.py from the plugin (research-content-assistant) and fails closed: if that import fails, every push and
@@ -9,7 +10,9 @@ Used by the blog repo AND the demo repo (llm-architectures-refresher/.claude/set
 
 - `git push` from the blog repo:
     * denied if the demo repo still has unpushed commits (push code first, so the post's links resolve);
-    * denied if a series post (or its figures) in the pushed commits is not approved on the publish page at
+    * denied if a pushed post's companion repo (publish.companions: honeyguide for the Honeyguide post) is
+      missing, has no upstream, or has unpushed commits;
+    * denied if a reviewed post (or its figures) in the pushed commits is not approved on the publish page at
       its current content, or has uncommitted edits (the approval would not match what gets pushed);
     * otherwise a permission prompt that says which posts go LIVE and which stay hidden.
 - `git push` from the demo repo: always a permission prompt listing the commits.
@@ -98,6 +101,16 @@ def gate_blog_push(args: list[str]) -> None:
             continue
         st = desk.post_state(slug)
         state, h = desk.approval_state(slug, "post")
+        for repo in desk.companions(slug):
+            if repo.resolve() == DEMO:
+                continue  # checked above, for every blog push
+            if not (repo / ".git").exists():
+                problems.append(f"{slug}'s companion repo {repo} is missing")
+            elif not desk.git(repo, "rev-parse", "--abbrev-ref", "@{u}"):
+                problems.append(f"{slug}'s companion repo {repo.name} has no upstream; push it first")
+            elif desk.unpushed(repo):
+                problems.append(f"{slug}'s companion repo {repo.name} has {len(desk.unpushed(repo))} unpushed "
+                                "commit(s); push it first so the post's code links and receipts resolve")
         if st["dirty"]:
             problems.append(f"{slug} has uncommitted edits ({len(st['dirty'])} file(s)); commit them so "
                             "what Han approved is what gets pushed")
@@ -105,7 +118,7 @@ def gate_blog_push(args: list[str]) -> None:
             why = {"pending": "hasn't been reviewed", "changed": "changed since Han approved it"}.get(state, state)
             problems.append(f"{slug} {why}")
         committed = desk.front(desk.git(BLOG, "show", f"HEAD:{st['file']}"))
-        (going_live if desk.visible(committed) else hidden).append(f"[{st['num']}] {slug}" + (f" ({h[:10]})" if h else ""))
+        (going_live if desk.visible(committed) else hidden).append(f"{st.get('label', '[' + st['num'] + ']')} {slug}" + (f" ({h[:10]})" if h else ""))
     if problems:
         decide("deny", "blog gate: " + "; ".join(problems) + ". Put it on the publish page "
                        "(publish.py serve, /_publish/p/<slug>) and wait for Han's Approve; see `publish.py feedback <slug>`.")
