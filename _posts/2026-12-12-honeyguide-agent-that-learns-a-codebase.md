@@ -1,17 +1,18 @@
 ---
-title: "Agentic Workflows [1]: Honeyguide: one checked map of a codebase for the whole team"
+title: "Agentic Workflows [1]: Honeyguide: turning codebase exploration into shared, checked knowledge"
 date: 2026-11-16 09:00:00 -0800
 categories: [Agentic Workflows, Code Understanding]
 tags: [agentic-workflow, claude-code, subagents, coding-agents, code-understanding, evaluation]
 description: >-
-  When five engineers ask their coding agents about the same repo, they get five
-  private answers that nobody checks and that vanish with the chat. Honeyguide
-  is a small team of Claude Code subagents that writes one shared map of a repo
-  instead, where every claim cites its lines and a separate Checker reads them.
-  This post covers how it's built and kept honest, and what I measured: whether
-  an agent needs the map (on a small repo, mostly not), whether ad-hoc answers
-  are worse (not measurably), and what keeping a map current costs against
-  rebuilding it.
+  I set out to show that a coding agent answers questions about a repo better
+  with a prebuilt map. On the repo I tested, it doesn't. What the experiments
+  pointed to instead is a team problem: every engineer's agent works out the
+  same code again, in private, and nobody checks or keeps the answer.
+  Honeyguide turns that exploration into shared, checked knowledge that stays
+  tied to the source: a map where every claim cites its lines, a separate
+  Checker reads them, and a refresh keeps it current. This post shows how the
+  checking and the upkeep work and what they cost; whether a team saves time
+  is still untested.
 published: false
 ---
 
@@ -19,31 +20,31 @@ published: false
 
 When I open a coding agent in a repository I don't know and ask where something happens, it does what I'd do. It searches for likely names, opens a few files, follows an import or two, and answers. Usually the answer is good. Then the conversation ends, and whatever it worked out goes with it.
 
-Now picture a team. Five engineers join a project in the same month, and each asks their own agent how training is set up or what happens when a checkpoint loads. That's five explorations of the same code and five answers nobody else sees or reviews. If one is subtly wrong, the person who got it carries the mistake into their next change, and the next person with the same question pays to explore again.
+My hypothesis was that it would answer better if it started from a **map**: a document about the repo, written ahead of time, where every claim points at the lines it came from. So I built **Honeyguide**, a small team of Claude Code agents that writes one, and tested it. The test didn't support the hypothesis. In a 20-question pilot on Andrej Karpathy's nanochat, an agent exploring the code found almost everything without the map, answering with the map cost about twice as much, and the explored answers weren't measurably less accurate than the map's claims.
 
-The other way is one shared document: a map of the repo, built once, where every claim cites its lines and a second reader has checked them. Questions asked on it are answered on it, and when the code moves, the map is updated rather than rebuilt.
+The experiments pointed at a different problem. Picture a team. Five engineers join a project in the same month, and each asks their own agent how training is set up or what happens when a checkpoint loads. That's five explorations of the same code and five answers nobody else sees or reviews. If one is subtly wrong, the person who got it carries the mistake into their next change, and the next person with the same question pays to explore again.
+
+So Honeyguide now aims at that: it turns codebase exploration into shared, checked knowledge that stays tied to the source. It builds a map of the repo, then keeps it current: an overview, the modules and the main flows through the code, every claim citing its lines and re-read by a separate Checker. You read the map in a browser, highlight anything that confuses you, and ask. The answer comes back on the map, with its own pointers into the code, where the next reader can find it.
 
 The project's name comes from a bird. In Africa, the greater honeyguide leads people to wild bees' nests: the people subdue the bees and open the nest for the honey, and the bird eats the wax ([Spottiswoode and Wood, 2023](https://par.nsf.gov/servlets/purl/10524235)). It knows where the nest is, and you do the work of getting in. That's the job I wanted done for a codebase: something that has already been through the repo and can lead me to the lines that answer my question.
 
-So I built **Honeyguide**. It's a small team of Claude Code agents that explores a repo once and writes an interactive **map** of it: an overview, the modules, and the main flows through the code, where every claim points at the lines it came from. You read the map in a browser, highlight anything that confuses you, and ask. The answer comes back on the map, with its own pointers into the code, where the next reader can find it.
-
-I started out wanting to show that a map makes an agent answer better. On the repo I tested, it doesn't, and this post reports that straight. What the measurements do support is narrower, and for a team I think more useful: how to keep one record of a codebase checked and current, and what that costs.
+What this post shows is the checking and the upkeep: how the map keeps its claims honest, and what keeping it current costs. Whether a team actually saves time with it, I haven't measured.
 
 ### The short version {#the-short-version}
 
-**The team problem** ([§1](#the-team-problem)). Answers from coding agents are private, unreviewed, and gone when the chat ends. A shared map is built once, cited line by line, checked once and read by everyone. The tools that already keep knowledge about code don't check a kept claim against the lines it cites, as far as their docs say.
+**The hypothesis: does an agent need the map?** ([§4](#does-an-agent-need-the-map)) In a 20-question pilot on nanochat, every condition that could read the repo, map or no map, scored at or near the ceiling on lookups (where is X, what calls X, what runs in order). On code written after the model's training cutoff, the model with no access to the code scored 0.200 and every condition with the repo 1.000. On five why/how questions, graded blind by another model, the map scored highest: a hint at most. Map answers cost about twice as much per run as exploring, so in the pilot's agent-cost model the map never pays back.
+
+**Are ad-hoc answers worse?** ([§5](#are-ad-hoc-answers-worse)) Not measurably. A Checker that finds its own evidence judged 2.0% of the claims in the pilot's ad-hoc answers not supported or wrong, against 1.0% of a map's unchecked claims, and the interval on the difference includes zero. The errors that do occur are subtle.
+
+**The problem it pointed to** ([§1](#the-team-problem)). An agent can work out an explanation whenever someone asks, but nothing keeps it: the answer is private, unreviewed, and gone when the chat ends. Of three problems a map could address, finding code is already done well by an agent searching it, repeated reconstruction across a team is promising but unmeasured, and trustworthy, maintained knowledge is where this post's evidence is. The post shows the third and argues the second.
 
 **What Honeyguide is** ([§2](#what-honeyguide-is)). Five roles in Claude Code: a 🗺️ **Cartographer** writes the map, an 🔦 **Investigator** and a 🧵 **Tracer** answer questions on it, a ✅ **Checker** re-reads each claim against its cited lines, and the 🧭 **Guide**, the session you're in, routes the questions.
 
 **How it keeps itself honest** ([§3](#how-it-keeps-itself-honest)). A script, never the agent, finds the lines each claim cites. Before any repair, the Checker turned down 102 of the 260 claims on nanochat's final map, and repair fixed most by citing more lines while leaving the words alone: what it mostly catches is citations too narrow to show the claim. It also passed one wrong value (768 where the code gives 512), and its rule changed to "compute, don't quote".
 
-**Does an agent need the map?** ([§4](#does-an-agent-need-the-map)) In a 20-question pilot on nanochat, the same model answered with no access to the code, by exploring it, from a script-built outline, or with the map. Every condition that could read the repo scored at or near the ceiling on lookups (where is X, what calls X, what runs in order), map or no map. On code written after the model's training cutoff, no access scored 0.200 and every condition with the repo 1.000. On five why/how questions, graded blind by another model, the map scored highest: a hint at most. Map answers cost about twice as much per run as exploring, so the map never pays back on agent cost.
+**What a shared map costs to keep** ([§6](#what-a-shared-map-costs-to-keep)). Refreshing nanochat's map across a 60-commit rewrite cost about half of a full checked build of the older, larger code; a refresh after an ordinary day on waku-agent cost about a fifth to a quarter of a rebuild. Refresh caught every stale claim that no longer held. Its gap is claims whose cited lines didn't change: mapping the new code later retired 3 of the 216 such claims, and 6 of the 12 that cite no code.
 
-**Are ad-hoc answers worse?** ([§5](#are-ad-hoc-answers-worse)) Not measurably. A Checker that finds its own evidence judged 2.0% of the claims in the pilot's ad-hoc answers not supported or wrong, against 1.0% of a map's unchecked claims, and the interval on the difference includes zero. The errors that do occur are subtle.
-
-**What a shared map costs to keep** ([§6](#what-a-shared-map-costs-to-keep)). Refreshing nanochat's map across a 60-commit rewrite cost about half of a full checked build of the older, larger code; a refresh after an ordinary day on waku-agent cost about a fifth to a quarter of a rebuild, depending on whether one extra pass in that rebuild is counted. Refresh caught every stale claim that no longer held. Its gap is claims whose cited lines didn't change, which it keeps as they are: when the Cartographer then mapped the new code, it retired 3 of the 216 such claims, and 6 of the 12 claims that cite no code.
-
-**Limits** ([§7](#limits-and-large-codebases)). One person, one model, two repos: nanochat is small, and waku-agent is larger but most of it lies outside what the questions cover. That a team saves time is argued here, not measured, and nothing here shows how this works on a large codebase.
+**Limits** ([§7](#limits-and-large-codebases)). One person, one model, two repos: nanochat is small, and waku-agent is larger but most of it lies outside what the questions cover. Whether a team reuses the map, adopts it or saves time with it is untested, and nothing here shows how this works on a large codebase.
 
 ### Setup
 
@@ -117,7 +118,7 @@ A shallow clone won't do: `git blame` needs the history, and the script stops if
 6. [What a shared map costs to keep](#what-a-shared-map-costs-to-keep)
 7. [Limits, and what a large codebase needs](#limits-and-large-codebases)
 
-Then [what's next](#whats-next) and [the glossary](#appendix-glossary) at the end.
+Then [what I learned](#what-i-learned), [what's next](#whats-next) and [the glossary](#appendix-glossary) at the end.
 
 ---
 
@@ -127,38 +128,46 @@ A **coding agent** is a language model that can act on your code through tools: 
 
 Ask an agent about an unfamiliar repo and most of the work goes into finding things. It searches, reads, follows a call, reads again. For one person on a small repo that's cheap: in the pilot in [§4](#does-an-agent-need-the-map), an agent searching nanochat with plain text search answered a question in 0.2 minutes for $0.074 on average, and scored 1.000 on the questions that ask where something happens.
 
-For a team, three things go missing: nobody else sees the answer, nobody reviews it, and it's gone when the chat closes. A shared map is meant to fix all three.
+Where it falls short is across a team. Three things go missing: nobody else sees the answer, nobody reviews it, and it's gone when the chat closes, so the next engineer's agent works the same code out again. A shared map is meant to fix all three.
 
 ![Two panels. Before: five engineers each send their own agent to search the code again, and each gets a private answer, checked by no one, seen by one person, gone when the chat ends. After: one shared map, built once from the code and refreshed as the code changes, where every claim cites its lines and is checked; all five read it, and questions asked on it, with their checked answers, are added to it](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/team-before-after-light.png){: .light width="1000" height="464" }
 ![Two panels. Before: five engineers each send their own agent to search the code again, and each gets a private answer, checked by no one, seen by one person, gone when the chat ends. After: one shared map, built once from the code and refreshed as the code changes, where every claim cites its lines and is checked; all five read it, and questions asked on it, with their checked answers, are added to it](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/team-before-after-dark.png){: .dark width="1000" height="464" }
-_Five private answers that nobody checks and nobody keeps, against one map that's checked once and read by everyone._
+_Five private answers that nobody checks and nobody keeps, against one map that's checked, kept current and read by everyone._
 
-That's an argument, and I should say what it rests on. Whether a team saves engineer time is argued in this post, not measured: I'm one person ([§7](#limits-and-large-codebases)). What I could measure is whether an agent answers better with the map ([§4](#does-an-agent-need-the-map)), whether ad-hoc answers are less accurate than a map's claims ([§5](#are-ad-hoc-answers-worse)), and what it costs to keep the map current as the code changes ([§6](#what-a-shared-map-costs-to-keep)).
+A map could address three problems, and the evidence for each is very uneven:
+
+| Problem | What the evidence says | Where |
+| --- | --- | --- |
+| A. Code discovery: finding the code that answers a question | weak: an agent searching with plain text already does it | [§4](#does-an-agent-need-the-map) |
+| B. Repeated reconstruction: each engineer's agent working out the same code again | promising, not measured | this section |
+| C. Trustworthy, maintained knowledge: claims checked against the source and kept current | where this post's evidence is | [§3](#how-it-keeps-itself-honest), [§5](#are-ad-hoc-answers-worse), [§6](#what-a-shared-map-costs-to-keep) |
+
+This post shows C and argues B, and the argument has assumptions. It assumes the five engineers need the same knowledge, when the overlap may be partial; and reading the code yourself builds an understanding a summary doesn't. A shared map's worth depends on **reuse** (do people read what others asked), **trust** (can they believe it), **change** (does it stay current) and **adoption** (does a team use it at all). This post measures trust ([§3](#how-it-keeps-itself-honest), [§5](#are-ad-hoc-answers-worse)) and change ([§6](#what-a-shared-map-costs-to-keep)). Reuse and adoption are the big unknowns: I'm one person ([§7](#limits-and-large-codebases)).
 
 #### What already exists
 
-Several tools already keep knowledge about a codebase somewhere outside the code.
+Several tools already keep knowledge about a codebase outside the code.
 
-- **`CLAUDE.md` and `/init`.** Claude Code loads `CLAUDE.md` files from the folder you start it in "and every directory above it" ([Claude Code docs, memory](https://code.claude.com/docs/en/memory)), and `/init` "creates a file with build commands, test instructions, and project conventions it discovers". It's a short file of notes, often committed and so shared, but nothing checks it against the code after it's written.
+- **`CLAUDE.md` and `/init`.** Claude Code loads notes from `CLAUDE.md` files, and `/init` "creates a file with build commands, test instructions, and project conventions it discovers" ([Claude Code docs, memory](https://code.claude.com/docs/en/memory)). The notes are often committed and so shared, but nothing checks them against the code after they're written.
 - **Editor indexes.** Until mid-2026, Cursor turned chunks of a codebase into **embeddings** (lists of numbers that put text with similar meaning close together) in a "specialized vector database", so its agent could search by meaning ([archived docs, 2026-02-25](https://web.archive.org/web/20260225213818/https://cursor.com/docs/context/semantic-search)).
-- **Generated wikis.** [DeepWiki](https://docs.devin.ai/work-with-devin/deepwiki), from Cognition, the makers of Devin, "produces wikis with architecture diagrams, links to sources, and summaries"; its docs don't say whether those links point at particular lines. Google's Code Wiki links every section and answer "directly to the relevant code files and definitions" and "regenerates the documentation after each change" ([Google Developers Blog, 2025-11-13](https://developers.googleblog.com/en/introducing-code-wiki-accelerating-your-code-understanding/)). nanochat's own README sends readers with questions to DeepWiki ([line 8](https://github.com/karpathy/nanochat/blob/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd/README.md?plain=1#L8)).
+- **Generated wikis.** [DeepWiki](https://docs.devin.ai/work-with-devin/deepwiki), from Cognition, "produces wikis with architecture diagrams, links to sources, and summaries"; its docs don't say whether those links point at particular lines. Google's Code Wiki links every section and answer "directly to the relevant code files and definitions" and "regenerates the documentation after each change" ([Google Developers Blog, 2025-11-13](https://developers.googleblog.com/en/introducing-code-wiki-accelerating-your-code-understanding/)). nanochat's own README sends readers with questions to DeepWiki ([line 8](https://github.com/karpathy/nanochat/blob/92d63d4e8bb4df75c3b71618f31ddde2378b2bcd/README.md?plain=1#L8)).
 - **aider's repo map.** [aider](https://aider.chat/docs/repomap.html) builds a compact map of the repo's symbols with tree-sitter, a library that parses source code ([aider's blog, 2023](https://aider.chat/2023/10/22/repomap.html)), and picks what goes in with "a graph ranking algorithm" over the files and their dependencies.
 - **RepoAgent.** A research system that writes documentation for every class and function in a Python repo and, from a Git pre-commit hook, "only updates the documentation of affected objects" ([Luo et al., 2024](https://arxiv.org/abs/2402.16667), §2.1, §2.3).
 - **RepoRabbit.** My own earlier attempt, and the closest to this one: a Claude Code subagent that writes an interactive map of a repo, labels each claim by its evidence, rejects any reference that doesn't resolve to a real file and line ([README, line 115](https://github.com/bearbearyu1223/repo-rabbit/blob/b9e9eae/README.md?plain=1#L115)), and flags an explanation when the lines it cites change ([line 177](https://github.com/bearbearyu1223/repo-rabbit/blob/b9e9eae/README.md?plain=1#L177)).
 
 Where their docs say how they stay current, it's by regenerating what changed: Code Wiki after each change, and Cursor's index, which "updates only changed files, removing old embeddings and creating new ones" ([archived docs](https://web.archive.org/web/20260225213818/https://cursor.com/docs/context/semantic-search)). None of the docs I read describes checking a kept claim against the lines it cites. RepoRabbit came closest, but lines can exist, and stay unchanged, and still not say what the claim says.
 
-Cursor is also the one tool I found that measured whether keeping knowledge helps. In November 2025 it reported that search by meaning gave its agent "on average 12.5% higher accuracy in answering questions" than grep alone (search for exact text, the way the classic `grep` tool does), on its own question set ([Cursor blog, "Improving agent with semantic search"](https://cursor.com/blog/semsearch)). In July 2026 its staff said that path "was rapidly no longer helping in a meaningful way" ([Cursor forum, 2026-07-21](https://forum.cursor.com/t/what-do-you-think-about-cursor-removing-the-codebase-indexing-settings/165899/5)) and that the indexing was "being turned down in favor of grep-based retrieval" ([Cursor forum, 2026-07-22](https://forum.cursor.com/t/what-do-you-think-about-cursor-removing-the-codebase-indexing-settings/165899/10)). My pilot points the same way on a small repo: for lookups, grep was enough ([§4](#does-an-agent-need-the-map)). That's why this post's case for a map rests on the team, and on the checking.
+Cursor is also the one tool I found that measured whether keeping knowledge helps. In November 2025 it reported that search by meaning gave its agent "on average 12.5% higher accuracy in answering questions" than grep alone (exact-text search, as the classic `grep` tool does), on its own question set ([Cursor blog, "Improving agent with semantic search"](https://cursor.com/blog/semsearch)). In July 2026 its staff said that path "was rapidly no longer helping in a meaningful way" ([Cursor forum, 2026-07-21](https://forum.cursor.com/t/what-do-you-think-about-cursor-removing-the-codebase-indexing-settings/165899/5)) and that the indexing was "being turned down in favor of grep-based retrieval" ([Cursor forum, 2026-07-22](https://forum.cursor.com/t/what-do-you-think-about-cursor-removing-the-codebase-indexing-settings/165899/10)). My pilot points the same way on a small repo: for lookups, grep was enough ([§4](#does-an-agent-need-the-map)). That's problem A, and it's why this post's case for a map rests on B and C.
 
 ---
 
 ### 2. What Honeyguide is {#what-honeyguide-is}
 
-Honeyguide is one Claude Code **plugin**, a bundle of skills, subagents and other add-ons in one package ([Claude Code docs, glossary](https://code.claude.com/docs/en/glossary)). Its **skill**, a `SKILL.md` file of instructions that Claude Code loads when it's relevant or that you call by name, turns the session you're in into the Guide. The other four roles are **subagents**: separate Claude instances the main conversation starts for one task. "Each subagent runs in its own context window with a custom system prompt, specific tool access, and independent permissions", and it does the task in its own context "and returns only the summary" ([Claude Code docs, subagents](https://code.claude.com/docs/en/sub-agents)).
+Honeyguide turns codebase exploration into shared, checked knowledge that stays tied to the source. It's one Claude Code **plugin**, a bundle of skills, subagents and other add-ons in one package ([Claude Code docs, glossary](https://code.claude.com/docs/en/glossary)). Its **skill**, a `SKILL.md` file of instructions that Claude Code loads when it's relevant or that you call by name, turns the session you're in into the Guide. The other four roles are **subagents**: separate Claude instances the main conversation starts for one task. "Each subagent runs in its own context window with a custom system prompt, specific tool access, and independent permissions", and it does the task in its own context "and returns only the summary" ([Claude Code docs, subagents](https://code.claude.com/docs/en/sub-agents)).
 
 The rule I held to: a job gets its own agent only when a fresh context or parallel work earns it. Anything exact is a script: resolving citations to lines, the runtime trace, validating the map, serving the page, and the eval.
 
-🗺️ **Cartographer.** Explores the repo once and writes the map: an Overview of seven topics, from what the repo is for to which files to read first; modules, each a **component** (one or more files that work together) with a Design paragraph on why it's built that way; and the main flows through the code. In a subagent, reading a whole repo doesn't crowd the Guide's context. It also repairs claims the Checker turns down ([§3](#how-it-keeps-itself-honest)) and maps new code when the repo moves ([§6](#what-a-shared-map-costs-to-keep)).
+🗺️ **Cartographer.** Explores the repo and writes the first map: an Overview of seven topics, from what the repo is for to which files to read first; modules, each a **component** (one or more files that work together) with a Design paragraph on why it's built that way; and the main flows through the code. In a subagent, reading a whole repo doesn't crowd the Guide's context. It also repairs claims the Checker turns down ([§3](#how-it-keeps-itself-honest)) and maps new code when the repo moves ([§6](#what-a-shared-map-costs-to-keep)), so the map is kept current without a rebuild.
 
 🔦 **Investigator.** Answers one question or follow-up asked on the map, starting from the map and any earlier answers about the same code, with every claim pointing at code. Each question gets a clean context, and several can run at once.
 
@@ -176,7 +185,7 @@ The map is a web page. You read it like a document, with an outline on the left.
 ![The GPT model's module card on nanochat's map: claims about the model, each followed by an evidence shape and grey chips citing lines of nanochat/gpt.py, one paragraph underlined in amber dots with a numbered bubble beside it, and a Design paragraph below that gives one attention window as 512 tokens of 2048, not the 768 its code comment claims](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/tour-module-card-dark.png){: .dark width="1000" height="625" }
 _nanochat's GPT model, as a teammate reads it: every claim cites its lines, and the dotted underline marks a passage someone has already asked about. The 512 in the Design paragraph is a value the map once got wrong ([§3](#the-checker))._
 
-Select any passage, even inside an answer, and choose **Ask**. The page writes the question and your selection to an **inbox** on disk; the Guide picks it up and hands it to an agent, and the answer appears beside the passage. The page never starts Claude itself. Instead, the skill has the session run `honeyguide watch --follow` under Claude Code's Monitor tool, which passes each line a command prints to the session as a notification. The watcher re-reads the inbox every second and prints one line per new question ([`SKILL.md`](https://github.com/bearbearyu1223/honeyguide/blob/main/skills/honeyguide/SKILL.md), section 3, Watch).
+Select any passage, even inside an answer, and choose **Ask**. The page writes the question and your selection to an **inbox** on disk; the Guide picks it up and hands it to an agent, and the answer appears beside the passage. The page never starts Claude itself: the session runs a watcher, `honeyguide watch --follow`, under Claude Code's Monitor tool, and each new question in the inbox reaches it as a notification ([`SKILL.md`](https://github.com/bearbearyu1223/honeyguide/blob/main/skills/honeyguide/SKILL.md), section 3, Watch).
 
 ![The discussion panel beside the GPT model's card. It quotes an earlier sentence of the map, marked "not found in the current map", then the question "Where is the quarter computed, and how does each layer's window size reach the attention kernel?" and the Tracer's answer, in which the phrase "At 2048 that is 512, not the 768 the inline comment says" is underlined in amber](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/tour-answer-panel-light.png){: .light width="1000" height="625" }
 ![The discussion panel beside the GPT model's card. It quotes an earlier sentence of the map, marked "not found in the current map", then the question "Where is the quarter computed, and how does each layer's window size reach the attention kernel?" and the Tracer's answer, in which the phrase "At 2048 that is 512, not the 768 the inline comment says" is underlined in amber](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/tour-answer-panel-dark.png){: .dark width="1000" height="625" }
@@ -191,13 +200,13 @@ _One question, from a click on the component map to a checked answer. The record
 
 The [full video](https://github.com/bearbearyu1223/honeyguide/blob/main/demo/honeyguide-demo.mp4) also shows a code preview and a flow diagram, and the [demo's README](https://github.com/bearbearyu1223/honeyguide/blob/main/demo/README.md) lists every sped-up stretch.
 
-**Where the map lives.** Everything Honeyguide learns about a repo is saved outside the checkout, in `~/.honeyguide/<repo-id>/`: the map, the answers with their evidence and verdicts, and your private notes. The repo id is the repo's remote address plus its first commit, so any clone finds the same map. Today Honeyguide is single-user: the map lives on your machine and the page is served only there. A team can't share it yet. This post makes the case for a shared map, and sharing is first on the list in [what's next](#whats-next).
+**Where the map lives.** Everything Honeyguide learns about a repo is saved outside the checkout, in `~/.honeyguide/<repo-id>/`: the map, the answers with their evidence and verdicts, and your private notes. The repo id is the repo's remote address plus its first commit, so any clone finds the same map. Today Honeyguide is single-user: the map lives on your machine and the page is served only there. A team can't share it yet; sharing is first on the list in [what's next](#whats-next).
 
 ---
 
 ### 3. How it keeps itself honest {#how-it-keeps-itself-honest}
 
-There are two questions to ask of any claim on a shared map. Is it true about the code? And do the lines it cites show it? A claim can pass the first and fail the second, and then a teammate who clicks the citation finds nothing that says so. A map a team relies on needs both, because the citation is how a reader checks a claim without searching. Honeyguide's guards are anchors, evidence labels, and the Checker with its repair pass.
+A claim on a shared map can be trusted at three levels: its citation points at real lines, those lines support it, and it's correct. Anchors make the first a script's job. Most of what the Checker first turned down was true but cited too little, so it failed the second. And one claim gave a value as 768 where the code gives 512: a comment on its cited line supported it, and it was still wrong. A map a team relies on needs all three, because the citation is how a reader checks a claim without searching. Honeyguide's guards are anchors, evidence labels, and the Checker with its repair pass.
 
 #### Anchors: every claim points at real lines {#anchors}
 
@@ -267,7 +276,7 @@ current check.
 
 Look at the second table. On nanochat, round 1 replaced the anchors of 85 claims and left their words alone, and every one of those 85 now cites more source lines than before; only 17 claims were rewritten, and none retired. waku-agent's round 1 is even more lopsided. Most of what the Checker turned down was true and cited too narrowly.
 
-[§5](#are-ad-hoc-answers-worse) comes at this from the other side: a Checker that had to find the evidence itself judged only 1 of 100 claims not supported, on a different nanochat map that no Checker had seen (the one built for the pilot in [§4](#does-an-agent-need-the-map)), against 102 of 260 here. Claims mostly hold when the Checker looks for the evidence itself, so a citation-reading Checker mostly answers the second question, whether the cited code shows the claim, which is the one a reader clicking a chip cares about.
+[§5](#are-ad-hoc-answers-worse) comes at this from the other side: a Checker that had to find the evidence itself judged only 1 of 100 claims not supported, on a different nanochat map that no Checker had seen (the one built for the pilot in [§4](#does-an-agent-need-the-map)), against 102 of 260 here. Claims mostly hold when the Checker looks for the evidence itself, so a citation-reading Checker mostly judges the second level, whether the cited code shows the claim, which is the one a reader clicking a chip cares about.
 
 #### The claim it passed
 
@@ -353,7 +362,7 @@ None of this makes the Checker proof. It's Claude checking Claude, and the 768 c
 
 ### 4. Does an agent need the map? {#does-an-agent-need-the-map}
 
-If a map made each answer better or cheaper, the case for it wouldn't need a team. So the first test asks that: the same model answers the same questions with and without the map, against two controls.
+This is the test the project started with. If a map made each answer better or cheaper, the case for it wouldn't need a team. So the same model answers the same questions with and without the map, against two controls.
 
 #### What ran
 
@@ -525,7 +534,7 @@ tokens (thousands), time and cost per answering run (means)
 
 Token columns are in thousands; `$ nocache` prices every input token at the full input price. A map run cost $0.147 on average against $0.074 for exploring, about twice as much. The map rides along in every request, and the cache reads show it: 77.5 thousand tokens per map run against 23.6 thousand. And map runs still made 3.7 tool calls on average, against 4.5 without it. Per exact answer (a run that scored 1) the map costs $0.167 and exploring $0.087. The **break-even point** is the number of questions after which the map, its $7.22 build included, costs less per exact answer than exploring. Since each map answer already costs more, there isn't one: the receipt says "never". Against the outline, at $0.171 per exact answer, the map's answers are $0.0045 cheaper, less than half a cent, so it takes 1803 questions for that saving to cover the build.
 
-So on agent cost, for one person asking lookup questions about a small repo, the map doesn't pay. If it's worth having, it's for what a team keeps.
+So in the pilot's cost model, agent dollars for one person asking lookup questions about a small repo, the map doesn't pay. A team's cost is wider, `team cost = build + refresh + questions + human review`, set against every engineer exploring alone, their own time included. This post measures the build and the questions here and refresh in [§6](#what-a-shared-map-costs-to-keep), but not human review or engineer time.
 
 ---
 
@@ -533,7 +542,7 @@ So on agent cost, for one person asking lookup questions about a small repo, the
 
 There's a version of the team argument that doesn't need the map to win on cost: if ad-hoc answers were often wrong, a checked map would be worth having for accuracy alone. So I checked the pilot's ad-hoc answers. Call it **E1**.
 
-The answers are the explore condition's answers to the flow and why/how questions: 18 answers to 9 questions, from an agent with Read, Grep and Glob and no map, checked by nobody. A script split them into 520 **units** (sentences and list items). The control is 100 of the 224 claims on the pilot's never-checked map, sampled across evidence labels (leaving out the 9 labelled searched, not found), with their anchors stripped. Both went to the same Checker brief in isolated runs on a fresh copy of the repo, so for both the Checker had to find the evidence itself. That's the first question from [§3](#how-it-keeps-itself-honest): is the claim true? Each unit is judged supported, not supported, wrong, or not a claim (a heading, or "I didn't run it"). From [`adhoc.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/adhoc/adhoc.py):
+The answers are the explore condition's answers to the flow and why/how questions: 18 answers to 9 questions, from an agent with Read, Grep and Glob and no map, checked by nobody. A script split them into 520 **units** (sentences and list items). The control is 100 of the 224 claims on the pilot's never-checked map, sampled across evidence labels (leaving out the 9 labelled searched, not found), with their anchors stripped. Both went to the same Checker brief in isolated runs on a fresh copy of the repo, so for both the Checker had to find the evidence itself. That's the third level from [§3](#how-it-keeps-itself-honest), as far as a Checker can judge it: is the claim correct? Each unit is judged supported, not supported, wrong, or not a claim (a heading, or "I didn't run it"). From [`adhoc.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/adhoc/adhoc.py):
 
 <!-- RECEIPT: adhoc-comparison -->
 ```text
@@ -641,7 +650,7 @@ So on nanochat, ad-hoc answers are not measurably worse. The case for a shared m
 
 ### 6. What a shared map costs to keep {#what-a-shared-map-costs-to-keep}
 
-A saved map goes stale the moment someone pushes a commit. If keeping it current cost as much as rebuilding it, "built once" would mean nothing. So I measured a refresh twice: across a large rewrite (**E2**, nanochat) and across an ordinary day (**E3**, waku-agent).
+A saved map goes stale the moment someone pushes a commit. Keeping it current is exploration too, of the code that changed, and if it cost as much as a rebuild there'd be little point keeping a map. So I measured a refresh twice: across a large rewrite (**E2**, nanochat) and across an ordinary day (**E3**, waku-agent).
 
 #### How refresh works
 
@@ -832,7 +841,7 @@ Look at the re-map's retirements by plan class in E2: moved 3, unanchored 6. Tho
 
 ### 7. Limits, and what a large codebase needs {#limits-and-large-codebases}
 
-**What this doesn't show.** The team benefit, engineers saving time by reading one map instead of each exploring, is argued here, not measured: I'm one person, and nobody else has used these maps. The four-way test is a 20-question pilot on one repo. Everything ran on one model, Claude Opus 5.5, which also built the maps it was tested with. The why/how grades and the review of the Checker's verdicts were done by another model from sheets, without the source. The Checker is Claude checking Claude. The runtime traces start from toy entry points, so they see part of each repo.
+**What this doesn't show.** The team benefit, engineers saving time by reading one map instead of each exploring, is argued here, not measured: I'm one person, and nobody else has used these maps, so reuse and adoption are untested. The four-way test is a 20-question pilot on one repo. Everything ran on one model, Claude Opus 5.5, which also built the maps it was tested with. The why/how grades and the review of the Checker's verdicts were done by another model from sheets, without the source. The Checker is Claude checking Claude. The runtime traces start from toy entry points, so they see part of each repo.
 
 **nanochat is small; waku-agent is larger, but most of it is outside what the questions cover.** Here's the Python at each pin, all of it and the part the questions' answer keys may cite (their **key scope**), from [`june_check.py`](https://github.com/bearbearyu1223/honeyguide/blob/main/eval/cutoff/june_check.py):
 
@@ -851,21 +860,29 @@ Look at the re-map's retirements by plan class in E2: moved 3, unanchored 6. Tho
       scripts/, examples/, docs/ excluded)
 ```
 
-nanochat has 7,775 lines of Python, and the map build reads files one by one. On a repo that size, Grep plus Read finds almost anything in a few calls, which is a large part of why lookups hit the ceiling in [§4](#does-an-agent-need-the-map), and the pilot ran only on nanochat. waku-agent has 87,084 lines, but 21,564 in its key scope, the `waku/` package. The rest sits outside it, in folders such as its hosted platform, evals and scripts, which the questions don't cover. Neither is what I'd call a large codebase, and on one I'd expect three things to change. Exploring costs more per question, because a search returns hundreds of hits. Building one map by reading files stops scaling. And one map of a monorepo would be too long to read. These are expectations, not measurements. The one outside measurement I know of that varies with codebase size is Cursor's: with search by meaning available, the code its agent wrote was kept 0.3% more often overall, and 2.6% more often "on large codebases with 1,000 files or more" ([Cursor blog](https://cursor.com/blog/semsearch)). That's code retention, not cost or accuracy, and Cursor has since dropped that search ([§1](#what-already-exists)), but it suggests that size changes what helps.
+nanochat has 7,775 lines of Python, and the map build reads files one by one. On a repo that size, Grep plus Read finds almost anything in a few calls, which is a large part of why lookups hit the ceiling in [§4](#does-an-agent-need-the-map), and the pilot ran only on nanochat. waku-agent has 87,084 lines, but 21,564 in its key scope, the `waku/` package; the questions don't cover the rest. Neither is what I'd call a large codebase, and on one I'd expect three things to change. Exploring costs more per question, because a search returns hundreds of hits. Building one map by reading files stops scaling. And one map of a monorepo would be too long to read. These are expectations, not measurements. The one outside measurement I know of that varies with codebase size is Cursor's: with search by meaning available, the code its agent wrote was kept 0.3% more often overall, and 2.6% more often "on large codebases with 1,000 files or more" ([Cursor blog](https://cursor.com/blog/semsearch)). That's code retention, not cost or accuracy, and Cursor has since dropped that search ([§1](#what-already-exists)), but it suggests that size changes what helps.
 
 What I think a large codebase needs, as directions and not results:
 
 - **Per-package maps**, each owned by the team that owns the code and refreshed on its own schedule, with a thin map on top that links them.
-- **An index under the map.** A symbol table and a call graph, built by a parser rather than by an agent reading files, so the Cartographer starts from structure instead of from Grep. aider's repo map is prior art here: it ranks the repo's symbols on a graph of file dependencies, built with tree-sitter ([aider docs](https://aider.chat/docs/repomap.html); [aider's blog, 2023](https://aider.chat/2023/10/22/repomap.html)). Claude Code can already use one kind of index: a code-intelligence plugin connects it to a **language server** (the program that gives an editor go-to-definition), so it "finds definitions and references by symbol instead of by text search" ([Claude Code docs, code intelligence](https://code.claude.com/docs/en/plugins/code-intelligence)); the pilot's runs didn't use it. In research, LocAgent parses a Python repo into a graph of directories, files, classes and functions joined by contain, import, invoke and inherit edges, and has an agent search that graph to find the code an issue needs changed ([Chen et al., ACL 2025](https://arxiv.org/abs/2503.09089), §3.1–3.2).
+- **An index under the map.** A symbol table and a call graph, built by a parser rather than by an agent reading files, so the Cartographer starts from structure instead of from Grep. aider's repo map ([§1](#what-already-exists)) is prior art here. Claude Code can already use one kind of index: a code-intelligence plugin connects it to a **language server** (the program that gives an editor go-to-definition), so it "finds definitions and references by symbol instead of by text search" ([Claude Code docs, code intelligence](https://code.claude.com/docs/en/plugins/code-intelligence)); the pilot's runs didn't use it. In research, LocAgent parses a Python repo into a graph of directories, files, classes and functions joined by contain, import, invoke and inherit edges, and has an agent search it to find the code an issue needs changed ([Chen et al., ACL 2025](https://arxiv.org/abs/2503.09089), §3.1–3.2).
 - **Search over claims.** An agent answering a question should retrieve the few claims that bear on it. The pilot's map runs read the whole map every time, which is part of why they cost twice as much.
-
-None of these has been built or measured here.
 
 ---
 
+### What I learned {#what-i-learned}
+
+I started out to show that a prebuilt map makes an agent answer questions about code more accurately. On the repo and questions I tested, it didn't: exploring was already very good, and the map added cost.
+
+What the experiments exposed is that nothing keeps what an agent works out. Each conversation starts another investigation, and its explanation is hard for anyone else to find, check or reuse. Honeyguide treats that understanding as something a team builds and maintains: claims tied to their source lines, checked against them and refreshed as the code changes, with questions and answers added to the same record.
+
+What I've shown is parts of that mechanism. I haven't shown its value to a team: that Honeyguide saves engineers time, cuts duplicated investigation, or improves anyone's long-term understanding of the code. Those are the next questions.
+
 ### What's next {#whats-next}
 
-Three things before anything else. The first is **sharing**: export the map, with its citations, checks and answers, as a static page a team can commit next to the code or host, so the shared map this post argues for exists outside my laptop. The second is a **map health check**: generate a handful of locate and callers questions with keys from the code, answer them with the map in isolated runs, score them with a script, and show the user how many the map got right and where it's thin. It needs no human input, and it would tell a team whether to trust their map. The third is closing the refresh gap from [§6](#its-gap): re-checking unanchored claims, and claims about the repo as a whole, on every refresh, since the hashes can't say when they stop holding, and keeping a question attached when the claim it was asked on is rewritten.
+First, **sharing**: export the map, with its citations, checks and answers, as a static page a team can commit next to the code or host. Second, **reviewable knowledge updates**: when a pull request changes code, Honeyguide proposes the matching change to the map's claims (old claim, new claim, the source lines) for review alongside the code. Third, a **team study**, as its own post and the real test of the team value: four to six engineers new to a repo, on overlapping tasks, with and without Honeyguide, measuring repeated investigation time, reuse, verification effort, stale knowledge and understanding.
+
+Then two smaller ones: a **map health check** that generates locate and callers questions with keys from the code, answers them from the map and scores them by script, to show where a map is thin; and closing the refresh gap from [§6](#its-gap) by re-checking unanchored and repo-wide claims on every refresh, and keeping a question attached when its claim is rewritten.
 
 This post starts a new series, Agentic Workflows. The next one goes behind the scenes: the team of agents that helped me write this post. After that, a 💡 **Scout**, an agent that proposes changes worth making to a repo, tested against history: given a repo at an earlier commit, does it propose what the maintainers went on to build?
 
