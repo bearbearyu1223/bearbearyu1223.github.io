@@ -1,18 +1,17 @@
 ---
-title: "Agentic Workflows [1]: Honeyguide: turning codebase exploration into shared, checked knowledge"
+title: "Agentic Workflows [1]: Honeyguide: can a team keep one checked map of its codebase?"
 date: 2026-11-16 09:00:00 -0800
 categories: [Agentic Workflows, Code Understanding]
 tags: [agentic-workflow, claude-code, subagents, coding-agents, code-understanding, evaluation]
 description: >-
   I set out to show that a coding agent answers questions about a repo better
-  with a prebuilt map. On the repo I tested, it doesn't, measurably. What the experiments
-  pointed to instead is a team problem: every engineer's agent works out the
-  same code again, in private, and nobody checks or keeps the answer.
-  Honeyguide turns that exploration into shared, checked knowledge that stays
-  tied to the source: a map where every claim cites its lines, a separate
+  with a prebuilt map. On the repo I tested, it doesn't measurably. That left a
+  team problem: every engineer's agent works out the same code again, in
+  private, and nobody checks or keeps the answer. Honeyguide is my attempt at
+  one checked map a team could keep: every claim cites its lines, a separate
   Checker reads them, and a refresh keeps it current. This post shows how the
-  checking and the upkeep work and what they cost; whether a team saves time
-  is still untested.
+  checking and the upkeep work and what they cost. Sharing the map isn't built
+  yet, and whether a team saves time is untested.
 published: false
 ---
 
@@ -24,11 +23,11 @@ My hypothesis was that it would answer better if it started from a **map**: a do
 
 The experiments took away the reason I'd built it, and what they left standing was a different problem, one they don't measure. Picture a team. Five engineers join a project in the same month, and each asks their own agent how training is set up or what happens when a checkpoint loads. That's five explorations of the same code and five answers nobody else sees or reviews. If one is subtly wrong, the person who got it carries the mistake into their next change, and the next person with the same question pays to explore again.
 
-So Honeyguide now aims at that: it turns codebase exploration into shared, checked knowledge that stays tied to the source. It builds a map of the repo (an overview, the modules and the main flows through the code, every claim citing its lines and re-read by a separate Checker), then keeps it current. You read the map in a browser, highlight anything that confuses you, and ask. The answer comes back on the map, with its own pointers into the code, where the next reader can find it.
+So Honeyguide now aims at that: turning codebase exploration into shared, checked knowledge that stays tied to the source. It builds a map of the repo (an overview, the modules and the main flows through the code, every claim citing its lines and re-read by a separate Checker), then keeps it current. You read the map in a browser, highlight anything that confuses you, and ask. The answer comes back on the map, with its own pointers into the code, where the next reader can find it.
 
 The project's name comes from a bird. In Africa, the greater honeyguide leads people to wild bees' nests: the people subdue the bees and open the nest for the honey, and the bird eats the wax ([Spottiswoode and Wood, 2023](https://par.nsf.gov/servlets/purl/10524235)). It knows where the nest is, and you do the work of getting in. That's the job I wanted done for a codebase: something that has already been through the repo and can lead me to the lines that answer my question.
 
-What this post shows is the checking and the upkeep: how the map keeps its claims honest, and what keeping it current costs. Whether a team actually saves time with it, I haven't measured.
+What this post shows is the checking and the upkeep: how the map keeps its claims honest, and what keeping it current costs. The map can't be shared yet: it lives on the machine that built it ([§2](#what-honeyguide-is)). Whether a team actually saves time with it, I haven't measured.
 
 ### The short version {#the-short-version}
 
@@ -36,7 +35,7 @@ What this post shows is the checking and the upkeep: how the map keeps its claim
 
 **Are ad-hoc answers worse?** ([§5](#are-ad-hoc-answers-worse)) Not measurably. A Checker that finds its own evidence judged 2.0% of the claims in the pilot's ad-hoc answers not supported or wrong, against 1.0% of a map's unchecked claims, and the interval on the difference includes zero. The errors that do occur are subtle.
 
-**The problem it pointed to** ([§1](#the-team-problem)). Nothing keeps what an agent works out. Of three problems a map could address, finding code is already done well by an agent searching it, repeated reconstruction across a team is promising but unmeasured, and trustworthy, maintained knowledge is where this post's evidence is.
+**What that leaves: a team problem** ([§1](#the-team-problem)). Nothing keeps what an agent works out. Of three problems a map could address, finding code is already done well by an agent searching it, repeated reconstruction across a team is argued but unmeasured, and trustworthy, maintained knowledge is where this post's evidence is.
 
 **What Honeyguide is** ([§2](#what-honeyguide-is)). Five roles in Claude Code: a 🗺️ **Cartographer** writes the map, an 🔦 **Investigator** and a 🧵 **Tracer** answer questions on it, a ✅ **Checker** re-reads each claim against its cited lines, and the 🧭 **Guide**, the session you're in, routes the questions.
 
@@ -108,7 +107,7 @@ A shallow clone won't do: `git blame` needs the history, and the script stops if
 
 ### Table of Contents
 
-[The short version](#the-short-version) above has the findings without the details.
+[The short version](#the-short-version) above has the findings without the details, in the order I ran into them. The sections below start from the problem and the tool, then the tests.
 
 1. [The team problem](#the-team-problem)
 2. [What Honeyguide is](#what-honeyguide-is)
@@ -130,17 +129,17 @@ Ask an agent about an unfamiliar repo and most of the work goes into finding thi
 
 Where it falls short is across a team. Three things go missing: nobody else sees the answer, nobody reviews it, and it's gone when the chat closes, so the next engineer's agent works the same code out again. A shared map is meant to fix all three.
 
-![Two panels. Before: five engineers each send their own agent to search the code again, and each gets a private answer, checked by no one, seen by one person, gone when the chat ends. After: one shared map, built once from the code and refreshed as the code changes, where every claim cites its lines and is checked; all five read it, and questions asked on it, with their checked answers, are added to it](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/team-before-after-light.png){: .light width="1000" height="464" }
-![Two panels. Before: five engineers each send their own agent to search the code again, and each gets a private answer, checked by no one, seen by one person, gone when the chat ends. After: one shared map, built once from the code and refreshed as the code changes, where every claim cites its lines and is checked; all five read it, and questions asked on it, with their checked answers, are added to it](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/team-before-after-dark.png){: .dark width="1000" height="464" }
-_Five private answers that nobody checks and nobody keeps, against one map that's checked, kept current and read by everyone._
+![Two panels. Before: five engineers each send their own agent to search the code again, and each gets a private answer, checked by no one, seen by one person, gone when the chat ends. The aim: one shared map, built once from the code and refreshed as the code changes, where every claim cites its lines and is checked; dashed arrows, marked as the untested aim, lead from it to all five engineers, and questions asked on it, with their checked answers, are added to it](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/team-before-after-light.png){: .light width="1000" height="482" }
+![Two panels. Before: five engineers each send their own agent to search the code again, and each gets a private answer, checked by no one, seen by one person, gone when the chat ends. The aim: one shared map, built once from the code and refreshed as the code changes, where every claim cites its lines and is checked; dashed arrows, marked as the untested aim, lead from it to all five engineers, and questions asked on it, with their checked answers, are added to it](/assets/picture/2026-12-12-honeyguide-agent-that-learns-a-codebase/team-before-after-dark.png){: .dark width="1000" height="482" }
+_Five private answers that nobody checks and nobody keeps, against one map that's checked and kept current. The checking and the refresh are what this post measures; a team reading one map is the aim, still untested._
 
 A map could address three problems, and the evidence for each is very uneven:
 
 | Problem | What the evidence says | Where |
 | --- | --- | --- |
 | A. Code discovery: finding the code that answers a question | little to gain: an agent searching with plain text already does it | [§4](#does-an-agent-need-the-map) |
-| B. Repeated reconstruction: each engineer's agent working out the same code again | promising, not measured | this section |
-| C. Trustworthy, maintained knowledge: claims checked against the source and kept current | measured: the Checker catches citations too narrow to show a claim and a wrong value; a refresh costs about half a rebuild across a rewrite and a fifth to a quarter after an ordinary day | [§3](#how-it-keeps-itself-honest), [§5](#are-ad-hoc-answers-worse), [§6](#what-a-shared-map-costs-to-keep) |
+| B. Repeated reconstruction: each engineer's agent working out the same code again | argued, not measured: exploring is cheap for one person ($0.074 a question in the pilot) but redone by everyone who asks; whether engineers' questions overlap, and whether they'd read each other's answers, is untested | this section, [§4](#does-an-agent-need-the-map) |
+| C. Trustworthy, maintained knowledge: claims checked against the source and kept current | measured: the Checker turned down 102 of 260 claims, most for citing too few lines, and passed one wrong value; ad-hoc answers weren't measurably less accurate (2.0% of claims not supported or wrong, against 1.0% for a map); a refresh costs about half a rebuild across a rewrite and a fifth to a quarter after an ordinary day | [§3](#how-it-keeps-itself-honest), [§5](#are-ad-hoc-answers-worse), [§6](#what-a-shared-map-costs-to-keep) |
 
 This post shows C and argues B, and the argument has assumptions. It assumes the five engineers need the same knowledge, when the overlap may be partial, and that reading a map can stand in for reading the code, when working the code out yourself builds an understanding a summary doesn't. A shared map's worth depends on **reuse** (do people read what others asked), **trust** (can they believe it), **change** (does it stay current) and **adoption** (does a team use it at all). This post measures trust ([§3](#how-it-keeps-itself-honest), [§5](#are-ad-hoc-answers-worse)) and change ([§6](#what-a-shared-map-costs-to-keep)). Reuse and adoption are the big unknowns: I'm one person ([§7](#limits-and-large-codebases)).
 
@@ -872,9 +871,9 @@ What I think a large codebase needs, as directions and not results:
 
 ### What I learned {#what-i-learned}
 
-I started out to show that a prebuilt map makes an agent answer questions about code more accurately. On the repo and questions I tested, it didn't measurably: exploring was already very good, and the map added cost.
+I started out to show that a prebuilt map makes an agent answer questions about code more accurately. On the repo and questions I tested, it didn't measurably. Exploring was already very good, the map's one lead (five why/how questions, graded by GPT-6) was a hint at most, and the map added cost.
 
-What the experiments left is a problem they didn't test: nothing keeps what an agent works out. Each conversation starts another investigation, and its explanation is hard for anyone else to find, check or reuse. Honeyguide treats that understanding as something a team builds and maintains: claims tied to their source lines, checked against them and refreshed as the code changes, with questions and answers added to the same record.
+What the experiments left is a problem they didn't test: nothing keeps what an agent works out. Claude Code's own auto memory, the notes it saves for itself between sessions, is built not to: it "skips anything it can derive from the codebase, such as architecture, file paths, or debugging fixes", and "Auto memory is machine-local" ([Claude Code docs, memory](https://code.claude.com/docs/en/memory)). Each conversation starts another investigation, and its explanation is hard for anyone else to find, check or reuse. Honeyguide treats that understanding as something a team builds and maintains: claims tied to their source lines, checked against them and refreshed as the code changes, with questions and answers added to the same record.
 
 What I've shown is parts of that mechanism. I haven't shown its value to a team: that Honeyguide saves engineers time, cuts duplicated investigation, or improves anyone's long-term understanding of the code. Those are the next questions.
 
@@ -918,7 +917,7 @@ The terms this post leans on; anything not listed is defined where it first appe
 
 Sources checked on 2026-11-15 and 2026-11-16; Claude Code's docs are for CLI 2.1.325. Quotes are given where the post cites them.
 
-- Anthropic, Claude Code docs: [Subagents](https://code.claude.com/docs/en/sub-agents) (introduction; §2); [Glossary](https://code.claude.com/docs/en/glossary), Skill, Plugin and "Non-interactive mode … Formerly called headless mode" (§2, §4); [Memory](https://code.claude.com/docs/en/memory), `CLAUDE.md` and `/init` (§1); [CLI reference](https://code.claude.com/docs/en/cli-reference), the `--tools` row: the default set on macOS, Linux and WSL leaves out Glob and Grep (§4); [Non-interactive mode](https://code.claude.com/docs/en/headless), the `--bare` section (§4); [Costs](https://code.claude.com/docs/en/costs), which "computes the dollar figure locally from token counts at list price", and [Agent SDK, cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking), the 1-hour cache within a plan's included usage (Setup, §4); [Code intelligence plugins](https://code.claude.com/docs/en/plugins/code-intelligence), "finds definitions and references by symbol instead of by text search", through an `LSP` tool that is read-only (§7).
+- Anthropic, Claude Code docs: [Subagents](https://code.claude.com/docs/en/sub-agents) (introduction; §2); [Glossary](https://code.claude.com/docs/en/glossary), Skill, Plugin and "Non-interactive mode … Formerly called headless mode" (§2, §4); [Memory](https://code.claude.com/docs/en/memory), `CLAUDE.md`, `/init` and `/doctor prompt-audit` (§1), auto memory (what I learned); [CLI reference](https://code.claude.com/docs/en/cli-reference), the `--tools` row: the default set on macOS, Linux and WSL leaves out Glob and Grep (§4); [Non-interactive mode](https://code.claude.com/docs/en/headless), the `--bare` section (§4); [Costs](https://code.claude.com/docs/en/costs), which "computes the dollar figure locally from token counts at list price", and [Agent SDK, cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking), the 1-hour cache within a plan's included usage (Setup, §4); [Code intelligence plugins](https://code.claude.com/docs/en/plugins/code-intelligence), "finds definitions and references by symbol instead of by text search", through an `LSP` tool that is read-only (§7).
 - Anthropic, [Models overview](https://platform.claude.com/docs/en/about-claude/models/overview) — Claude Opus 5.5: "Reliable knowledge cutoff | Jun 2026" and "Training data cutoff | Jun 2026", with no day given. Cited in Setup and §4.
 - Anthropic, [Prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching), Pricing — 1-hour cache writes at 2x the base input price; "Cache hits and refreshes on Claude Opus 5.5 and Claude Sonnet 5.5 are priced at 0.05x the base input price". Cited in §4.
 - aider, [Repository map](https://aider.chat/docs/repomap.html) — "a graph ranking algorithm, computed on a graph where each source file is a node and edges connect files which have dependencies", sized by `--map-tokens`; aider's [blog post of 2023-10-22](https://aider.chat/2023/10/22/repomap.html): "aider uses tree sitter to build the map". Cited in §1 and §7.
