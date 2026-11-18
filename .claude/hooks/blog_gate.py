@@ -12,6 +12,8 @@ Used by the blog repo AND the demo repo (llm-architectures-refresher/.claude/set
     * denied if the demo repo still has unpushed commits (push code first, so the post's links resolve);
     * denied if a pushed post's companion repo (publish.companions: honeyguide for the Honeyguide post) is
       missing, has no upstream, or has unpushed commits;
+    * only the commits actually pushed count: `git push origin <commit>:main` checks @{u}..<commit>, and a post
+      whose files differ between <commit> and HEAD is denied (the approval is of HEAD's version);
     * denied if a reviewed post (or its figures) in the pushed commits is not approved on the publish page at
       its current content, or has uncommitted edits (the approval would not match what gets pushed);
     * otherwise a permission prompt that says which posts go LIVE and which stay hidden.
@@ -86,12 +88,51 @@ def push_targets(cmd: str, cwd: str) -> list[tuple[Path | None, list[str]]]:
     return out
 
 
+PUSH_OPTS_WITH_VALUE = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+
+
+def pushed_commit(args: list[str]) -> tuple[str, str]:
+    """(commit sha, how it was named) that this push sends to the upstream branch.
+
+    `git push` / `git push origin` send HEAD; `git push origin <src>:<dst>` or `git push origin <src>` send <src>.
+    Several refspecs, --all, --mirror, --tags or an unresolvable <src> fall back to HEAD (checks everything
+    unpushed, the strict reading).
+    """
+    if any(a in ("--all", "--mirror", "--tags") for a in args):
+        return desk.git(BLOG, "rev-parse", "HEAD").strip(), "HEAD"
+    pos, skip = [], False
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        if a in PUSH_OPTS_WITH_VALUE:
+            skip = True
+            continue
+        if a.startswith("-"):
+            continue
+        pos.append(a)
+    refspecs = pos[1:]
+    if len(refspecs) != 1:
+        return desk.git(BLOG, "rev-parse", "HEAD").strip(), "HEAD"
+    src = refspecs[0].lstrip("+").split(":", 1)[0] or "HEAD"
+    sha = desk.git(BLOG, "rev-parse", "--verify", "--quiet", f"{src}^{{commit}}").strip()
+    if not sha:
+        return desk.git(BLOG, "rev-parse", "HEAD").strip(), "HEAD"
+    return sha, src
+
+
 def gate_blog_push(args: list[str]) -> None:
     demo_left = desk.unpushed(DEMO)
     if demo_left:
         decide("deny", f"blog gate: the demo repo has {len(demo_left)} unpushed commit(s). Push "
                        "llm-architectures-refresher first so the post's code links and receipts resolve.")
-    changed = set(desk.git(BLOG, "diff", "--name-only", "@{u}..HEAD").splitlines())
+    sha, named = pushed_commit(args)
+    head = desk.git(BLOG, "rev-parse", "HEAD").strip()
+    partial = sha != head
+    if partial and subprocess.run(["git", "-C", str(BLOG), "merge-base", "--is-ancestor", sha, "HEAD"],
+                                  capture_output=True).returncode != 0:
+        decide("deny", f"blog gate: {named} is not an ancestor of HEAD; push from the branch it is on.")
+    changed = set(desk.git(BLOG, "diff", "--name-only", f"@{{u}}..{sha}").splitlines())
     if not changed:
         decide("ask", "git push (blog): nothing new to push according to the upstream; allow?")
     going_live, hidden, problems = [], [], []
@@ -111,19 +152,23 @@ def gate_blog_push(args: list[str]) -> None:
             elif desk.unpushed(repo):
                 problems.append(f"{slug}'s companion repo {repo.name} has {len(desk.unpushed(repo))} unpushed "
                                 "commit(s); push it first so the post's code links and receipts resolve")
-        if st["dirty"]:
+        if partial and desk.git(BLOG, "diff", "--name-only", sha, "HEAD", "--", *sorted(files)).strip():
+            problems.append(f"{slug} differs between the pushed commit {named} and HEAD; the approval is of "
+                            "HEAD's version, so push HEAD or approve what is pushed")
+        elif st["dirty"]:
             problems.append(f"{slug} has uncommitted edits ({len(st['dirty'])} file(s)); commit them so "
                             "what Han approved is what gets pushed")
         elif state != "approved":
             why = {"pending": "hasn't been reviewed", "changed": "changed since Han approved it"}.get(state, state)
             problems.append(f"{slug} {why}")
-        committed = desk.front(desk.git(BLOG, "show", f"HEAD:{st['file']}"))
+        committed = desk.front(desk.git(BLOG, "show", f"{sha}:{st['file']}"))
         (going_live if desk.visible(committed) else hidden).append(f"{st.get('label', '[' + st['num'] + ']')} {slug}" + (f" ({h[:10]})" if h else ""))
     if problems:
         decide("deny", "blog gate: " + "; ".join(problems) + ". Put it on the publish page "
                        "(publish.py serve, /_publish/p/<slug>) and wait for Han's Approve; see `publish.py feedback <slug>`.")
-    n = len(desk.unpushed(BLOG))
-    msg = [f"Push {n} commit(s) to the blog. GitHub Pages deploys on push."]
+    n = len(desk.git(BLOG, "rev-list", f"@{{u}}..{sha}").split())
+    msg = [f"Push {n} commit(s) to the blog" + (f" (up to {named}; {len(desk.unpushed(BLOG)) - n} later "
+           "commit(s) stay local)" if partial else "") + ". GitHub Pages deploys on push."]
     if going_live:
         msg.append("Goes LIVE: " + ", ".join(going_live) + ".")
     if hidden:
