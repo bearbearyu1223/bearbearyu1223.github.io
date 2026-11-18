@@ -13,6 +13,7 @@ description: >-
   how the checking and the upkeep work and what they cost. The shared team
   workflow isn't built yet, and whether it saves engineering time is open.
 published: true
+pin: true
 ---
 
 ## Understanding that stays in one chat
