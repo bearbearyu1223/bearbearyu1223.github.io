@@ -84,7 +84,14 @@ def push_targets(cmd: str, cwd: str) -> list[tuple[Path | None, list[str]]]:
                 j = toks.index("-C", i)
                 p = Path(toks[j + 1]).expanduser()
                 repo = str(p if p.is_absolute() else Path(here) / p)
-            out.append((toplevel(repo), toks[toks.index("push") + 1:]))
+            rest = []
+            for t in toks[toks.index("push") + 1:]:
+                if t in ("|", "&", ">", ">>", "<") or t.startswith("|"):
+                    break  # a pipe or redirection ends the push's own arguments
+                if re.fullmatch(r"\d*[<>]+&?\d*\S*", t):
+                    continue  # 2>&1, >/dev/null, >out.txt
+                rest.append(t)
+            out.append((toplevel(repo), rest))
     return out
 
 
