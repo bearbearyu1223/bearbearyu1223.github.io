@@ -12,7 +12,7 @@ description: >-
   map didn't measurably help an agent answer more accurately. This post shows
   how the checking and the upkeep work and what they cost. The shared team
   workflow isn't built yet, and whether it saves engineering time is open.
-published: false
+published: true
 ---
 
 ## Understanding that stays in one chat
