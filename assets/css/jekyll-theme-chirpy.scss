@@ -92,7 +92,7 @@ mark.hl-link::before { content: '[links to an earlier post] '; }
 }
 .hl-note.hl-wow  { border-left-color: var(--hl-wow-line); }
 .hl-note.hl-link { border-left-color: var(--hl-link-line); }
-.hl-note::before { content: 'Han’s note · '; font-weight: 600; }
+.hl-note::before { content: 'Note · '; font-weight: 600; }
 
 /* Narrow screens: a marker opens the note as a block under the line. */
 .hl-mark {
