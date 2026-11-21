@@ -334,6 +334,10 @@ A right answer is still pushed up, but only a little, because it's what the mode
 
 The baseline should be "how well the model usually does on this question". Getting that number is the expensive part.
 
+PPO gets that number from a second network. GRPO gets it by asking the same question several times and averaging the rewards, which saves training a second model. The catch is that GRPO only learns from groups whose answers got different rewards, and with the demo's eight answers per question, 61.1% of groups didn't.
+
+#### Two ways to get a baseline
+
 **PPO's answer: a second network.** PPO, which RLHF also uses ([§8](#where-rlhf-fits)), trains a **value model**: a second network that reads the question and the answer so far and predicts the reward to come. Its prediction is the baseline. That means training and holding a second large model next to the first, which DeepSeekMath's authors call "a substantial memory and computational burden" ([Shao et al., §4.1.1](https://arxiv.org/abs/2402.03300)).
 
 **GRPO's answer: ask the question several times.** **GRPO** (Group Relative Policy Optimization) was introduced in the same DeepSeekMath paper. Instead of predicting how well the model usually does on a question, it measures it: sample a **group** of $$G$$ answers to the same question, score them all, and use the group's own average as the baseline. Each answer's advantage is its reward compared with the rest of its group, divided by the group's spread (§4.1.2 of the paper). With $$r_i$$ the reward of answer $$i$$, and std the **standard deviation**, a measure of how spread out the rewards are:
@@ -350,7 +354,9 @@ The demo uses the sample standard deviation, which divides by $$G - 1$$ rather t
 
 One thing to keep straight about history: DeepSeekMath introduced GRPO with a learned reward model doing the scoring, a network trained to score answers ([§8](#where-rlhf-fits)). Scoring with a program that checks the answer came later. DeepSeek's [Prover-V1.5](https://arxiv.org/abs/2408.08152) trained with GRPO on a proof checker's verdict, "a reward of 1 if verified as correct, and 0 otherwise" (§2.3), and [DeepSeek-R1](https://arxiv.org/abs/2501.12948) scored math, code and logic with rules (§2.2). That's the version this demo builds.
 
-**Three groups.** The demo first estimated each training question's **pass rate**, the share of its sampled answers that are right, then picked the question with the lowest, the one nearest 50%, and the highest, and sampled a group of eight answers to each. From [`groups_and_advantages`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py), the hardest:
+#### Three groups of eight answers
+
+The demo first estimated each training question's **pass rate**, the share of its sampled answers that are right, then picked the question with the lowest, the one nearest 50%, and the highest, and sampled a group of eight answers to each. From [`groups_and_advantages`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py), the hardest:
 
 <!-- RECEIPT: s3a -->
 ```text
@@ -406,7 +412,9 @@ Four right, four wrong. The mean is 0.500, the sample standard deviation is 0.53
 
 All eight right, and all zero again. A question that's always right and a question that's never right both teach the model nothing. In both, every answer is exactly as good as the group's average, so there's nothing to prefer. GRPO can only learn the distinctions the reward makes, and only from groups where the rewards differ.
 
-**How often does a group teach nothing?** For the 256 training questions, the demo sampled 16 answers each:
+#### How often does a group teach nothing?
+
+For the 256 training questions, the demo sampled 16 answers each:
 
 <!-- RECEIPT: s3d -->
 ```text
@@ -434,9 +442,11 @@ All eight right, and all zero again. A question that's always right and a questi
   so plugging in an estimated p overstates it (Jensen's inequality).
 ```
 
-With the demo's $$G = 8$$, **61.1% of groups carry no signal**, and only 38.9% have both a right and a wrong answer in them (the `mixed` column of the table below).
+With the demo's $$G = 8$$, **61.1% of groups carry no signal**, and only 38.9% have both a right and a wrong answer in them (the `mixed` column of the table below). Even with 16 answers per question, 49.2% of groups carry none.
 
 The **measured** column counts real groups. The **analytic** column is what you'd predict from the pass rates alone: if a question is right with probability $$p$$ and the $$G$$ answers are independent, all $$G$$ are right with probability $$p^G$$ and all wrong with probability $$(1-p)^G$$, so the group is all-equal with probability $$p^G + (1-p)^G$$, averaged over the questions. It overshoots a little, more for bigger $$G$$. Each $$p$$ is itself estimated from 16 samples, and because $$p^G + (1-p)^G$$ curves upward on both sides for any $$G$$ of 2 or more, an estimate that's wrong in either direction raises it on average. That's **Jensen's inequality**, and it says the prediction should come out too high on average, which is what the table shows. It doesn't account for the exact gaps: the measured column is itself a count over a few hundred groups, 512 at $$G = 8$$ and 256 at $$G = 16$$, with noise of its own.
+
+#### Choosing a group size
 
 Bigger groups help: a question with a pass rate of 20% gives an all-equal group of two with probability $$0.2^2 + 0.8^2 = 0.68$$, and an all-equal group of eight with only $$0.2^8 + 0.8^8 \approx 0.168$$. But each answer costs a full generation, and which group size is the better buy depends on what you count. The same measured groups, counted two ways, from [`groups_and_advantages`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
@@ -459,35 +469,53 @@ A **mixed** group has both a right and a wrong answer in it. Per 1,000 generated
 ![Two bar charts over group sizes G = 2, 4, 8 and 16. Left: the share of groups whose rewards are all equal falls from 85.4% to 73.3%, 61.1% and 49.2%, and the values predicted from pass rates, drawn as diamonds, sit slightly above the measured bars. Right: groups with both a right and a wrong answer, per 1,000 generated answers, fall from 73 to 67, 49 and 32. Group size 8, the demo's, is highlighted in both](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/all-equal-groups-dark.png){: .dark width="1000" height="495" }
 _Left: the share of groups whose answers all got the same reward, so every advantage is zero (bars measured on 16 fresh samples per question; diamonds predicted from each question's estimated pass rate). Right: the same groups, counted as mixed groups per 1,000 answers generated. Bigger groups waste fewer questions but spend more answers on each group that teaches something._
 
-The field has two responses to this, both with a direct line to these tables. [DAPO](https://arxiv.org/abs/2503.14476) (§3.2) uses **dynamic sampling**: it filters out groups whose answers are all right or all wrong and keeps sampling until a batch is full of groups that teach something, because "A zero advantage results in zero policy gradients". [Dr. GRPO](https://arxiv.org/abs/2503.20783) (§3.1) points at the division by the standard deviation. A group with one right answer in eight has a small spread, so dividing by it makes that one answer's advantage large. Questions that are nearly always right or nearly always wrong get weighted more than questions in the middle, a **difficulty bias**, and Dr. GRPO drops the division (§3.2). This demo keeps it, to match DeepSeekMath. DAPO is about getting groups that teach something, and Dr. GRPO about how much each one counts once you have it.
+#### DAPO and Dr. GRPO
+
+The field has two responses to this, both with a direct line to these tables. [DAPO](https://arxiv.org/abs/2503.14476) (§3.2) uses **dynamic sampling**: it filters out groups whose answers are all right or all wrong and keeps sampling until a batch is full of groups that teach something, because "A zero advantage results in zero policy gradients".
+
+[Dr. GRPO](https://arxiv.org/abs/2503.20783) (§3.1) points at the division by the standard deviation. A group with one right answer in eight has a small spread, so dividing by it makes that one answer's advantage large. Questions that are nearly always right or nearly always wrong get weighted more than questions in the middle, a **difficulty bias**, and Dr. GRPO drops the division (§3.2). This demo keeps it, to match DeepSeekMath. DAPO is about getting groups that teach something, and Dr. GRPO about how much each one counts once you have it.
+
+#### Is the group's average a fair baseline?
 
 The group's average also isn't quite the baseline of [§3](#policy-gradients). Williams's guarantee needs a baseline chosen without looking at which answer was written, and the group's average includes answer $$i$$'s own reward. Without the division, that costs only a rescaling. Some algebra on the mean gives
 
 $$r_i - \operatorname{mean}(r_1, \ldots, r_G) = \frac{G-1}{G}\Big(r_i - \operatorname{mean}(\text{the other } G-1 \text{ rewards})\Big)$$
 
-and the other answers were sampled independently of answer $$i$$, so their average is a fair baseline for it. The step is the unbiased one shrunk by $$\tfrac{G-1}{G}$$, which is $$\tfrac{7}{8}$$ at $$G = 8$$. The standard deviation depends on $$r_i$$ as well, and once you divide by it Williams's theorem no longer covers the update. That's the part Dr. GRPO objects to. So GRPO does away with the value model, but it swaps in a new dependency: the model has to write answers that get different rewards.
+and the other answers were sampled independently of answer $$i$$, so their average is a fair baseline for it. The step is the unbiased one shrunk by $$\tfrac{G-1}{G}$$, which is $$\tfrac{7}{8}$$ at $$G = 8$$. The standard deviation depends on $$r_i$$ as well, and once you divide by it Williams's theorem no longer covers the update. That's the part Dr. GRPO objects to.
+
+So GRPO does away with the value model, but it swaps in a new dependency: the model has to write answers that get different rewards.
 
 ---
 
 ### 5. One update by hand {#one-update}
 
-With advantages in hand, the update is the REINFORCE step of [§3](#policy-gradients): raise the log-prob of answers with a positive advantage and lower it for answers with a negative one. GRPO adds two safety features from PPO to that step, a clipped probability ratio and a KL penalty (a cost for drifting too far from the starting model), both meant to limit how far the policy moves. This section explains both, then takes one group, the 46 × 32 group from [§4](#groups-and-advantages), and runs two gradient steps on it by hand.
+[§4](#groups-and-advantages) was about where the learning signal comes from: each answer's advantage says which way to push it, and how hard. This section is about turning that signal into an update without pushing the model too far in one go, the second question §3 left open. With advantages in hand, the update is the REINFORCE step of [§3](#policy-gradients): raise the log-prob of answers with a positive advantage and lower it for answers with a negative one. GRPO adds two safety features from PPO to that step, a clipped probability ratio and a KL penalty (a cost for drifting too far from the starting model), both meant to limit how far the policy moves. This section explains both, then takes one group, the 46 × 32 group from [§4](#groups-and-advantages), and runs two gradient steps on it by hand.
 
-**Reusing answers, and the ratio.** Sampling is the slow part, so PPO and GRPO allow several gradient steps, called **inner steps**, on the same batch of sampled answers. After the first step, though, the policy being trained is no longer the one that wrote the answers. The **probability ratio** tracks how far it's moved, token by token: the probability the current policy gives a token, divided by the probability the policy that sampled it gave it. A ratio of 1 means no change, 1.2 means the token is 20% more likely than when it was sampled, and 0.5 means half as likely. On the first inner step it's exactly 1 everywhere, because the two policies are the same.
+The hand-run shows how far one update can go. One gradient step on that group left one token about a ten-thousandth as likely as when the model wrote it, even though the clip stops rewarding any push that takes a token more than 20% above or below the probability it was sampled with, and on the next step the KL penalty made up almost all of the loss. The clip caps what a token earns for moving, and puts no limit on how far it moves.
 
-**Clipping.** PPO's objective (Equation 7 of the [PPO paper](https://arxiv.org/abs/1707.06347)) takes the smaller of two terms: the ratio times the advantage, and the same with the ratio clipped to the range $$1 - \epsilon$$ to $$1 + \epsilon$$, "say, ϵ = 0.2". The demo uses 0.2 too, so the range is 0.8 to 1.2. For a right answer, with a positive advantage, the objective wants its tokens more likely, but once a token's ratio is past 1.2 the clipped term wins, it's constant, and that token stops contributing to the gradient. For a wrong answer the boundary is 0.8: once a token is less than 0.8 times as likely, pushing it further down earns nothing. So the clip takes away the incentive to go further, but it doesn't stop a token from going further. Every token shares the same weights, and an update aimed at other tokens can still carry this one past 1.2 or below 0.8. The paper calls the result "a lower bound (i.e., a pessimistic bound)" on the unclipped objective. It bounds the objective, and not how far the policy can move.
+#### The probability ratio and the clip
+
+Sampling is the slow part, so PPO and GRPO allow several gradient steps, called **inner steps**, on the same batch of sampled answers. After the first step, though, the policy being trained is no longer the one that wrote the answers. The **probability ratio** tracks how far it's moved, token by token: the probability the current policy gives a token, divided by the probability the policy that sampled it gave it. A ratio of 1 means no change, 1.2 means the token is 20% more likely than when it was sampled, and 0.5 means half as likely. On the first inner step it's exactly 1 everywhere, because the two policies are the same.
+
+PPO's objective (Equation 7 of the [PPO paper](https://arxiv.org/abs/1707.06347)) takes the smaller of two terms: the ratio times the advantage, and the same with the ratio clipped to the range $$1 - \epsilon$$ to $$1 + \epsilon$$, "say, ϵ = 0.2". The demo uses 0.2 too, so the range is 0.8 to 1.2. For a right answer, with a positive advantage, the objective wants its tokens more likely, but once a token's ratio is past 1.2 the clipped term wins, it's constant, and that token stops contributing to the gradient. For a wrong answer the boundary is 0.8: once a token is less than 0.8 times as likely, pushing it further down earns nothing. So the clip takes away the incentive to go further, but it doesn't stop a token from going further. Every token shares the same weights, and an update aimed at other tokens can still carry this one past 1.2 or below 0.8. The paper calls the result "a lower bound (i.e., a pessimistic bound)" on the unclipped objective. It bounds the objective, and not how far the policy can move.
 
 ![Two line plots of one token's clipped term in the objective against the probability ratio, from 0 to 1.6, with vertical lines at 0.8 and 1.2 (1 minus epsilon and 1 plus epsilon). For a right answer with advantage A = +0.935, the line rises until the ratio reaches 1.2 and is flat after it, while the dashed unclipped term, ratio times A, keeps rising. For a wrong answer with A = -0.935, the line is flat below a ratio of 0.8 and falls above it, while the dashed unclipped term keeps rising toward 0 as the ratio shrinks. The flat regions are shaded and labelled as giving no gradient from the clipped term. A dot at ratio 1 marks the first inner step, where every ratio is 1, and a bar under each panel marks the range of the ratios after one step on §4's group for 46 × 32, 0.0001 to 1.4386, with a note that the clip didn't keep them in [0.8, 1.2]](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/clip-light.png){: .light width="1000" height="457" }
 ![Two line plots of one token's clipped term in the objective against the probability ratio, from 0 to 1.6, with vertical lines at 0.8 and 1.2 (1 minus epsilon and 1 plus epsilon). For a right answer with advantage A = +0.935, the line rises until the ratio reaches 1.2 and is flat after it, while the dashed unclipped term, ratio times A, keeps rising. For a wrong answer with A = -0.935, the line is flat below a ratio of 0.8 and falls above it, while the dashed unclipped term keeps rising toward 0 as the ratio shrinks. The flat regions are shaded and labelled as giving no gradient from the clipped term. A dot at ratio 1 marks the first inner step, where every ratio is 1, and a bar under each panel marks the range of the ratios after one step on §4's group for 46 × 32, 0.0001 to 1.4386, with a note that the clip didn't keep them in [0.8, 1.2]](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/clip-dark.png){: .dark width="1000" height="457" }
 _One token's term in PPO's clipped objective against its probability ratio, with A the answer's advantage in §4's group for 46 × 32. For the right answer the line goes flat past 1.2, and for the wrong one below 0.8, so going further earns nothing. Nothing stops a token getting there, though: one step on this group put the ratios between 0.0001 and 1.4386 (the step 2 row of the receipt in "Two inner steps on one group" below)._
 
-**The KL term.** **KL divergence** measures how different two probability distributions are; it's zero when they're identical and grows as they drift apart. GRPO keeps the policy close to a frozen **reference model**, here the starting model, by subtracting an estimate of the KL divergence between them, scaled by a weight $$\beta$$. Where that penalty goes differs by method. PPO as used for RLHF subtracts it from the reward, token by token ([§8](#where-rlhf-fits)); GRPO, in DeepSeekMath's words, "instead of adding KL penalty in the reward, GRPO regularizes by directly adding the KL ... to the loss".
+#### The KL penalty
 
-The estimate is the one [Schulman's note on approximating KL divergence](http://joschu.net/blog/kl-approx.html) calls $$k_3$$. Per token, write $$d$$ for the reference model's log-prob of the token minus the policy's. Then the estimate is $$e^{d} - d - 1$$. It's zero when the two agree ($$d = 0$$), and never negative, since $$e^{d} \ge 1 + d$$ for any $$d$$; Schulman's note shows that, for tokens sampled from the policy, its average is the true KL divergence. The receipt below calls this quantity `r`; in this post $$r$$ is the reward, so I've written it as $$d$$. DeepSeekMath uses this estimator too (its Equation 4), and the demo runs DeepSeekMath's $$\beta = 0.04$$.
+**KL divergence** measures how different two probability distributions are; it's zero when they're identical and grows as they drift apart. GRPO keeps the policy close to a frozen **reference model**, here the starting model, by subtracting an estimate of the KL divergence between them, scaled by a weight $$\beta$$. Where that penalty goes differs by method. PPO as used for RLHF subtracts it from the reward, token by token ([§8](#where-rlhf-fits)); GRPO, in DeepSeekMath's words, "instead of adding KL penalty in the reward, GRPO regularizes by directly adding the KL ... to the loss".
+
+The estimate is the one [Schulman's note on approximating KL divergence](http://joschu.net/blog/kl-approx.html) calls $$k_3$$. Per token, write $$d$$ for the reference model's log-prob of the token minus the policy's. Then the estimate is $$e^{d} - d - 1$$. It's zero when the two agree ($$d = 0$$), and never negative, since $$e^{d} \ge 1 + d$$ for any $$d$$; Schulman's note shows that, for tokens sampled from the policy, its average is the true KL divergence of the policy from the reference. The order matters, because KL divergence isn't symmetric: this is the version that averages over the tokens the policy itself writes. The receipt below calls this quantity `r`; in this post $$r$$ is the reward, so I've written it as $$d$$. DeepSeekMath uses this estimator too (its Equation 4), and the demo runs DeepSeekMath's $$\beta = 0.04$$.
 
 The demo's reference model costs no extra memory. The policy is Qwen plus LoRA adapters, and the reference is the same network with the adapters' contribution multiplied by zero, which is the starting model bit for bit ([`adapters_off`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py)). That's one reason a 0.5B model and its reference fit on a laptop.
 
-**The whole objective.** The symbols, for answer $$i$$ of a group and its token $$t$$:
+The clip and the KL penalty both hold the policy back, but they measure it against different models. The ratio compares the policy with the one that sampled the current answers, and that model is replaced every time a new batch is sampled, so the clip only looks at how far the steps on one batch have moved it. The KL penalty compares it with the reference, which never changes, so it measures how far the whole run has drifted from the starting model. In the hand-run below the two start out as the same model, because fresh adapters make the sampler the starting model too.
+
+#### The GRPO objective
+
+The symbols, for answer $$i$$ of a group and its token $$t$$:
 
 | symbol | means |
 |---|---|
@@ -519,9 +547,11 @@ From the inside out: each token gets its clipped term minus its KL penalty; thos
 
 The clipped term is called the **surrogate**, because it stands in for the expected reward: its gradient is the policy-gradient step, but it isn't the reward itself.
 
-Other papers write GRPO differently. DeepSeek-R1 computes one ratio per answer rather than per token, and DAPO and Dr. GRPO change the averaging and drop the KL term. The formula above is the one this demo runs.
+Other papers write GRPO differently. DeepSeek-R1 computes one ratio per answer rather than per token (§2.1, Equation 1), and DAPO and Dr. GRPO change the averaging and drop the KL term. The formula above is the one this demo runs.
 
-**Two inner steps on one group**, from [`one_update`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py), starting from fresh adapters, whose $$B$$ matrix starts at zero, as in [post 6](/posts/llm-architectures-lora/), so the policy is exactly the starting model:
+#### Two inner steps on one group
+
+Here are two inner steps on the 46 × 32 group, from [`one_update`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py), starting from fresh adapters, whose $$B$$ matrix starts at zero, as in [post 6](/posts/llm-architectures-lora/), so the policy is exactly the starting model. Each row is measured as its step begins, before the optimizer changes any weights, so step 1's row is the starting model and step 2's row is the model after one update:
 
 <!-- RECEIPT: s4a -->
 ```text
@@ -547,7 +577,9 @@ $$\nabla_\theta \mathcal{J} = \frac{1}{G}\sum_{i=1}^{G}\frac{\hat A_i}{\lvert o_
 
 That's §3's REINFORCE step, with the group's advantages as weights and each answer's tokens averaged. The advantages cancel in the value, but the gradients don't, because the right and wrong answers are different tokens with different gradients. A loss of zero doesn't mean there's nothing to learn.
 
-Step 2 reuses the same eight answers, and shows why PPO-style methods need their safety features. One step at this learning rate moved some tokens a long way. The smallest ratio is 0.0001: some token now has about a ten-thousandth of the probability it had when it was sampled. The largest is 1.4386, a token about 44% more likely than when it was sampled. It's past the clip's 1.2 after a single step, which is the clip failing to keep a token inside its range, as described above. 28.9% of answer tokens are past the clip in their advantage's direction, and contribute no gradient from the surrogate.
+#### The second step, on reused answers
+
+Step 2 reuses the same eight answers, and shows why PPO-style methods need their safety features. One step at this learning rate moved some tokens a long way. The smallest ratio is 0.0001: some token now has about a ten-thousandth of the probability it had when it was sampled. The largest is 1.4386, a token about 44% more likely than when it was sampled. It's past the clip's 1.2 after a single step. 28.9% of answer tokens are past the clip in their advantage's direction (above 1.2 in a right answer, below 0.8 in a wrong one), and contribute no gradient from the surrogate.
 
 The KL estimate has gone from zero to 4.52e+02. That's the per-token estimates averaged over each answer's tokens and then over the eight answers, the same averaging as the objective. It's an estimate from eight sampled answers, not the KL divergence between the two models' full distributions. The starting policy was also the reference, so for every token here $$d$$ is minus the log of its ratio, and $$e^{d}$$ is one over the ratio: the further a token is pushed down, the faster its estimate grows. Step 2's KL to more digits, and the tokens at the extremes, from [`step_detail`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
@@ -576,7 +608,9 @@ _The KL estimate for one token against how much likelier the policy makes it tha
 
 The KL estimate's guarantee no longer holds here: it's an unbiased estimate for tokens sampled from the current policy, and these were sampled from the policy of one step ago. This is why the training runs in [§6](#training) take one inner step per batch, as DeepSeekMath's own runs did ("a single update following each exploration stage", §4.2). With one inner step, the policy is the sampler when the gradient is taken, so every ratio is 1, the clip never binds, and the surrogate's gradient is the step-1 gradient above. The KL term doesn't switch off, though. After the first step the policy isn't the reference any more, so $$d$$ isn't zero, and the penalty pulls toward the starting model on every step after that.
 
-What did the two steps do to each answer? Each answer's sequence log-prob before and after, from [`one_update`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
+#### What the update did to each answer
+
+Each answer's sequence log-prob before and after both steps, from [`one_update`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
 
 <!-- RECEIPT: s4b -->
 ```text
@@ -596,6 +630,10 @@ What did the two steps do to each answer? Each answer's sequence log-prob before
 ```
 
 Each of the four copies of the right answer rose from −0.593 to −0.049, and every wrong answer fell. There was no value model and no labelled answer, only eight samples and their scores, and the group's own average decided which way each one moved.
+
+#### What one update shows
+
+At the first inner step, GRPO's update is [§3](#policy-gradients)'s REINFORCE step, with the group's average as the baseline. The clip only comes into play once answers are reused, and even then it takes away the reason to push a token further without stopping it, so one step carried some tokens well outside 0.8 to 1.2. The KL penalty is a separate check, against the frozen starting model rather than the sampler, and it charges far more for a token pushed down than for one pushed up, so on the second step it was almost all of the loss. Reusing the answers also broke two things the first step could count on, every ratio being 1 and the KL estimate being unbiased, which is why [§6](#training) samples fresh answers and takes one inner step on each batch.
 
 ---
 
