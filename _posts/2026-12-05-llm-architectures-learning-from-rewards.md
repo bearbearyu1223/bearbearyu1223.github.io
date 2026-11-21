@@ -244,7 +244,7 @@ There's an important limitation, though. If all eight answers to a problem are w
 
 This doesn't mean RL can never learn a problem it starts out getting wrong. An update changes weights that every problem shares, so it can carry over to other problems, and later samples may find right answers earlier ones missed. The 200 test problems are never trained on at all, so anything that changes on them, the 44 included, changes through that sharing. But without variation in rewards, GRPO has nothing useful to learn from that particular group.
 
-DeepSeekMath's authors saw a related limit at scale: RL improved how often the most common answer among $$K$$ samples was right, a majority vote, but not how often at least one of the $$K$$ samples was ([Shao et al., Figure 7](https://arxiv.org/abs/2402.03300)). My reading of that is that RL can help a model get a problem right more often when some of its tries already got it right. It doesn't necessarily help with problems that none of its tries got right before.
+DeepSeekMath's authors saw a related limit at scale: RL improved how often the most common answer among $$K$$ samples was right, a majority vote, but not how often at least one of the $$K$$ samples was ([Shao et al., Figure 7](https://arxiv.org/abs/2402.03300)). <mark class="hl hl-takeaway" id="hl-a36c05" markdown="span">My reading of that is that RL can help a model get a problem right more often when some of its tries already got it right. It doesn't necessarily help with problems that none of its tries got right before.</mark>
 
 #### Correct arithmetic isn't always a correct answer
 
@@ -270,9 +270,9 @@ The model knows how to produce more correct answers than it reliably chooses. GR
 
 ### 3. From rewards to a gradient {#policy-gradients}
 
-In SFT we already know which answer we want, and training raises its log-prob. RL starts somewhere else. Nobody hands the model the answer: it writes its own, and a reward scores each one. So SFT tells the model which answer to make more likely, and RL uses the reward to decide whether an answer the model wrote should become more likely or less. This section turns that score into an update, and it needs a little vocabulary first.
+In SFT we already know which answer we want, and training raises its log-prob. RL starts somewhere else. Nobody hands the model the answer: it writes its own, and a reward scores each one. <mark class="hl hl-takeaway" id="hl-ac6005" markdown="span">So SFT tells the model which answer to make more likely, and RL uses the reward to decide whether an answer the model wrote should become more likely or less.</mark> This section turns that score into an update, and it needs a little vocabulary first.
 
-In RL terms, the model is the **policy**: the rule that picks what to do. For a language model the policy gives a probability to each next token, and multiplying those together gives the probability of a whole answer (§1's sum, in log-probs). Here a whole answer counts as one **action**: the model gets a multiplication question, writes an answer, and the **reward** is the score that answer gets, 1 if it's right and 0 if not. In general a policy can collect rewards over many steps, and the total is called the **return**; here there's one reward per answer, at the end, so the return is just that reward. The symbols:
+<mark class="hl hl-concept" id="hl-56118e" markdown="span">In RL terms, the model is the **policy**: the rule that picks what to do.</mark> <mark class="hl hl-concept" id="hl-712328" markdown="span">For a language model the policy gives a probability to each next token, and multiplying those together gives the probability of a whole answer (§1's sum, in log-probs). Here a whole answer counts as one **action**: the model gets a multiplication question, writes an answer, and the **reward** is the score that answer gets, 1 if it's right and 0 if not. In general a policy can collect rewards over many steps, and the total is called the **return**; here there's one reward per answer, at the end, so the return is just that reward.</mark> The symbols:
 
 | symbol | means | here |
 |---|---|---|
@@ -296,7 +296,7 @@ Read it right to left, one piece at a time.
 2. $$r - b$$ says which way to step, and how far. This difference, how much better the answer did than expected, is called its **advantage**. An answer that scored above the baseline has a positive advantage and is made more likely, in proportion to how far above; an answer below it has a negative advantage and is made less likely.
 3. $$\alpha$$ sets the size of the step.
 
-The reward says whether an answer was good, the log-prob gradient says how to make that answer more or less likely, and the advantage connects the two. With $$r - b = 1$$ for every answer, this would be SFT on the model's own answers.
+<mark class="hl hl-concept" id="hl-e3f55d" markdown="span">The reward says whether an answer was good, the log-prob gradient says how to make that answer more or less likely, and the advantage connects the two. With $$r - b = 1$$ for every answer, this would be SFT on the model's own answers.</mark>
 
 **Why it points uphill.** What we want is a high average reward. Write $$\mathbb{E}_{o \sim \pi_\theta}[\,r\,]$$ for the average reward over the answers the policy might write to $$q$$, each weighted by its probability. The verifier, the program that checks the answer, has no gradient: it can say `1081` is right, but not how to change any LoRA weight to make right answers likelier. The probabilities do have one, and that's enough, because of the **policy-gradient identity**:
 
