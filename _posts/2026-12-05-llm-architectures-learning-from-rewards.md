@@ -831,9 +831,7 @@ Sixty steps of GRPO raised held-out accuracy in all three runs, from a reward th
 
 ### 7. What it actually learned {#what-it-learned}
 
-The held-out accuracy improved after GRPO training. But what did the model actually learn?
-
-There are at least two possible explanations. First, it may have learned to follow the output format more reliably. Our reward requires a lone integer, and the untrained model sometimes returned a sentence containing the answer instead. Second, it may have got better at producing the correct product. That would be the more interesting result, because it would mean the reward changed the model's arithmetic and not only its formatting.
+There are at least two possible explanations for the gain. First, it may have learned to follow the output format more reliably. Our reward requires a lone integer, and the untrained model sometimes returned a sentence containing the answer instead. Second, it may have got better at producing the correct product. That would be the more interesting result, because it would mean the reward changed the model's arithmetic and not only its formatting.
 
 Both improvements earn the same reward. To separate them, let's look at how individual answers changed.
 
