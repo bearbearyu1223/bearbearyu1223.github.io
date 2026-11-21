@@ -70,7 +70,7 @@ cd llm-architectures-refresher
 uv sync && uv run demo08
 ```
 
-The code is in [`demos/d08_rewards.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). There's no RL library in it: the sampling, the reward, the group comparison and the loss are all written out, and the loss itself is one function, [`grpo_objective`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). The adapters are post 6's [`lora.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/lora.py). Every number this post quotes is printed by that program (§2's temperature table by `uv run demo08 --temperature`, §8's reward-model example by `uv run demo08 --reward-model`), and each block of its output, which I call a **receipt**, names the function that printed it.
+The code is in [`demos/d08_rewards.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). There's no RL library in it: the sampling, the reward, the group comparison and the loss are all written out, and the loss itself is one function, [`grpo_objective`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). The adapters are post 6's [`lora.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/lora.py). Every number this post quotes is printed by that program (§2's temperature table by `uv run demo08 --temperature`, §5's KL table by `uv run demo08 --kl-table`, §8's reward-model example by `uv run demo08 --reward-model`), and each block of its output, which I call a **receipt**, names the function that printed it.
 
 The demo trains six times, and on my Mac the whole run took about an hour by the clock. That's a rough figure rather than a receipt, since the program prints its timings only to its progress output, not to the captured receipts. `uv run demo08 --quick` runs every section at toy size, to check that it works before committing the time.
 
@@ -534,17 +534,61 @@ _One token's term in PPO's clipped objective against its probability ratio, with
 
 #### The KL penalty
 
-Chasing a reward can pull the policy a long way from the model it started as, toward outputs that happen to score well without being what we wanted ([§8](#where-rlhf-fits) calls this reward hacking). The **KL penalty** works like a leash back to the starting model, which is kept frozen and called the **reference model**. The further the policy's probabilities drift from the reference's, the more the loss charges.
+Chasing a reward can pull the policy a long way from the model it started as, toward outputs that happen to score well without being what we wanted ([§8](#where-rlhf-fits) calls this reward hacking). The reward only checks the final answer and its format, the right number written as a lone integer, so nothing in it protects anything else the starting model could do. The **KL penalty** works like a leash back to the starting model, which is kept frozen and called the **reference model**. The further the policy's probabilities drift from the reference's, the more the loss charges.
 
-How far the policy has drifted is measured with **KL divergence**, a measure of how different two probability distributions are: it's zero when they're identical and grows as they drift apart. GRPO subtracts an estimate of it, scaled by a weight $$\beta$$ that sets how hard the leash pulls. Where that penalty goes differs by method. PPO as used for RLHF subtracts it from the reward, token by token ([§8](#where-rlhf-fits)); GRPO, in DeepSeekMath's words, "instead of adding KL penalty in the reward, GRPO regularizes by directly adding the KL ... to the loss".
+How far the policy has drifted is measured with **KL divergence**, a measure of how different two probability distributions are: it's zero when they're identical and grows as they drift apart. For one question, the KL divergence of the policy from the reference goes through every answer the policy could write, takes the log of how much likelier the policy makes that answer than the reference does, and averages those logs, weighting each answer by how likely the policy is to write it. Write $$o$$ for any one answer, and $$\pi_\theta(o)$$ and $$\pi_{\text{ref}}(o)$$ for the probability the policy and the reference give the whole answer, whose log is [§1](#sequence-log-probability)'s sequence log-prob. Then
 
-The estimate works token by token, and asks one question: how much likelier, or less likely, does the policy make this token than the reference does? That's a probability ratio again, policy over reference this time instead of policy over sampler. A token left at a ratio of 1 costs nothing. Moving it either way costs something, but the charge is lopsided: the cost of pushing a token down grows much faster than the cost of pushing one up. In the hand-run below, a token the policy made 44% likelier costs a little, and a token it made about ten thousand times less likely costs a lot.
+$$D_{KL}\big(\pi_\theta \,\Vert\, \pi_{\text{ref}}\big) = \sum_{o} \pi_\theta(o)\,\log\frac{\pi_\theta(o)}{\pi_{\text{ref}}(o)}$$
 
-In symbols, the estimate is the one [Schulman's note on approximating KL divergence](http://joschu.net/blog/kl-approx.html) calls $$k_3$$. Per token, write $$d$$ for the reference model's log-prob of the token minus the policy's. Then the estimate is $$e^{d} - d - 1$$. Here $$e^{d}$$ is the reference's probability over the policy's, one over the ratio, and that's where the lopsidedness comes from. Push a token down and $$e^{d}$$ grows without limit; push it up and $$e^{d}$$ shrinks toward zero, leaving only $$-d$$, which grows slowly. The estimate is zero when the two agree ($$d = 0$$), and never negative, since $$e^{d} \ge 1 + d$$ for any $$d$$; Schulman's note shows that, for tokens sampled from the policy, its average is the true KL divergence of the policy from the reference. The order matters, because KL divergence isn't symmetric: this is the version that averages over the tokens the policy itself writes. The receipt below calls this quantity `r`; in this post $$r$$ is the reward, so I've written it as $$d$$. DeepSeekMath uses this estimator too (its Equation 4), and the demo runs DeepSeekMath's $$\beta = 0.04$$.
+The order matters, because KL divergence isn't symmetric: this one weights by the policy's probabilities, so it's an average over the answers the policy itself writes. The sum runs over every answer the model could write, far too many to add up, so GRPO estimates it from the answers it samples and subtracts that estimate, scaled by a weight $$\beta$$ that sets how hard the leash pulls. Training then raises the reward while paying for its distance from the reference, a trade [§8](#where-rlhf-fits) writes out as a formula for RLHF. Where that penalty goes differs by method. PPO as used for RLHF subtracts it from the reward, token by token ([§8](#where-rlhf-fits)); GRPO, in DeepSeekMath's words, "instead of adding KL penalty in the reward, GRPO regularizes by directly adding the KL ... to the loss".
+
+Because an answer's log-prob is the sum of its tokens' log-probs ([§1](#sequence-log-probability)), the log in that formula splits into one piece per token, and the estimate works token by token. For each token it asks one question: how much likelier, or less likely, does the policy make this token than the reference does? That's a probability ratio again, policy over reference this time instead of policy over sampler. A token left at a ratio of 1 costs nothing. Moving it either way costs something, but the charge is lopsided: the cost of pushing a token down grows much faster than the cost of pushing one up.
+
+In symbols, the estimate is the one [Schulman's note on approximating KL divergence](http://joschu.net/blog/kl-approx.html) calls $$k_3$$. Per token, write $$d$$ for the reference model's log-prob of the token minus the policy's. Then the estimate is $$e^{d} - d - 1$$. Here $$e^{d}$$ is the reference's probability over the policy's, one over the ratio, and that's where the lopsidedness comes from. Push a token down and $$e^{d}$$ grows without limit; push it up and $$e^{d}$$ shrinks toward zero, leaving only $$-d$$, which grows slowly. The estimate is zero when the two agree ($$d = 0$$), and never negative, since $$e^{d} \ge 1 + d$$ for any $$d$$; Schulman's note shows that, for tokens sampled from the policy, its average is the true KL divergence of the policy from the reference. The hand-run's receipts below call this quantity `r`; in this post $$r$$ is the reward, so I've written it as $$d$$. DeepSeekMath uses this estimator too (its Equation 4), and the demo runs DeepSeekMath's $$\beta = 0.04$$.
+
+Here's the charge at a few ratios, in mirror pairs, from [`kl_estimate`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py), the same expression the training loss uses, printed by `uv run demo08 --kl-table` ([`d08_kl_table.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_kl_table.py)):
+
+<!-- RECEIPT: s5k -->
+```text
+  ratio = policy probability / reference probability of a token;
+  d = reference log-prob - policy log-prob = -ln(ratio);
+  estimate = exp(d) - d - 1, as in demo 08's training loss.
+
+  ratio   as a number        d   estimate
+  -----------------------------------------
+  x10         10.0000  -2.3026     1.4026
+  x2           2.0000  -0.6931     0.1931
+  x1.5         1.5000  -0.4055     0.0721
+  x1           1.0000  +0.0000     0.0000
+  /1.5         0.6667  +0.4055     0.0945
+  /2           0.5000  +0.6931     0.3069
+  /10          0.1000  +2.3026     6.6974
+  /100         0.0100  +4.6052    94.3948
+  /10000     1.00e-04  +9.2103  9989.7897
+
+  Mirror pairs, same factor either way:
+
+  pair        more likely  less likely
+  --------------------------------------
+  x2 vs /2         0.1931       0.3069
+  x10 vs /10       1.4026       6.6974
+
+  Each row is one token's estimate, not the KL divergence itself.
+```
+
+Read it in pairs. A token the policy makes twice as likely as the reference does costs 0.1931, and one it makes half as likely costs 0.3069. At ten times either way it's 1.4026 against 6.6974, and a token made ten thousand times less likely costs 9989.7897. That lopsidedness is in the charge for one sampled token. The KL divergence itself is an average over the tokens the policy writes, and a token the policy has made rare is one it rarely writes, so in a fresh sample its large charge is rarely counted. Step 2 of the hand-run below counts one anyway, because it rescores answers written before the push.
 
 The demo's reference model costs no extra memory. The policy is Qwen plus LoRA adapters, and the reference is the same network with the adapters' contribution multiplied by zero, which is the starting model bit for bit ([`adapters_off`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py)). That's one reason a 0.5B model and its reference fit on a laptop.
 
-The clip and the KL penalty both hold the policy back, but they measure it against different models. The ratio compares the policy with the one that sampled the current answers, and that model is replaced every time a new batch is sampled, so the clip only looks at how far the steps on one batch have moved it. The KL penalty compares it with the reference, which never changes, so it measures how far the whole run has drifted from the starting model. In the hand-run below the two start out as the same model, because fresh adapters make the sampler the starting model too.
+The clip and the KL penalty both hold the policy back, but they measure it against different models:
+
+| | the clip | the KL penalty |
+|---|---|---|
+| compares the policy with | the policy that sampled the current answers | the frozen reference |
+| what it limits | what a token earns for moving, over the steps on one batch | how far the whole run has drifted from the starting model |
+| over training | its yardstick is replaced with every new batch | its yardstick never changes |
+
+In the hand-run below the two start out as the same model, because fresh adapters make the sampler the starting model too.
 
 #### The GRPO objective
 
@@ -666,7 +710,7 @@ Each of the four copies of the right answer rose from −0.593 to −0.049, and 
 
 #### What one update shows
 
-At the first inner step, GRPO's update is [§3](#policy-gradients)'s REINFORCE step, with the group's average as the baseline. The clip only comes into play once answers are reused, and even then it takes away the reason to push a token further without stopping it, so one step carried some tokens well outside 0.8 to 1.2. The KL penalty is a separate leash, back to the frozen starting model rather than the sampler, and it charges far more for a token pushed down than for one pushed up, so on the second step it was almost all of the loss. Reusing the answers also broke two things the first step could count on, every ratio being 1 and the KL estimate being unbiased, which is why [§6](#training) samples fresh answers and takes one inner step on each batch.
+At the first inner step, GRPO's update is [§3](#policy-gradients)'s REINFORCE step, with the group's average as the baseline. The clip only comes into play once answers are reused, and even then it takes away the reason to push a token further without stopping it, so one step carried some tokens well outside 0.8 to 1.2. The KL penalty is a separate leash, back to the frozen starting model rather than the sampler, so it watches the whole run's drift where the clip watches one batch's steps. It sets no hard limit either, and it charges far more for a token pushed down than for one pushed up, so on the second step it was almost all of the loss. Reusing the answers also broke two things the first step could count on, every ratio being 1 and the KL estimate being unbiased, which is why [§6](#training) samples fresh answers and takes one inner step on each batch.
 
 ---
 
@@ -849,7 +893,7 @@ _The six training runs, logged every ten steps, with each point averaging the te
 
 - **mean reward** is the true reward of the sampled answers; for a control, it's what its answers would have scored before the shuffle. Each row covers 80 questions drawn at random, some easy and some hard, so it's noisy. For seed 0 it hardly climbs once the log begins, from 0.498 to 0.537 with a dip to 0.456 on the way, while seeds 1 and 2 climb further. All three first rows are already above the 0.326 mean pass rate the untrained model had on these same questions in [§4](#groups-and-advantages), so some of the change may have come early, but the log can't show it: the first row averages steps 1 to 10, the 0.326 was estimated separately from 16 samples per question, and control 0's first row, 0.436, is above it too. Controls 1 and 2 end higher than they start. Control 0 went off course: over the ten steps to step 30 its reward averaged 0.047, and it had recovered by step 60.
 - **no-signal groups** is the share of groups whose training rewards were all equal. For the real runs it's between 50.0% and 73.8%: in every ten-step row, half or more of the answers taught nothing, just as §4 predicted. For the controls it's between 56.2% and 86.2%. The 86.2% is control 0's bad stretch, and with a mean reward of 0.047, nearly all of those groups were all wrong.
-- **KL to ref** is the per-token KL estimate against the starting model, before each step's update. Every run drifts away from the reference. By step 60 each control sits closer to it than any real run, between 0.0860 and 0.1892 against 0.2289 to 0.2588. Control 0's highest, 0.5233, came in its bad stretch. GRPO seed 0 also spiked, to 0.5564 at step 50, and came back to 0.2401 by step 60.
+- **KL to ref** is the per-token KL estimate against the starting model, before each step's update. Every run drifts away from the reference, even though with one inner step per batch the clip never acted in any of them: this drift is what only the KL penalty measures. By step 60 each control sits closer to it than any real run, between 0.0860 and 0.1892 against 0.2289 to 0.2588. Control 0's highest, 0.5233, came in its bad stretch. GRPO seed 0 also spiked, to 0.5564 at step 50, and came back to 0.2401 by step 60.
 - **length** is the answer length in tokens. The real runs stay around five tokens, four digits and `<|im_end|>`, and controls 1 and 2 stay between 4.95 and 5.83. Control 0's answers grew to 12.40 tokens in its bad stretch, then came back to 5.58. My guess, which nothing here tests, is the length bias Dr. GRPO identifies ([Liu et al., §3.1](https://arxiv.org/abs/2503.20783)), where averaging over each answer's tokens pushes a long answer with a negative advantage down less per token than a short one.
 
 #### Why training reward and test accuracy disagree
@@ -1119,7 +1163,7 @@ The terms this post leans on; anything not listed is defined where it first appe
 | ratio $$\rho_{i,t}$$ | a token's probability under the current policy over its probability under the sampler | exactly 1 at the first inner step |
 | clip, $$\epsilon$$ | PPO's limit on how far the ratio can usefully move | 0.2 |
 | surrogate | the clipped term whose gradient is the policy-gradient step | §5 |
-| KL divergence | how different two probability distributions are; 0 when equal | per token, against the reference |
+| KL divergence $$D_{KL}$$ | how different two probability distributions are, averaged over what the first one produces; 0 when equal | per token, against the reference, §5 |
 | $$k_3$$, $$d_{i,t}$$ | Schulman's KL estimate $$e^{d} - d - 1$$, with $$d = \log \pi_{\text{ref}} - \log \pi_\theta$$ | §5 |
 | $$\beta$$ | the weight on the KL term | 0.04 here, in the loss; InstructGPT's 0.02 in §8, in the reward |
 | reference model $$\pi_{\text{ref}}$$ | the frozen model the KL is measured against | the same network, adapters off |
