@@ -70,7 +70,7 @@ cd llm-architectures-refresher
 uv sync && uv run demo08
 ```
 
-The code is in [`demos/d08_rewards.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). There's no RL library in it: the sampling, the reward, the group comparison and the loss are all written out, and the loss itself is one function, [`grpo_objective`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). The adapters are post 6's [`lora.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/lora.py). Every number this post quotes is printed by that program, and each block of its output, which I call a **receipt**, names the function that printed it.
+The code is in [`demos/d08_rewards.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). There's no RL library in it: the sampling, the reward, the group comparison and the loss are all written out, and the loss itself is one function, [`grpo_objective`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). The adapters are post 6's [`lora.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/lora.py). Every number this post quotes is printed by that program (§2's temperature table by `uv run demo08 --temperature`), and each block of its output, which I call a **receipt**, names the function that printed it.
 
 The demo trains six times, and on my Mac the whole run took about an hour by the clock. That's a rough figure rather than a receipt, since the program prints its timings only to its progress output, not to the captured receipts. `uv run demo08 --quick` runs every section at toy size, to check that it works before committing the time.
 
@@ -186,13 +186,42 @@ There are two ways to get an answer out of the model in this post.
 
 **Sampling** draws each next token at random according to the model's probabilities. Asking the same question eight times can give eight different answers, including ones greedy decoding would never pick.
 
-How random the draws are is set by the **temperature** $$T$$:
+How random the draws are is set by the **temperature** $$T$$, and it helps to know where the model's probabilities come from. At each step the model first gives every token in its vocabulary a raw score, a number that can be any size, positive or negative ([post 1](/posts/llm-architectures-attention-and-rope/#step-2-the-size-of-the-gaps-is-what-temperature-means) calls these **logits**). A final step turns the scores into probabilities that add up to 1, and only the gaps between scores matter: the further one token's score sits above the others, the more of the probability it takes. The temperature divides every score by $$T$$ before that step, so it stretches or shrinks every gap at once:
 
-- At $$T = 1$$, tokens are drawn from the model's probabilities exactly as they are.
-- At $$T < 1$$, the probabilities get sharper, so the likely tokens are favored even more.
-- At $$T > 1$$, they get flatter, giving unlikely tokens a better chance.
+- At $$T = 1$$, the scores are left alone, and tokens are drawn from the model's probabilities exactly as they are.
+- At $$T < 1$$, the gaps get wider and the probabilities get sharper, so the likely tokens are favored even more. Turned all the way down, sampling always picks the top token, which is greedy decoding.
+- At $$T > 1$$, the gaps get narrower and the probabilities flatter, giving unlikely tokens a better chance.
+
+One way to picture it is a raffle, where each candidate token holds tickets in proportion to its probability and one ticket is drawn. Lowering the temperature hands more of the tickets to the favorite; raising it spreads them more evenly, so long shots win more often. The order never changes. The favorite keeps the most tickets at every temperature, and only its share moves.
+
+Here's what that does to a real case: §1's question, 23 × 47, at the third digit of `1081`, the one the model was unsure of. With `10` already written, these are the most likely candidates for the next token, at three temperatures, from [`temperature_table`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_temperature.py):
+
+<!-- RECEIPT: s2t -->
+```text
+  Question: What is 23 x 47? Answer with just the number.
+  answer so far                      "10", next is the third digit
+
+  token             score gap  T = 0.5  T = 1.0  T = 2.0
+  --------------------------------------------------------
+  '3'                    0.00   0.7553   0.5118   0.2084
+  '0'                   -0.63   0.2151   0.2731   0.1523
+  '2'                   -1.93   0.0159   0.0742   0.0794
+  '8'                   -2.19   0.0094   0.0572   0.0697
+  '6'                   -3.10   0.0015   0.0230   0.0441
+  all other tokens              0.0028   0.0608   0.4461
+
+  score gap: each token's raw score minus the top token's, at T = 1.
+  Each column divides every score by T, then turns them into
+  probabilities. No top-k or top-p, as in the training runs.
+
+  probability of '8' at T = 1.0, as in §1   0.0572
+```
+
+The `T = 1.0` column is the model as it is, and it gives `8` the same 0.0572 as §1. The favorite is `3`, a wrong digit, at 0.5118, and it's the one greedy decoding would pick here. Halving the temperature to 0.5 widens every gap, so `3` goes from 0.5118 to 0.7553 and `8` falls to 0.0094. Turning the temperature down makes the right digit rarer, a small version of what this section measures: the model's single best guess can be wrong where some of its samples are right. Doubling the temperature to 2 narrows the gaps: `3` drops to 0.2084, `8` gets 0.0697, and all the other tokens together get 0.4461, up from 0.0608.
 
 This post uses $$T = 1$$ throughout, with no top-k or top-p filtering (common tweaks that drop unlikely tokens before drawing). That keeps the answers drawn from exactly the probabilities GRPO computes later.
+
+The temperature matters for GRPO in a second way. GRPO learns from the differences between the eight answers to a question, and a lower temperature makes those answers agree more often. When all eight come out the same, they all get the same reward, and [§4](#groups-and-advantages) shows that a group like that teaches nothing.
 
 #### How good is the model before training?
 
@@ -1027,7 +1056,7 @@ The terms this post leans on; anything not listed is defined where it first appe
 | masking | reading positions as context without scoring them | the prompt's 45 tokens |
 | SFT | supervised fine-tuning: raising the log-prob of answers someone wrote | posts 6 and 7 |
 | greedy, sampling | always the most likely token; drawing each token at random by its probability | §2 |
-| temperature $$T$$ | how spread out sampling is; at $$T = 1$$ the probabilities are used as they are | $$T = 1$$ |
+| temperature $$T$$ | what the model's scores are divided by before they become probabilities; below 1 sharper, above 1 flatter | $$T = 1$$, §2 |
 | pass@8 | the share of problems answered right in at least one of eight samples | 58.5% for the untrained model, §2 |
 | reward $$r$$ | the score an answer gets | 1 if the right lone integer, else 0 |
 | format-valid | the answer is a lone integer, so it can be checked | `1081`, `1,081`, `1081.` |
