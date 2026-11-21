@@ -33,3 +33,105 @@ html[data-mode='dark'] {
   --blockquote-text-color: #a8a8a8;
   --text-muted-color: #9a9a9a;
 }
+
+/* ---------------------------------------------------------------------------
+   Author highlights and notes (made on the review page; markup written by the
+   research plugin's highlights.py, never typed by hand).
+     <mark class="hl hl-key" id="hl-ab12" markdown="span">text</mark>
+     [+ <label class="hl-mark hl-key" for="hl-ab12-n" ...></label>
+        <input type="checkbox" class="hl-tog" id="hl-ab12-n">
+        <span class="hl-note hl-key">note</span>]
+   Three colours with fixed meanings, explained by _includes/hl-legend.html.
+   Wide screens: the note sits in the margin of the paragraph. Narrow screens:
+   a small marker after the highlight opens it (pure CSS, no JavaScript).
+   --------------------------------------------------------------------------- */
+:root {
+  --hl-key-bg: #fff0a0;   --hl-key-line: #d4a800;
+  --hl-wow-bg: #ffdbe6;   --hl-wow-line: #d6336c;
+  --hl-link-bg: #d9e9ff;  --hl-link-line: #2f6fd0;
+  --hl-note-text: #3d4146;
+}
+@mixin hl-dark {
+  --hl-key-bg: rgb(250 204 21 / 22%);   --hl-key-line: #e8c547;
+  --hl-wow-bg: rgb(244 114 182 / 22%);  --hl-wow-line: #f08cb6;
+  --hl-link-bg: rgb(96 165 250 / 22%);  --hl-link-line: #7fb2f5;
+  --hl-note-text: #c9cbce;
+}
+html[data-mode='dark'] { @include hl-dark; }
+html:not([data-mode]) { @media (prefers-color-scheme: dark) { @include hl-dark; } }
+
+mark.hl {
+  color: inherit;
+  padding: 0.05em 0.15em;
+  border-radius: 0.2em;
+  border-bottom: 2px solid transparent;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+/* Colour is not the only cue: each kind is named for screen readers, and the legend names it for everyone. */
+mark.hl::before {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+mark.hl-key  { background: var(--hl-key-bg);  border-bottom-color: var(--hl-key-line); }
+mark.hl-wow  { background: var(--hl-wow-bg);  border-bottom-color: var(--hl-wow-line); }
+mark.hl-link { background: var(--hl-link-bg); border-bottom-color: var(--hl-link-line); }
+mark.hl-key::before  { content: '[key result] '; }
+mark.hl-wow::before  { content: '[surprised me] '; }
+mark.hl-link::before { content: '[links to an earlier post] '; }
+
+.hl-tog { display: none; }
+.hl-note {
+  display: none;
+  font-size: 0.88em;
+  line-height: 1.5;
+  font-style: normal;
+  color: var(--hl-note-text);
+  border-left: 3px solid var(--hl-key-line);
+  padding: 0.35em 0 0.35em 0.75em;
+  margin: 0.5em 0;
+}
+.hl-note.hl-wow  { border-left-color: var(--hl-wow-line); }
+.hl-note.hl-link { border-left-color: var(--hl-link-line); }
+.hl-note::before { content: 'Han’s note · '; font-weight: 600; }
+
+/* Narrow screens: a marker opens the note as a block under the line. */
+.hl-mark {
+  display: inline-block;
+  cursor: pointer;
+  font-size: 0.72em;
+  line-height: 1;
+  vertical-align: super;
+  margin-left: 0.15em;
+  padding: 0.15em 0.35em;
+  border-radius: 1em;
+  color: var(--hl-key-line);
+  border: 1px solid currentcolor;
+  user-select: none;
+}
+.hl-mark::after { content: '✎ note'; }
+.hl-mark.hl-wow  { color: var(--hl-wow-line); }
+.hl-mark.hl-link { color: var(--hl-link-line); }
+.hl-tog:checked + .hl-note { display: block; }
+
+/* Wide screens: the note floats beside the paragraph, always shown. */
+@media (min-width: 992px) {
+  .hl-mark { display: none; }
+  .hl-note,
+  .hl-tog:checked + .hl-note {
+    display: block;
+    float: right;
+    clear: right;
+    width: 34%;
+    margin: 0.2em 0 0.8em 1.25em;
+  }
+}
+
+/* The legend at the top of a post that has highlights. */
+.hl-legend {
+  font-size: 0.88em;
+  color: var(--hl-note-text);
+  margin: 0 0 1.25rem;
+  line-height: 1.9;
+}
+.hl-legend mark.hl::before { content: none; }
+@media (min-width: 992px) { .hl-legend-tap { display: none; } }
