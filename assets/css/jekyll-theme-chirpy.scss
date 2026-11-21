@@ -37,29 +37,30 @@ html[data-mode='dark'] {
 /* ---------------------------------------------------------------------------
    Author highlights and notes (made on the review page; markup written by the
    research plugin's highlights.py, never typed by hand).
-     <mark class="hl hl-key" id="hl-ab12" markdown="span">text</mark>
-     [+ <label class="hl-mark hl-key" for="hl-ab12-n" ...></label>
+     <mark class="hl hl-insight" id="hl-ab12" markdown="span">text</mark>
+     [+ <label class="hl-mark hl-insight" for="hl-ab12-n" ...></label>
         <input type="checkbox" class="hl-tog" id="hl-ab12-n">
-        <span class="hl-note hl-key">note</span>]
-   Three colours with fixed meanings, explained by _includes/hl-legend.html.
+        <span class="hl-note hl-insight">note</span>]
+   Six kinds, each one colour with a fixed meaning, explained by
+   _includes/hl-legend.html. Keep in step with COLORS in highlights.py.
    Wide screens: the note sits in the margin of the paragraph. Narrow screens:
    a small marker after the highlight opens it (pure CSS, no JavaScript).
    --------------------------------------------------------------------------- */
-:root {
-  --hl-key-bg: #fff0a0;   --hl-key-line: #d4a800;
-  --hl-wow-bg: #ffdbe6;   --hl-wow-line: #d6336c;
-  --hl-link-bg: #d9e9ff;  --hl-link-line: #2f6fd0;
-  --hl-note-text: #3d4146;
-}
-@mixin hl-dark {
-  --hl-key-bg: rgb(250 204 21 / 22%);   --hl-key-line: #e8c547;
-  --hl-wow-bg: rgb(244 114 182 / 22%);  --hl-wow-line: #f08cb6;
-  --hl-link-bg: rgb(96 165 250 / 22%);  --hl-link-line: #7fb2f5;
-  --hl-note-text: #c9cbce;
-}
+$hl-kinds: (
+  concept:  (#3b82f6, 'key concept'),
+  insight:  (#10b981, 'insight'),
+  takeaway: (#f59e0b, 'takeaway'),
+  pitfall:  (#ef4444, 'pitfall'),
+  question: (#a855f7, 'open question'),
+  try:      (#f97316, 'try this'),
+);
+
+:root { --hl-note-text: #3d4146; }
+@mixin hl-dark { --hl-note-text: #c9cbce; }
 html[data-mode='dark'] { @include hl-dark; }
 html:not([data-mode]) { @media (prefers-color-scheme: dark) { @include hl-dark; } }
 
+/* Base first: the per-kind rules below must come after it, or its border resets their colour. */
 mark.hl {
   color: inherit;
   padding: 0.05em 0.15em;
@@ -68,16 +69,33 @@ mark.hl {
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
+
+@each $kind, $v in $hl-kinds {
+  $c: nth($v, 1);
+  :root {
+    --hl-#{$kind}-bg: #{rgba($c, 0.2)};
+    --hl-#{$kind}-line: #{darken($c, 8%)};
+  }
+  html[data-mode='dark'] {
+    --hl-#{$kind}-bg: #{rgba($c, 0.24)};
+    --hl-#{$kind}-line: #{lighten($c, 12%)};
+  }
+  html:not([data-mode]) {
+    @media (prefers-color-scheme: dark) {
+      --hl-#{$kind}-bg: #{rgba($c, 0.24)};
+      --hl-#{$kind}-line: #{lighten($c, 12%)};
+    }
+  }
+  mark.hl-#{$kind} { background: var(--hl-#{$kind}-bg); border-bottom-color: var(--hl-#{$kind}-line); }
+  mark.hl-#{$kind}::before { content: '[#{nth($v, 2)}] '; }
+  .hl-note.hl-#{$kind} { border-left-color: var(--hl-#{$kind}-line); }
+  .hl-mark.hl-#{$kind} { color: var(--hl-#{$kind}-line); }
+}
+
 /* Colour is not the only cue: each kind is named for screen readers, and the legend names it for everyone. */
 mark.hl::before {
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }
-mark.hl-key  { background: var(--hl-key-bg);  border-bottom-color: var(--hl-key-line); }
-mark.hl-wow  { background: var(--hl-wow-bg);  border-bottom-color: var(--hl-wow-line); }
-mark.hl-link { background: var(--hl-link-bg); border-bottom-color: var(--hl-link-line); }
-mark.hl-key::before  { content: '[key result] '; }
-mark.hl-wow::before  { content: '[surprised me] '; }
-mark.hl-link::before { content: '[links to an earlier post] '; }
 
 .hl-tog { display: none; }
 .hl-note {
@@ -85,13 +103,12 @@ mark.hl-link::before { content: '[links to an earlier post] '; }
   font-size: 0.88em;
   line-height: 1.5;
   font-style: normal;
+  font-weight: 400;
   color: var(--hl-note-text);
-  border-left: 3px solid var(--hl-key-line);
+  border-left: 3px solid currentcolor;
   padding: 0.35em 0 0.35em 0.75em;
   margin: 0.5em 0;
 }
-.hl-note.hl-wow  { border-left-color: var(--hl-wow-line); }
-.hl-note.hl-link { border-left-color: var(--hl-link-line); }
 .hl-note::before { content: 'Note · '; font-weight: 600; }
 
 /* Narrow screens: a marker opens the note as a block under the line. */
@@ -104,13 +121,10 @@ mark.hl-link::before { content: '[links to an earlier post] '; }
   margin-left: 0.15em;
   padding: 0.15em 0.35em;
   border-radius: 1em;
-  color: var(--hl-key-line);
   border: 1px solid currentcolor;
   user-select: none;
 }
 .hl-mark::after { content: '✎ note'; }
-.hl-mark.hl-wow  { color: var(--hl-wow-line); }
-.hl-mark.hl-link { color: var(--hl-link-line); }
 .hl-tog:checked + .hl-note { display: block; }
 
 /* Wide screens: the note floats beside the paragraph, always shown. */
@@ -131,7 +145,8 @@ mark.hl-link::before { content: '[links to an earlier post] '; }
   font-size: 0.88em;
   color: var(--hl-note-text);
   margin: 0 0 1.25rem;
-  line-height: 1.9;
+  line-height: 2;
 }
+.hl-legend mark.hl { white-space: nowrap; }
 .hl-legend mark.hl::before { content: none; }
 @media (min-width: 992px) { .hl-legend-tap { display: none; } }
