@@ -639,7 +639,9 @@ At the first inner step, GRPO's update is [§3](#policy-gradients)'s REINFORCE s
 
 ### 6. Training it {#training}
 
-§5 updated the model once, on one group. Does repeating that make it better at multiplication, on problems it never trained on? To find out, I trained it for 60 steps, three times from different seeds, and then tested each run on the 200 held-out problems from [§2](#a-checkable-task). I also trained three controls on shuffled rewards, to check whether the gain came from the reward or from running the loop at all.
+[§4](#groups-and-advantages) found where the learning signal comes from, and [§5](#one-update) turned it into one update on one group. This section asks whether repeating that update makes the model better at multiplication on problems it never trained on, and how we'd know the reward was what did it. To find out, I trained it for 60 steps, three times from different seeds, and then tested each run on the 200 held-out problems from [§2](#a-checkable-task). I also trained three controls on shuffled rewards, to check whether the gain came from the reward or from running the loop at all.
+
+It did get better. Test accuracy rose by 18.0 points on average over the three GRPO runs, and every GRPO run gained more than every control. The controls gained too, 6.2 points on average, from rewards that never said which answer was right, and why they did is the question this experiment leaves open.
 
 #### The setup
 
@@ -659,13 +661,13 @@ Training repeats §5 many times, on fresh answers each step. The settings, from 
   sampling                           T = 1.0, at most 24 tokens
 ```
 
-Each step samples eight training questions, eight answers to each, scores them, computes advantages within each group, and takes one gradient step with **AdamW**, the optimizer posts 6 and 7 used, on the LoRA adapters. LoRA is post 6's: rank 8, on all seven projection matrices of every layer. Sixty steps draw 480 questions from a pool of 256, which the receipt's `draws per question` line puts at 1.875 per question on average. Each step draws its eight afresh, so some questions come up more often than others, and some may not come up at all.
+Each step samples eight training questions, eight answers to each, scores them, computes advantages within each group, and takes one gradient step with **AdamW**, the optimizer posts 6 and 7 used, on the LoRA adapters. LoRA is post 6's: rank 8, on all seven projection matrices of every layer. Each step draws eight different questions from all 256, whatever earlier steps drew, so the 60 steps make 480 draws, 1.875 per question on average: some questions come up more than once, and some may not come up at all.
 
 ![A loop diagram of one training step. Eight questions drawn from the 256 go to the policy, a frozen Qwen2.5-0.5B-Instruct with a trainable LoRA adapter (r = 8, on 7 projections), which samples G = 8 answers per question, 64 in all, at T = 1.0 and at most 24 tokens. A reward program scores each answer 1 if it's the right lone integer and 0 otherwise; one example group scores 0, 0, 1, 0, 1, 0, 1, 1 and another all 0. Advantages are computed within each group as (r - mean) / (std + 0.0001), giving minus and plus signs for the first group and zeros for the second. The loss, -(surrogate - β × KL) with β = 0.04 and clip ε = 0.2 (the clip inactive at one inner step), takes the policy's own log-probs of the 64 answers and also takes log-probs from the reference, the same network with the adapter off, which costs no extra memory. An AdamW step at lr 3e-05 updates the LoRA adapter only, and the loop, one inner step per batch, runs 60 times. A green dashed mark between the reward program and the advantages shows where the control shuffles each group's 8 rewards](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/grpo-step-light.png){: .light width="1000" height="543" }
 ![A loop diagram of one training step. Eight questions drawn from the 256 go to the policy, a frozen Qwen2.5-0.5B-Instruct with a trainable LoRA adapter (r = 8, on 7 projections), which samples G = 8 answers per question, 64 in all, at T = 1.0 and at most 24 tokens. A reward program scores each answer 1 if it's the right lone integer and 0 otherwise; one example group scores 0, 0, 1, 0, 1, 0, 1, 1 and another all 0. Advantages are computed within each group as (r - mean) / (std + 0.0001), giving minus and plus signs for the first group and zeros for the second. The loss, -(surrogate - β × KL) with β = 0.04 and clip ε = 0.2 (the clip inactive at one inner step), takes the policy's own log-probs of the 64 answers and also takes log-probs from the reference, the same network with the adapter off, which costs no extra memory. An AdamW step at lr 3e-05 updates the LoRA adapter only, and the loop, one inner step per batch, runs 60 times. A green dashed mark between the reward program and the advantages shows where the control shuffles each group's 8 rewards](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/grpo-step-dark.png){: .dark width="1000" height="543" }
 _One GRPO training step, run 60 times. Only the LoRA adapter trains, and the reference for the KL penalty is the same network with the adapter switched off._
 
-With one inner step per batch the clip never binds, as [§5](#one-update) showed, but the KL term still acts. The reference stays fixed while the policy moves, and the KL-to-ref column below shows how far it gets.
+With one inner step per batch the clip never binds, as [§5](#one-update) showed, but the KL term still pulls toward the fixed reference, and the KL-to-ref column in the training logs below shows how far each run drifts.
 
 #### The control
 
@@ -677,7 +679,56 @@ Take §4's group for 46 × 32, where the four `1472`s scored 1. In one possible 
 ![Two rows of the same eight answers to 46 × 32, in the same order: New York, 1352, 1472, 1452, 1472, 1452, 1472, 1472, with the four 1472s ticked as right. With the real rewards, 0, 0, 1, 0, 1, 0, 1, 1, the four 1472s get an advantage of +0.935 and the other four -0.935. With one example shuffle, 1, 0, 0, 1, 0, 1, 0, 1, New York, both 1452s and the last 1472 get +0.935, and 1352 and the other three 1472s get -0.935. Both rows have four rewards of 1, mean 0.500 and std 0.535, and six of the eight columns are outlined because the shuffle pushes those answers the other way](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/control-shuffle-dark.png){: .dark width="1000" height="478" }
 _A shuffle keeps how many answers score 1, so the advantages are still ±0.935, but it no longer says which answers earned them. Six of the eight answers get pushed the other way._
 
-Whatever the controls gain, they gain without being told which answers were right, so comparing them with the real runs is the best test this demo has of what the reward taught. The control runs from three seeds too, and control N uses the same seed as real run N: the same starting adapters, the same questions and the same first sampled answers, with only the shuffle different, so the six runs are three pairs.
+Whatever the controls gain, they gain without being told which answers were right, so comparing them with the real runs is the best test this demo has of what the reward taught. The control runs from three seeds too, and control N uses the same seed as real run N: the same starting adapters, the same questions and the same first sampled answers, with only the shuffle different, so the six runs are three pairs. After the first update the two models in a pair differ, so from then on they can sample different answers to the same questions. A pair compares two training procedures from the same start, and after step 1 they aren't necessarily training on the same answers.
+
+#### On problems it never trained on
+
+The test that matters is the 200 held-out problems from [§2](#a-checkable-task), the ones the untrained model got 37.5% of right, answered greedily after training, also from [`training`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
+
+<!-- RECEIPT: s5c -->
+```text
+  model                              right  format-valid  change
+  ----------------------------------------------------------------
+  untrained                          37.5%         91.0%
+  GRPO, seed 0                       50.5%         98.0%   +13.0
+  GRPO, seed 1                       59.0%         99.0%   +21.5
+  GRPO, seed 2                       57.0%         98.5%   +19.5
+  control: shuffled rewards, seed 0  47.0%         91.0%    +9.5
+  control: shuffled rewards, seed 1  42.0%         93.5%    +4.5
+  control: shuffled rewards, seed 2  42.0%         93.0%    +4.5
+```
+
+![Paired bar chart of the gain in test accuracy over the untrained model's 37.5%, for three seeds. Seed 0: GRPO +13.0 points (50.5%), control +9.5 (47.0%). Seed 1: GRPO +21.5 (59.0%), control +4.5 (42.0%). Seed 2: GRPO +19.5 (57.0%), control +4.5 (42.0%). Dashed lines at +13.0, the weakest GRPO run, and +9.5, the best control, with the band between them shaded, show that the two ranges don't overlap](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/heldout-accuracy-light.png){: .light width="1000" height="548" }
+![Paired bar chart of the gain in test accuracy over the untrained model's 37.5%, for three seeds. Seed 0: GRPO +13.0 points (50.5%), control +9.5 (47.0%). Seed 1: GRPO +21.5 (59.0%), control +4.5 (42.0%). Seed 2: GRPO +19.5 (57.0%), control +4.5 (42.0%). Dashed lines at +13.0, the weakest GRPO run, and +9.5, the best control, with the band between them shaded, show that the two ranges don't overlap](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/heldout-accuracy-dark.png){: .dark width="1000" height="548" }
+_Gain in greedy accuracy on 200 test problems the model never trained on, over the untrained model's 37.5%. Each GRPO run sits beside the control that shared its seed, and every GRPO run gained more than every control._
+
+All three real runs improved, and nearly stopped writing anything but lone integers, at 98.0% to 99.0% format-valid. Part of that gain may be format alone, and [§7](#what-it-learned) splits it.
+
+#### Did the reward matter?
+
+The controls improved too, though their format barely moved from the untrained model's 91.0%, ending between 91.0% and 93.5%. Summed up by kind of run, also from [`training`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
+
+<!-- RECEIPT: s5d -->
+```text
+  Change in test accuracy over the untrained model, points:
+
+  model                      runs   mean    min    max
+  ------------------------------------------------------
+  GRPO                          3  +18.0  +13.0  +21.5
+  control: shuffled rewards     3   +6.2   +4.5   +9.5
+
+  3 runs each: min to max is a range, not an error bar.
+```
+
+The ranges don't overlap. The weakest real run, seed 0 at +13.0, beat the best control, control 0 at +9.5. So training on rewards that said nothing about which answer was right still gained a few points, and the real reward added more: on average +18.0 against +6.2, a gap of 11.8 points (18.0 minus 6.2), though three seeds can't pin that gap down (below).
+
+How big each part is, three seeds can't pin down. The real runs differ only in their seed, and ended anywhere from 50.5% to 59.0%; the controls spread from 42.0% to 47.0%. With three seeds per kind of run, the ranges say more than an average would. The ordering holds across all six runs, with every real run gaining more than every control, but it would take more seeds to pin down how many points GRPO's reward adds.
+
+#### Why might shuffled rewards still help?
+
+The controls' rewards never said which answer was right, so their gain came from some other part of training: sampling, the KL term, the optimizer, or just nudging the weights at all, and this demo doesn't separate them.
+
+Rewards that carry no information have raised accuracy before: [Spurious Rewards](https://arxiv.org/abs/2506.10947) (Rulin Shao et al., a different group from DeepSeekMath) gave each answer a reward of 1 at random and still saw Qwen2.5-Math-7B gain 21.4 points on MATH-500, a set of 500 competition math problems, against 29.1 with real rewards, while the same rewards did little for Llama and OLMo models. Their explanation runs through PPO's clip, which can't be what happened here: with one inner step per batch the ratio is always 1, and in their own runs set up that way, random rewards "fail to yield consistent performance". [Chen et al.](https://arxiv.org/abs/2512.16912), training the same model with Shao et al.'s settings, found that "disabling clipping often results in improvement" and that "upper clipping bias is not the mechanism". The two papers disagree even about runs without the clip, and neither tells us why these controls gained.
 
 #### During training
 
@@ -757,61 +808,16 @@ Six runs, three real seeds and three controls, each logged every ten steps, from
   length: answer tokens, <|im_end|> included.
 ```
 
-These logs are for watching each run. Each row averages a different draw of questions, so judging whether the model improved takes the fixed held-out test after them. Read the columns one at a time.
+These logs are for watching each run. Each row averages a different draw of questions, which is why the fixed held-out test above is the one that judges whether the model improved. Read the columns one at a time.
 
 ![Three line charts over training steps 10 to 60, for three GRPO runs (solid orange) and three shuffled-reward controls (dashed green), with seeds told apart by marker shape. Mean reward: the GRPO runs end at 0.537, 0.591 and 0.614, and the controls at 0.372, 0.394 and 0.447; control 0 drops to 0.047 at step 30 before recovering. KL to the reference: control 0 peaks at 0.5233 at step 30, ringed, and GRPO seed 0 peaks at 0.5564 at step 50, labelled; by step 60 the controls sit between 0.0860 and 0.1892 and the GRPO runs between 0.2289 and 0.2588. Answer length stays near five tokens for every run except control 0, which reaches 12.40 tokens at step 30](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/training-logs-light.png){: .light width="1000" height="394" }
 ![Three line charts over training steps 10 to 60, for three GRPO runs (solid orange) and three shuffled-reward controls (dashed green), with seeds told apart by marker shape. Mean reward: the GRPO runs end at 0.537, 0.591 and 0.614, and the controls at 0.372, 0.394 and 0.447; control 0 drops to 0.047 at step 30 before recovering. KL to the reference: control 0 peaks at 0.5233 at step 30, ringed, and GRPO seed 0 peaks at 0.5564 at step 50, labelled; by step 60 the controls sit between 0.0860 and 0.1892 and the GRPO runs between 0.2289 and 0.2588. Answer length stays near five tokens for every run except control 0, which reaches 12.40 tokens at step 30](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/training-logs-dark.png){: .dark width="1000" height="394" }
 _The six training runs, logged every ten steps, with each point averaging the ten steps up to it. Control 0 went off course around step 30, ringed in each panel, and by step 60 every control sat closer to the reference than every GRPO run._
 
-- **mean reward** is the true reward of the sampled answers, averaged over ten steps; for a control, it's what its answers would have scored before the shuffle. Each row covers 80 questions drawn at random, some easy and some hard, so it's noisy. For seed 0 it hardly climbs once the log begins, from 0.498 to 0.537 with a dip to 0.456 on the way, while seeds 1 and 2 climb further. All three first rows are already above the 0.326 mean pass rate the untrained model had on these same questions in [§4](#groups-and-advantages), so some of the change may have come early. The log can't show that, though. Its first row averages steps 1 to 10, with no row for step 1 alone, and the 0.326 was estimated separately, from 16 samples per question, rather than logged from the answers these runs sampled. Control 0's first row, 0.436, is above it too, another reason not to lean on that comparison. Controls 1 and 2 end higher than they start. Control 0 went off course: over the ten steps to step 30 its reward averaged 0.047, and it had recovered by step 60.
-- **no-signal groups** is the share of groups whose training rewards were all equal. For the real runs it's between 50.0% and 73.8%: in every ten-step row, half or more of the answers taught nothing, just as §4 predicted. A control shuffles only within each group, so its share is the one its true rewards would give, between 56.2% and 86.2%. The 86.2% is control 0's bad stretch, and with a mean reward of 0.047, nearly all of those groups were all wrong.
+- **mean reward** is the true reward of the sampled answers; for a control, it's what its answers would have scored before the shuffle. Each row covers 80 questions drawn at random, some easy and some hard, so it's noisy. For seed 0 it hardly climbs once the log begins, from 0.498 to 0.537 with a dip to 0.456 on the way, while seeds 1 and 2 climb further. All three first rows are already above the 0.326 mean pass rate the untrained model had on these same questions in [§4](#groups-and-advantages), so some of the change may have come early, but the log can't show it: the first row averages steps 1 to 10, the 0.326 was estimated separately from 16 samples per question, and control 0's first row, 0.436, is above it too. Controls 1 and 2 end higher than they start. Control 0 went off course: over the ten steps to step 30 its reward averaged 0.047, and it had recovered by step 60.
+- **no-signal groups** is the share of groups whose training rewards were all equal. For the real runs it's between 50.0% and 73.8%: in every ten-step row, half or more of the answers taught nothing, just as §4 predicted. For the controls it's between 56.2% and 86.2%. The 86.2% is control 0's bad stretch, and with a mean reward of 0.047, nearly all of those groups were all wrong.
 - **KL to ref** is the per-token KL estimate against the starting model, before each step's update. Every run drifts away from the reference. By step 60 each control sits closer to it than any real run, between 0.0860 and 0.1892 against 0.2289 to 0.2588. Control 0's highest, 0.5233, came in its bad stretch. GRPO seed 0 also spiked, to 0.5564 at step 50, and came back to 0.2401 by step 60.
-- **length** is the answer length in tokens. The real runs stay around five tokens, four digits and `<|im_end|>`, and controls 1 and 2 stay between 4.95 and 5.83. Control 0's answers grew to 12.40 tokens in its bad stretch, then came back to 5.58. The demo doesn't say why. My guess is the length bias Dr. GRPO identifies ([Liu et al., §3.1](https://arxiv.org/abs/2503.20783)), where averaging over each answer's tokens pushes a long answer with a negative advantage down less per token than a short one, but nothing here tests it.
-
-#### On problems it never trained on
-
-The test that matters is the 200 held-out problems from [§2](#a-checkable-task), the ones the untrained model got 37.5% of right, answered greedily after training, also from [`training`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
-
-<!-- RECEIPT: s5c -->
-```text
-  model                              right  format-valid  change
-  ----------------------------------------------------------------
-  untrained                          37.5%         91.0%
-  GRPO, seed 0                       50.5%         98.0%   +13.0
-  GRPO, seed 1                       59.0%         99.0%   +21.5
-  GRPO, seed 2                       57.0%         98.5%   +19.5
-  control: shuffled rewards, seed 0  47.0%         91.0%    +9.5
-  control: shuffled rewards, seed 1  42.0%         93.5%    +4.5
-  control: shuffled rewards, seed 2  42.0%         93.0%    +4.5
-```
-
-![Paired bar chart of the gain in test accuracy over the untrained model's 37.5%, for three seeds. Seed 0: GRPO +13.0 points (50.5%), control +9.5 (47.0%). Seed 1: GRPO +21.5 (59.0%), control +4.5 (42.0%). Seed 2: GRPO +19.5 (57.0%), control +4.5 (42.0%). Dashed lines at +13.0, the weakest GRPO run, and +9.5, the best control, with the band between them shaded, show that the two ranges don't overlap](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/heldout-accuracy-light.png){: .light width="1000" height="548" }
-![Paired bar chart of the gain in test accuracy over the untrained model's 37.5%, for three seeds. Seed 0: GRPO +13.0 points (50.5%), control +9.5 (47.0%). Seed 1: GRPO +21.5 (59.0%), control +4.5 (42.0%). Seed 2: GRPO +19.5 (57.0%), control +4.5 (42.0%). Dashed lines at +13.0, the weakest GRPO run, and +9.5, the best control, with the band between them shaded, show that the two ranges don't overlap](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/heldout-accuracy-dark.png){: .dark width="1000" height="548" }
-_Gain in greedy accuracy on 200 test problems the model never trained on, over the untrained model's 37.5%. Each GRPO run sits beside the control that shared its seed, and every GRPO run gained more than every control._
-
-All three real runs improved, and nearly stopped writing anything but lone integers, at 98.0% to 99.0% format-valid. Part of that gain may be format alone, and [§7](#what-it-learned) splits it.
-
-#### Did the reward matter?
-
-The controls improved too, though their format barely moved from the untrained model's 91.0%, ending between 91.0% and 93.5%. Summed up by kind of run, also from [`training`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py):
-
-<!-- RECEIPT: s5d -->
-```text
-  Change in test accuracy over the untrained model, points:
-
-  model                      runs   mean    min    max
-  ------------------------------------------------------
-  GRPO                          3  +18.0  +13.0  +21.5
-  control: shuffled rewards     3   +6.2   +4.5   +9.5
-
-  3 runs each: min to max is a range, not an error bar.
-```
-
-The ranges don't overlap. The weakest real run, seed 0 at +13.0, beat the best control, control 0 at +9.5. So the loop on its own, with rewards that say nothing about which answer was right, gained a few points, and the real reward added more: on average +18.0 against +6.2, a gap of 11.8 points (18.0 minus 6.2), though three seeds can't pin that gap down (below). Whatever lifted the controls comes from the loop itself, since their rewards carried nothing about which answer earned them.
-
-Rewards that carry no information have raised accuracy before: [Spurious Rewards](https://arxiv.org/abs/2506.10947) (Rulin Shao et al., a different group from DeepSeekMath) gave each answer a reward of 1 at random and still saw Qwen2.5-Math-7B gain 21.4 points on MATH-500, a set of 500 competition math problems, against 29.1 with real rewards, while the same rewards did little for Llama and OLMo models. Their explanation runs through PPO's clip, which can't be what happened here: with one inner step per batch the ratio is always 1, and in their own runs set up that way, random rewards "fail to yield consistent performance". [Chen et al.](https://arxiv.org/abs/2512.16912), training the same model with Shao et al.'s settings, found that "disabling clipping often results in improvement" and that "upper clipping bias is not the mechanism". The two papers disagree even about runs without the clip, and neither tells us why these controls gained.
-
-How big each part is, three seeds can't pin down. The real runs differ only in their seed, and ended anywhere from 50.5% to 59.0%; the controls spread from 42.0% to 47.0%. Three runs give a range, and there's no honest error bar to put on either mean, so the claim this receipt supports is that every real run gained more than every control, and not that GRPO's reward adds a particular number of points.
+- **length** is the answer length in tokens. The real runs stay around five tokens, four digits and `<|im_end|>`, and controls 1 and 2 stay between 4.95 and 5.83. Control 0's answers grew to 12.40 tokens in its bad stretch, then came back to 5.58. My guess, which nothing here tests, is the length bias Dr. GRPO identifies ([Liu et al., §3.1](https://arxiv.org/abs/2503.20783)), where averaging over each answer's tokens pushes a long answer with a negative advantage down less per token than a short one.
 
 #### Why training reward and test accuracy disagree
 
@@ -819,7 +825,7 @@ Seed 0's training reward, which barely moved while its test score rose 13.0 poin
 
 #### What we learned
 
-The six runs support three conclusions. GRPO raised held-out accuracy in every run, from a reward that said only right or wrong and never gave the answer. Every real run gained more than every shuffled control, so which answers the reward marked right mattered, though three seeds can't say by how much. And most groups still taught nothing: in every ten-step row of the real runs' logs, between 50.0% and 73.8% of groups had all eight rewards equal.
+Sixty steps of GRPO raised held-out accuracy in all three runs, from a reward that said only right or wrong and never gave the answer. Training on shuffled rewards raised it too, by less, and every real run gained more than every control, so which answers the reward marked right mattered, though three seeds can't say by how much. And the signal stayed thin throughout: in every ten-step row of the real runs' logs, between 50.0% and 73.8% of groups had all eight rewards equal. Whether the extra right answers came from better arithmetic or from cleaner output is what [§7](#what-it-learned) checks.
 
 ---
 
