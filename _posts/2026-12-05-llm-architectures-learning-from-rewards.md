@@ -70,7 +70,7 @@ cd llm-architectures-refresher
 uv sync && uv run demo08
 ```
 
-The code is in [`demos/d08_rewards.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). There's no RL library in it: the sampling, the reward, the group comparison and the loss are all written out, and the loss itself is one function, [`grpo_objective`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). The adapters are post 6's [`lora.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/lora.py). Every number this post quotes is printed by that program (§2's temperature table by `uv run demo08 --temperature`), and each block of its output, which I call a **receipt**, names the function that printed it.
+The code is in [`demos/d08_rewards.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). There's no RL library in it: the sampling, the reward, the group comparison and the loss are all written out, and the loss itself is one function, [`grpo_objective`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_rewards.py). The adapters are post 6's [`lora.py`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/lora.py). Every number this post quotes is printed by that program (§2's temperature table by `uv run demo08 --temperature`, §8's reward-model example by `uv run demo08 --reward-model`), and each block of its output, which I call a **receipt**, names the function that printed it.
 
 The demo trains six times, and on my Mac the whole run took about an hour by the clock. That's a rough figure rather than a receipt, since the program prints its timings only to its progress output, not to the captured receipts. `uv run demo08 --quick` runs every section at toy size, to check that it works before committing the time.
 
@@ -978,7 +978,7 @@ For this experiment, GRPO made the model more reliable at producing correct prod
 
 In this experiment, deciding whether an answer is correct was easy: a program checks the product and returns a reward of 1 or 0. Most things we want from a language model aren't so easy to verify. Was the reply helpful? Did it follow the user's intent? Was the explanation clear, honest and appropriate? There's no simple function that answers all of these.
 
-This is where **reinforcement learning from human feedback (RLHF)** comes in. Instead of writing a program to score replies, we train a model to predict which replies people would prefer, then use that model's scores as rewards for reinforcement learning. The underlying idea is the loop we've built in this post, with a learned model where our program was. There's no demo for this section; it describes how the best-known recipe fits the pieces above.
+This is where **reinforcement learning from human feedback (RLHF)** comes in. Instead of writing a program to score replies, we train a model to predict which replies people would prefer, then use that model's scores as rewards for reinforcement learning. The underlying idea is the loop we've built in this post, with a learned model where our program was. There's no RLHF training run here: apart from a small worked example of the reward model's loss in Step 2, this section describes how the best-known recipe fits the pieces above.
 
 #### The InstructGPT recipe
 
@@ -986,15 +986,60 @@ This is where **reinforcement learning from human feedback (RLHF)** comes in. In
 
 **Step 1: supervised fine-tuning (SFT).** Human annotators write good replies to a collection of prompts, and the pretrained model is fine-tuned to imitate them. This is the same supervised learning as the earlier posts and [§1](#sequence-log-probability): given a target answer, raise its token log-probs. The result is an instruction-following model that RL starts from.
 
-**Step 2: a reward model from human preferences.** For each prompt, the model writes several candidate replies, and annotators rank them by which they prefer. InstructGPT ranked between 4 and 9 replies per prompt and turned each ranking into every pair it contains, a preferred reply and a less-preferred one: 6 pairs from a ranking of 4, 36 from a ranking of 9. A separate **reward model**, a language model with one number as its output, learns to give the preferred replies higher scores. Unlike our multiplication check, which returns 0 or 1, it produces a learned score.
+**Step 2: a reward model from human preferences.** For each prompt, the model writes several candidate replies, and annotators rank them by which they prefer. InstructGPT ranked between 4 and 9 replies per prompt and turned each ranking into every pair it contains, a preferred reply and a less-preferred one: 6 pairs from a ranking of 4, 36 from a ranking of 9. A separate **reward model**, a language model with one number as its output, learns to give the preferred replies higher scores.
 
-Write $$r_\phi(x, y)$$ for the reward model's score for reply $$y$$ to prompt $$x$$ (InstructGPT's letters for what §3 called $$q$$ and $$o$$), where $$\phi$$ stands for its trainable weights (the paper writes them as $$\theta$$, which this post already uses for the policy); $$y_w$$ and $$y_l$$ for the preferred and less-preferred reply in a pair; and $$\sigma$$ for the sigmoid, which maps the difference between two scores to a value between 0 and 1, read as the probability that $$y_w$$ is the better reply. For each pair, the loss is
+Here's a small example I made up. The prompt is "Explain to a ten-year-old why the sky is blue.", and the model writes four replies:
+
+- **simple**: "Sunlight is a mix of all the colors. Air bounces the blue part around much more than the rest, so blue light reaches your eyes from every part of the sky."
+- **technical**: "It's Rayleigh scattering: air molecules scatter short wavelengths much more strongly than long ones."
+- **vague**: "Great question! The sky is blue because of the way light and air work together. Hope that helps!"
+- **wrong**: "The sky is blue because it reflects the ocean."
+
+Someone ranking them might put simple first, since it's right and pitched at a ten-year-old; then technical, right but over a child's head; then vague, which says nothing false and nothing useful; and wrong last. That ranking holds six pairs, preferred reply first: simple over technical, simple over vague, simple over wrong, technical over vague, technical over wrong, and vague over wrong. For each pair, the reward model should score the first reply higher than the second.
+
+Write $$r_\phi(x, y)$$ for the reward model's score for reply $$y$$ to prompt $$x$$ (InstructGPT's letters for what §3 called $$q$$ and $$o$$), where $$\phi$$ stands for its trainable weights (the paper writes them as $$\theta$$, which this post already uses for the policy); $$y_w$$ and $$y_l$$ for the preferred and less-preferred reply in a pair (in simple over wrong, $$y_w$$ is simple and $$y_l$$ is wrong); and $$\sigma$$ for the sigmoid, which maps the difference between two scores to a value between 0 and 1, read as the probability that $$y_w$$ is the better reply. For each pair, the loss is
 
 $$-\log \sigma\big(r_\phi(x, y_w) - r_\phi(x, y_l)\big)$$
 
-averaged over pairs (§3.5, Equation 1). If the preferred reply already scores much higher, the loss is small. If the two score about the same, it's larger, and if the less-preferred reply scores higher, it's larger still. Training pushes the reward model to reproduce the ordering people gave. InstructGPT used a 6B reward model, even for its largest, 175B policy, because it "saves a lot of compute" and "175B RM training could be unstable and thus was less suitable to be used as the value function during RL".
+averaged over pairs (§3.5, Equation 1). Only the gap between the two scores enters the loss, so a score means nothing on its own: adding the same amount to every reply's score changes no loss.
 
-**Step 3: optimize the policy with PPO.** Now the reward model replaces the multiplication check. The policy writes a reply, the reward model scores it, and PPO uses that score to update the policy. This is where [§3](#policy-gradients) to [§5](#one-update) come together: sampled replies, rewards, advantages, probability ratios and clipped updates.
+To watch the loss at work, [`reward_model_by_hand`](https://github.com/bearbearyu1223/llm-architectures-refresher/blob/main/src/llmrefresher/demos/d08_reward_model.py) trains a toy reward model on the six pairs above, with `uv run demo08 --reward-model`. A real reward model is a network that can score any reply; this one just keeps one score per reply, which is enough to see what the loss does. I started it from scores that get three pairs backwards: it likes the wrong reply best and can't tell technical from vague. Each row is one pair: its gap $$r_\phi(x, y_w) - r_\phi(x, y_l)$$, $$P = \sigma(\text{gap})$$, and the pair's loss.
+
+<!-- RECEIPT: s8a -->
+```text
+  toy reward model: one score per reply, trained 50 gradient steps
+
+  reply      score before  after 50 steps
+  -----------------------------------------
+  simple           0.0000          2.9651
+  technical       -0.5000          0.9119
+  vague           -0.5000         -0.9264
+  wrong            1.0000         -2.9505
+
+  P = sigmoid(gap): how sure the model is the first reply is better
+
+                      -------- before -------  --- after 50 steps ----
+  pair                    gap       P    loss     gap       P    loss
+  ---------------------------------------------------------------------
+  simple > technical   0.5000  0.6225  0.4741  2.0532  0.8863  0.1207
+  simple > vague       0.5000  0.6225  0.4741  3.8915  0.9800  0.0202
+  simple > wrong      -1.0000  0.2689  1.3133  5.9156  0.9973  0.0027
+  technical > vague    0.0000  0.5000  0.6931  1.8383  0.8627  0.1476
+  technical > wrong   -1.5000  0.1824  1.7014  3.8624  0.9794  0.0208
+  vague > wrong       -1.5000  0.1824  1.7014  2.0241  0.8833  0.1241
+  mean loss over pairs, before       1.0596
+  mean loss over pairs, after        0.0727
+```
+
+Before training, the three backwards pairs, with gaps below zero, have the largest losses, up to 1.7014. The tie between technical and vague costs 0.6931, what any pair costs when its two replies score the same, and the two pairs already the right way round cost least. After 50 gradient steps the scores run in the order people gave, every gap is positive, and the mean loss over the six pairs, which is Equation 1's loss for this one prompt, has fallen from 1.0596 to 0.0727. The loss keeps shrinking as the gaps grow, so more steps would only push the scores further apart.
+
+InstructGPT used a 6B reward model, even for its largest, 175B policy, because it "saves a lot of compute" and "175B RM training could be unstable and thus was less suitable to be used as the value function during RL".
+
+**Step 3: optimize the policy with PPO.** Now the reward model replaces the multiplication check. The policy gets a prompt, say "Explain to a ten-year-old why grass is green.", and writes a reply. Nobody needs to rank it: the reward model reads the prompt and the reply and returns one number, the way it scored the four sky replies, and that learned score takes the place of our program's 0 or 1. InstructGPT subtracts a penalty for drifting from the SFT model (the next subsection explains why), and PPO uses the result to update the policy. This is where [§3](#policy-gradients) to [§5](#one-update) come together: sampled replies, rewards, advantages, probability ratios and clipped updates.
+
+![Two panels under the title "The reward model: trained on people's rankings, then used as the reward". Top, 1. Making the reward model (Step 2): an example prompt, "Explain to a ten-year-old why the sky is blue."; the model writes several replies (InstructGPT ranked 4 to 9), here four example replies: simple, air bounces blue light most; technical, Rayleigh scattering; vague, "Great question! …"; and wrong, "it reflects the ocean"; people rank them from best to worst in that order; the ranking becomes 6 pairs, preferred first, from simple > technical to vague > wrong; and a learned reward model r_φ(x, y) gives one score per reply, trained so the first reply in each pair scores higher, with the loss for one pair −log σ(r_φ(x, y_w) − r_φ(x, y_l)). A dashed line labelled the trained reward model leads to the bottom panel. Bottom, 2. Using it to train the policy (Step 3): an example prompt, "Explain to a ten-year-old why grass is green."; the policy π_θ writes a reply y; the learned reward model scores the reply with one number, r_φ(x, y); the score goes to minus a KL penalty to the SFT model, per token, β = 0.02, fed by the frozen SFT model; the result is the reward for a PPO update, whose baseline is a value model initialized from the reward model; and an arrow labelled updated policy returns to the policy.](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/reward-model-light.png){: .light width="1000" height="636" }
+![Two panels under the title "The reward model: trained on people's rankings, then used as the reward". Top, 1. Making the reward model (Step 2): an example prompt, "Explain to a ten-year-old why the sky is blue."; the model writes several replies (InstructGPT ranked 4 to 9), here four example replies: simple, air bounces blue light most; technical, Rayleigh scattering; vague, "Great question! …"; and wrong, "it reflects the ocean"; people rank them from best to worst in that order; the ranking becomes 6 pairs, preferred first, from simple > technical to vague > wrong; and a learned reward model r_φ(x, y) gives one score per reply, trained so the first reply in each pair scores higher, with the loss for one pair −log σ(r_φ(x, y_w) − r_φ(x, y_l)). A dashed line labelled the trained reward model leads to the bottom panel. Bottom, 2. Using it to train the policy (Step 3): an example prompt, "Explain to a ten-year-old why grass is green."; the policy π_θ writes a reply y; the learned reward model scores the reply with one number, r_φ(x, y); the score goes to minus a KL penalty to the SFT model, per token, β = 0.02, fed by the frozen SFT model; the result is the reward for a PPO update, whose baseline is a value model initialized from the reward model; and an arrow labelled updated policy returns to the policy.](/assets/picture/2026-12-05-llm-architectures-learning-from-rewards/reward-model-dark.png){: .dark width="1000" height="636" }
+_How InstructGPT gets its reward model and then uses it. Top: people rank a few replies to one prompt, every pair in the ranking becomes a training example, and the reward model learns to score the preferred reply in each pair higher. Bottom: the policy writes a reply, the reward model scores it, a KL penalty to the SFT model is subtracted, and PPO updates the policy. The prompts and replies are my examples, not InstructGPT's data._
 
 The reward model and the value model aren't the same thing. The reward model scores a finished reply by learned human preference. The **value model**, PPO's learned baseline from [§4](#groups-and-advantages), predicts the reward still to come from a point partway through a reply, which PPO uses to compute advantages. InstructGPT used both, initializing the value model from the reward model. The two choices are separate: GRPO drops the value model, not the learned reward model. DeepSeekMath, which introduced GRPO, trained it against a learned reward model, and this post, like Prover-V1.5 and R1 in [§4](#groups-and-advantages), scores with a program instead, an approach called **RL with verifiable rewards** (RLVR).
 
