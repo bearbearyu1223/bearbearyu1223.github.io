@@ -18,13 +18,15 @@ pin: true
 published: false
 ---
 
+{% include hl-legend.html %}
+
 ## The first post without an answer key
 
 For the first seven posts in this series, whenever I trained a model, I showed it what the right answer looked like. This time, I want to try something different: tell the model only whether its answer is correct, and let it figure out how to improve.
 
 Most of those posts didn't train anything. Posts [1](/posts/llm-architectures-attention-and-rope/) to [5](/posts/llm-architectures-mixture-of-experts/) were about running a model and what that costs: a transformer block taken apart, [keys and values cached](/posts/llm-architectures-kv-cache/), [attention computed in tiles](/posts/llm-architectures-flash-attention/), [weights stored in fewer bits](/posts/llm-architectures-quantization/), and a model that runs only some of its parameters for each token. [Post 6](/posts/llm-architectures-lora/) and [post 7](/posts/llm-architectures-multimodal/) did train something, a small adapter beside a frozen model and a small connector that joins a frozen image encoder to a frozen language model, and both trained it the same way. Every example came with a target: a fact for post 6, and for post 7 a caption like `a red square` or the answer `three` to "How many shapes are there?". The loss measured how far the model's next token was from it. That's **supervised learning**: learning from target outputs someone wrote down.
 
-For a lot of tasks, though, it's easier to check an answer than to write down the one right way to reach it. A program can tell whether a product came out right, whether code passes its tests, or whether a meeting ended up on the calendar, without anyone demonstrating the steps. **Reinforcement learning** (RL) learns from that kind of check. The model acts, gets a score for the outcome, and training pushes it toward whatever scored well, with no target to copy.
+For a lot of tasks, though, it's easier to check an answer than to write down the one right way to reach it. A program can tell whether a product came out right, whether code passes its tests, or whether a meeting ended up on the calendar, without anyone demonstrating the steps. <mark class="hl hl-takeaway" id="hl-b42152" markdown="span">**Reinforcement learning** (RL) learns from that kind of check. The model acts, gets a score for the outcome, and training pushes it toward whatever scored well, with no target to copy.</mark>
 
 This post builds one version of that loop by hand, on a laptop, with a task small enough to watch: two-digit multiplication. The model writes several answers to each question, a program scores each one 1 if it's right and 0 if it isn't, and the model is pushed toward the answers that beat its other tries. I also train it three times, each from a different random **seed** (the number that sets a run's starting adapter weights and the answers it samples), and three more times with each question's rewards shuffled among its answers, because seeing accuracy go up isn't enough. I want to know whether the model is actually learning from the reward.
 
