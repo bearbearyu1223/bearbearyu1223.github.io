@@ -337,7 +337,33 @@ This is the update from one answer. In training it's averaged over many: [§4](#
 
 $$\nabla_\theta\, \mathbb{E}_{o \sim \pi_\theta}[\,r\,] = \mathbb{E}_{o \sim \pi_\theta}\big[\,r\,\nabla_\theta \log \pi_\theta(o \mid q)\,\big]$$
 
-It follows from the derivative of the log, $$\nabla_\theta \pi_\theta = \pi_\theta\,\nabla_\theta \log \pi_\theta$$. On the left is the direction that raises the average reward, which we can't compute directly. On the right is the average of something we can compute for one sampled answer: its reward times the gradient of its log-prob. The reward never needs a gradient of its own. The gradient comes from the model's log-prob, and the verifier only supplies the weight.
+To see where it comes from, start on the left and write $$r(o)$$ for the reward of answer $$o$$.
+
+1. **Write the average as a sum.** The average reward adds up the reward of every answer the model could write, each weighted by its probability:
+
+   $$\mathbb{E}_{o \sim \pi_\theta}[\,r\,] = \sum_o \pi_\theta(o \mid q)\, r(o)$$
+
+2. **Take the gradient inside the sum.** The reward doesn't depend on $$\theta$$, since the verifier only checks the answer, so the gradient touches only the probabilities:
+
+   $$\nabla_\theta\, \mathbb{E}_{o \sim \pi_\theta}[\,r\,] = \sum_o r(o)\, \nabla_\theta \pi_\theta(o \mid q)$$
+
+   This is the line we can't compute: it needs every answer the model could possibly write.
+
+3. **Use the derivative of the log.** The derivative of a log is the derivative of the value divided by the value, $$\nabla_\theta \log \pi_\theta = \nabla_\theta \pi_\theta \,/\, \pi_\theta$$. Multiplying both sides by $$\pi_\theta$$ gives
+
+   $$\nabla_\theta \pi_\theta(o \mid q) = \pi_\theta(o \mid q)\,\nabla_\theta \log \pi_\theta(o \mid q)$$
+
+4. **Substitute.** Putting that in place of $$\nabla_\theta \pi_\theta$$ in step 2 brings the probability back into the sum:
+
+   $$\nabla_\theta\, \mathbb{E}_{o \sim \pi_\theta}[\,r\,] = \sum_o \pi_\theta(o \mid q)\, r(o)\, \nabla_\theta \log \pi_\theta(o \mid q)$$
+
+5. **Read it as an average again.** Each term is weighted by its probability, as in step 1, so the sum is an average over the answers the policy writes. That's the right side of the identity:
+
+   $$\sum_o \pi_\theta(o \mid q)\, r(o)\, \nabla_\theta \log \pi_\theta(o \mid q) = \mathbb{E}_{o \sim \pi_\theta}\big[\,r\,\nabla_\theta \log \pi_\theta(o \mid q)\,\big]$$
+
+   An average can be estimated by sampling answers and averaging them, with no need to list every possible one, and that's what training does with its 64 answers per step.
+
+On the left is the direction that raises the average reward, which step 2 showed we can't compute directly. On the right is the average of something we can compute for one sampled answer: its reward times the gradient of its log-prob. The reward never needs a gradient of its own. The gradient comes from the model's log-prob, and the verifier only supplies the weight. The baseline argument below uses steps 2 to 5 in reverse.
 
 **What Williams proved, and what he didn't.** His Theorem 1 says that, on average over the answers the policy might write, this update is $$\alpha$$ times the gradient of the expected reward. So each update is a noisy estimate of the direction that raises the average score, and in his words, $$(r - b)\,\nabla_\theta \log \pi_\theta$$ "represents an unbiased estimate". Only the average is promised; a single update can still point the wrong way. The condition is that the baseline is "conditionally independent of" the action, which is why $$b$$ mustn't depend on which answer was written. When it doesn't, its part of the update averages to zero, because the probabilities of all the possible answers always add up to 1:
 
