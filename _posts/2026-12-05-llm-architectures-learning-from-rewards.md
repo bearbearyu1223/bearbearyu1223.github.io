@@ -15,7 +15,7 @@ description: >-
   a program.
 math: true
 pin: true
-published: false
+published: true
 ---
 
 {% include hl-legend.html %}
