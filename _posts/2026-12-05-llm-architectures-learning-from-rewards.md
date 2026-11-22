@@ -319,7 +319,7 @@ The update that comes out is due to [Williams (1992)](https://link.springer.com/
 
 $$\Delta\theta = \alpha\,(r - b)\,\nabla_\theta \log \pi_\theta(o \mid q)$$
 
-Read it right to left, one piece at a time.
+This is the update from one answer. In training it's averaged over many: [§4](#groups-and-advantages) samples eight answers per question and [§6](#training) uses eight questions per step, so each step averages 64 of these. Read it right to left, one piece at a time.
 
 1. $$\nabla_\theta \log \pi_\theta(o \mid q)$$ says what to change. It's exactly the direction SFT would step in if someone had handed it $$o$$ as the answer: the direction that makes $$o$$ more likely. The difference from SFT is that the model wrote $$o$$ itself.
 
@@ -327,7 +327,7 @@ Read it right to left, one piece at a time.
 
    $$\Delta\theta = \frac{\alpha}{\lvert o^* \rvert}\,\nabla_\theta \log \pi_\theta(o^* \mid q)$$
 
-   Set beside REINFORCE, $$o^*$$ takes the place of $$o$$ and there's no $$r - b$$, so every target answer is made more likely. Dividing by $$\lvert o^* \rvert$$ only shrinks the step without changing its direction.
+   Set beside REINFORCE, $$o^*$$ takes the place of $$o$$ and there's no $$r - b$$, so every target answer is made more likely. For one answer, dividing by $$\lvert o^* \rvert$$ only shrinks the step. Across a batch it also gives each token of a short answer more weight than each token of a long one.
 2. $$r - b$$ says which way to step, and how far. This difference, how much better the answer did than expected, is called its **advantage**. An answer that scored above the baseline has a positive advantage and is made more likely, in proportion to how far above; an answer below it has a negative advantage and is made less likely.
 3. $$\alpha$$ sets the size of the step.
 
