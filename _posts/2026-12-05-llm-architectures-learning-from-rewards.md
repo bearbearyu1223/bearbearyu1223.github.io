@@ -322,6 +322,12 @@ $$\Delta\theta = \alpha\,(r - b)\,\nabla_\theta \log \pi_\theta(o \mid q)$$
 Read it right to left, one piece at a time.
 
 1. $$\nabla_\theta \log \pi_\theta(o \mid q)$$ says what to change. It's exactly the direction SFT would step in if someone had handed it $$o$$ as the answer: the direction that makes $$o$$ more likely. The difference from SFT is that the model wrote $$o$$ itself.
+
+   Here's SFT's update in the same notation. Call the answer someone wrote $$o^*$$ (`1081` in [§1](#sequence-log-probability)) and its number of tokens $$\lvert o^* \rvert$$ (five there, the end-of-turn token included). SFT's loss is §1's cross-entropy, the mean of the negative token log-probs, which is the sequence log-prob turned around and divided by the token count: $$-\log \pi_\theta(o^* \mid q) \,/\, \lvert o^* \rvert$$. Training lowers a loss by stepping against its gradient, so SFT's update is
+
+   $$\Delta\theta = \frac{\alpha}{\lvert o^* \rvert}\,\nabla_\theta \log \pi_\theta(o^* \mid q)$$
+
+   Set beside REINFORCE, $$o^*$$ takes the place of $$o$$ and there's no $$r - b$$, so every target answer is made more likely. Dividing by $$\lvert o^* \rvert$$ only shrinks the step without changing its direction.
 2. $$r - b$$ says which way to step, and how far. This difference, how much better the answer did than expected, is called its **advantage**. An answer that scored above the baseline has a positive advantage and is made more likely, in proportion to how far above; an answer below it has a negative advantage and is made less likely.
 3. $$\alpha$$ sets the size of the step.
 
